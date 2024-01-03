@@ -5,9 +5,14 @@ const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config()
 const path = require('path');
 const fetch = require('node-fetch')
+const request = require('request');
 
 const app = express();
 const port = process.env.PORT
+app.use(express.static('public'));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+//app.use(express.json())
 
 // Initialize Twilio client
 const twilioClient = new twilio(process.env.TWILIO_TOKEN1, process.env.TWILIO_TOKEN2);
@@ -31,25 +36,32 @@ async function getWeatherData(city) {
 
 app.set("view engine", "ejs");
 
-app.use(express.static(__dirname ));
+app.use(express.static(__dirname + "/public"));
 
-app.get("/", (req, res) => {
-  res.render("index");
-});
-app.get("/weather", async (req, res) => {
-  const city = req.query.city;
-  try {
-    const weatherData = await getWeatherData(city);
-    console.log(weatherData)
-    res.render("index", { weather: weatherData });
-  } catch (error) {
-    console.log(error)
-    res.status(500).send("Error fetching weather data.");
-  }
-});
+app.get('/', function (req, res) {
+  res.render('index', {weather: null, error: null});
+})
+app.post('/', async function (req, res) {
+  const apiKey = process.env.OPENWEATHER_API_KEY
+  console.log(req.body)
+  let city = await req.body.city;
+  let url = `http://api.openweathermap.org/data/2.5/weather?q=${city}&units=imperial&appid=${apiKey}`
 
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.json())
+  request(url, function (err, response, body) {
+    if(err){
+      res.render('index', {weather: null, error: 'Error, please try again'});
+    } else {
+      let weather = JSON.parse(body)
+      if(weather.main == undefined){
+        res.render('index', {weather: null, error: 'Error, please try again'});
+      } else {
+        let weatherText = `It's ${weather.main.temp} degrees in ${weather.name}!`;
+        res.render('index', {weather: weatherText, error: null});
+      }
+    }
+  });
+})
+
 app.post('/gpt3', async (req, res) => {
   const userMessage = req.body.userPrompt;
   
