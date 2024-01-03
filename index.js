@@ -17,7 +17,7 @@ const openai = new OpenAI({apiKey:process.env.OPENAI_API_KEY});
 
 // Function to fetch weather data
 async function getWeatherData(city) {
-  const apiKey = "b4316d96b76dc319de1c762d2e8af50c"
+  const apiKey = process.env.OPENWEATHER_API_KEY
   const weatherURL = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&APPID=${apiKey}`;
   try {
     const response = await fetch(weatherURL);
