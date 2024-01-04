@@ -6,6 +6,10 @@ async function sendPrompt() {
         postURL = '/gpt4'
     } else if (selectedModel === 'dall-e-2') {
         postURL = '/dalle2'
+    }else if (selectedModel === 'gpt-3.5-turbo-instruct') {
+        postURL = '/instruct'
+    }else if (selectedModel === 'recipe') {
+        postURL = '/recipe'
     }
     console.log(postURL)
     try {
@@ -22,6 +26,7 @@ async function sendPrompt() {
         localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
 
         document.getElementById('response').innerText = data;
+        document.getElementById('userPrompt').value = '';
         displayConversationHistory()
     } catch (error) {
         console.error('Error:', error);
@@ -38,7 +43,7 @@ function updateCharacterCount() {
     charCountSpan.textContent = textarea.value.length;
 }
 
-function getSelectedModel() {
+function getSelectedModel() {   
     const radios = document.getElementsByName('model');
     let selectedModel = '';
     radios.forEach((radio) => {
@@ -60,17 +65,35 @@ function displayConversationHistory() {
     conversationHistory.forEach(item => {
         const conversationItem = document.createElement('div');
         conversationItem.className = "conversation-item"; // Add this line
-        conversationItem.innerHTML = `
-        <div><strong>User:</strong> ${item.user}</div>
-        <div><strong>Bot:</strong> ${item.bot}</div>`;
+
+        // Create separate elements for user and bot messages
+        const userMessage = document.createElement('div');
+        userMessage.innerHTML = `<strong>User:</strong> ${item.user}`;
+
+        const botMessage = document.createElement('div');
+        botMessage.innerHTML = `<strong>Bot:</strong> ${item.bot}`;
+
+        // Append user and bot messages to conversation item
+        conversationItem.appendChild(userMessage);
+        conversationItem.appendChild(botMessage);
+
+        // Append conversation item to historyDiv
         historyDiv.appendChild(conversationItem);
-        console.log(conversationItem.innerHTML)
-        });
+    });
 
     // Scroll to the bottom after updating conversation history
-    historyDiv.scrollTop = historyDiv.scrollHeight;
+    window.scrollTo(0, document.body.scrollHeight)
 }
 
+function clearConversationHistory() {
+    localStorage.removeItem('conversationHistory');
+    const historyDiv = document.getElementById('history');
+    historyDiv.innerHTML = ''; // Clear the displayed history on the page
+}
+function clearConversation() {
+    clearConversationHistory(); // Call the function to clear history
+    displayConversationHistory(); // Refresh the displayed history on the page
+}
 window.onload = function() {
     displayConversationHistory(); // Display conversation history on page load
 }

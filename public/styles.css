@@ -8,19 +8,22 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100vh;
+   
 }
 .container {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100vh;
-    width:80%
+        width:80%
+    
 }
+
 #userPrompt {
+    align-self: center;
+    align-items: center;
     width: 80%;
-    height: 120px; 
+    height: 200px; 
     padding: 10px;
     margin-bottom: 20px;
     border: 2px solid #ffffff;
@@ -31,16 +34,23 @@ body {
     resize: none;
     font-family: 'Roboto', sans-serif;
 }
+#userPrompt-container{
+    width: 80%;
+    padding-left: 25%;
+    align-content: flex-end;
+    flex-direction: row;
+}
 
 .radio-container {
     display: flex;
-    flex-direction: row;
-    justify-content: flex-start;
+    flex-direction: column;
+    width: 50%;
     margin-right: 20px;
+    margin-top: 4.5%;
 }
 .radio-container label {
     position: relative;
-    padding-left: 25px; /* Space for the square */
+  
     cursor: pointer;
     font-size: 14px; /* Adjust font size for labels */
     line-height: 1.5;
@@ -69,37 +79,47 @@ div {
 }
 
 button {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 5px;
-    background-color: #1db954;
-    color: #ffffff;
+    padding: 12px 24px; /* Adjust padding */
+    border: 2px solid #1db954; /* Add border */
+    border-radius: 5px; /* Increase border-radius for a rounded look */
+    background-color: transparent; /* Transparent background */
+    color: #1db954; /* Button text color */
     font-size: 16px;
     cursor: pointer;
-    transition: background-color 0.3s ease;
+    transition: all 0.3s ease;
     font-family: 'Roboto', sans-serif; /* Futuristic font */
+    margin: 8px; /* Add margin for spacing */
+    
 }
+
 
 button:hover {
-    background-color: #1c793e; /* Darker color on hover */
-    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1); /* Add shadow on hover */
-    transform: translateY(1px); /* Add subtle lift on hover */
+    background-color: #1db954; /* Background color on hover */
+    color: #ffffff; /* Text color on hover */
+    box-shadow: 0px 4px 8px rgba(29, 185, 84, 0.3); /* Add shadow on hover */
+    transform: translateY(-2px); /* Add lift effect on hover */
+}
+button:active {
+    transform: translateY(1px); /* Add a slight downward shift on click */
+    box-shadow: none; /* Remove box shadow on click */
 }
 
-.conversation-history, .conversation-item {
+.conversation-item {
+    padding: 0; /* Remove padding */
+    border: none; /* Remove border */
+    margin-bottom: 10px; /* Adjust spacing between conversation items */
+}
+
+#history {
     width: 80%; /* Make it as wide as the page */
-    max-height: 300px; /* Adjust max height as needed */
+    align-items: center;
     background-color: #283040;
-    padding: 20px;
-    overflow-y: scroll; /* Enable vertical scrollbar */
+    padding: 10px; /* Add some padding */
+    overflow-y: hidden; /* Enable vertical scrollbar */
     overflow-x: hidden; /* Disable horizontal scrollbar */
-    display: flex;
-    flex-direction: column; /* Now each conversation item will be stacked vertically */
     color: #ffffff; /* Text color */
     border: 2px solid #ffffff;
-    }
-    .conversation-item > div {
-        /* ... other styles ... */
-        display: flex;
-        flex-direction: column;
-        }
+}
+.conversation-history{
+    align-items:center ;
+}

@@ -54,7 +54,7 @@ async function gPT4generateResponse(userMessage) {
       model: 'gpt-4',
       temperature: 0.7,
       messages:[
-        {"role":"system", "content": "You are a helpful assistant, when asked if you are running on openai model gpt-4 you will respond with a yes."},
+        {"role":"system", "content": "You are a helpful javascript assistant. When given code you will refactor according to instructions."},
       {"role":"user", "content": userMessage}],
       max_tokens:1000
        // Adjust this as needed for desired response length
@@ -84,6 +84,37 @@ async function dallegenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
+async function recipeGenerateResponse(userMessage) {
+  try {
+    const completion = await openai.completions.create({
+      model: 'gpt-3.5-turbo-instruct',
+      temperature: 0.7,
+      prompt:`create a detailed recipe with only the following ingredients: ${userMessage}. Start off with 'recipe name', 'ingredients list' and 'step-by-step procedure for cooking`,
+      max_tokens:1000
+    });
+    
+    return completion.choices[0].text.trim();
+  } catch (error) {
+    console.error('Error generating GPT-3 response:', error);
+    throw new Error('Error generating response');
+  }
+}
+async function instructGenerateResponse(userMessage) {
+  try {
+    const completion = await openai.completions.create({
+      model: 'gpt-3.5-turbo-instruct',
+      temperature: 0.7,
+      prompt:userMessage,
+      max_tokens:1400
+    });
+    
+    return completion.choices[0].text.trim();
+  } catch (error) {
+    console.error('Error generating GPT-3 response:', error);
+    throw new Error('Error generating response');
+  }
+}
+
 // Function to send a message via Twilio
 async function sendMessage(to, message) {
   try {
@@ -151,6 +182,30 @@ app.post('/dalle2', async (req, res) => {
     res.status(500).send('Error processing message');
   }
 });
+app.post('/instruct',async (req, res) => {
+  const userMessage = req.body.userPrompt;
+  console.log(userMessage)
+  try {
+    const response = await instructGenerateResponse(userMessage);
+    
+  res.send(response);
+} catch (error) {
+  console.error('Error:', error);
+  res.status(500).send('Error processing message');
+}
+})
+app.post('/recipe',async (req, res) => {
+  const userMessage = req.body.userPrompt;
+  console.log(userMessage)
+  try {
+    const response = await recipeGenerateResponse(userMessage);
+    
+  res.send(response);
+} catch (error) {
+  console.error('Error:', error);
+  res.status(500).send('Error processing message');
+}
+})
 app.post('/whatsapp', async (req, res) => {
 
   const userMessage = req.body.Body
@@ -177,12 +232,9 @@ if (userMessage.startsWith("Weather")){
       res.status(404).send(`${city} city not found!`)
     }
     else{
-    const weather = {
-      forecast: forecast.weather[0].description,
-      temp:forecast.main.temp,
-      max:forecast.main.temp_max,
-      min:forecast.main.temp_min
-    }
+    const weather = `forecast: ${forecast.weather[0].description}\ntemperature:${forecast.main.temp}\nmax:${forecast.main.temp_max}\nmin:${forecast.main.temp_min}`
+    
+    console.log(forecast)
     // Send the response back to the user via Twilio
     await sendMessage(req.body.From, weather);
   
