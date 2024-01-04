@@ -1,5 +1,5 @@
 const express = require('express');
-//const bodyParser = require('body-parser');
+const bodyParser = require('body-parser');
 const twilio = require('twilio');
 const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config()
@@ -10,7 +10,7 @@ const app = express();
 const port = process.env.PORT
 app.use(express.json())
 app.use(express.static(path.join(__dirname, 'public')));
-//app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Initialize Twilio client
 const twilioClient = new twilio(process.env.TWILIO_TOKEN1, process.env.TWILIO_TOKEN2);
