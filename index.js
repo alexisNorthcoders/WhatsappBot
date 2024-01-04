@@ -1,18 +1,16 @@
 const express = require('express');
-const bodyParser = require('body-parser');
+//const bodyParser = require('body-parser');
 const twilio = require('twilio');
 const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config()
-const path = require('path');
 const fetch = require('node-fetch')
-const request = require('request');
+const path = require('path')
 
 const app = express();
 const port = process.env.PORT
-app.use(express.static('public'));
-app.use(bodyParser.urlencoded({ extended: true }));
-
-//app.use(express.json())
+app.use(express.json())
+app.use(express.static(path.join(__dirname, 'public')));
+//app.use(bodyParser.urlencoded({ extended: true }));
 
 // Initialize Twilio client
 const twilioClient = new twilio(process.env.TWILIO_TOKEN1, process.env.TWILIO_TOKEN2);
@@ -33,53 +31,6 @@ async function getWeatherData(city) {
     throw error;
   }
 }
-
-app.set("view engine", "ejs");
-
-app.use(express.static(__dirname + "/public"));
-
-app.get('/', function (req, res) {
-  res.render('index', {weather: null, error: null});
-})
-app.post('/', async function (req, res) {
-  const apiKey = process.env.OPENWEATHER_API_KEY
-  console.log(req.body)
-  let city = await req.body.city;
-  let url = `http://api.openweathermap.org/data/2.5/weather?q=${city}&units=imperial&appid=${apiKey}`
-
-  request(url, function (err, response, body) {
-    if(err){
-      res.render('index', {weather: null, error: 'Error, please try again'});
-    } else {
-      let weather = JSON.parse(body)
-      if(weather.main == undefined){
-        res.render('index', {weather: null, error: 'Error, please try again'});
-      } else {
-        let weatherText = `It's ${weather.main.temp} degrees in ${weather.name}!`;
-        res.render('index', {weather: weatherText, error: null});
-      }
-    }
-  });
-})
-
-app.post('/gpt3', async (req, res) => {
-  const userMessage = req.body.userPrompt;
-  
-  
-  try {
-    // Process the user's message using ChatGPT
-    const response = await gPT3generateResponse(userMessage);
-    
-    // Send the response back to the user via Twilio
-    await sendMessage(req.body.From, response);
-
-    res.send(response);
-  } catch (error) {
-    console.error('Error:', error);
-    res.status(500).send('Error processing message');
-  }
-});
-
 // Function to generate a response from ChatGPT
 async function gPT3generateResponse(userMessage) {
   try {
@@ -101,7 +52,10 @@ async function gPT4generateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4',
-      messages:[{"role":"user", "content": userMessage}],
+      temperature: 0.7,
+      messages:[
+        {"role":"system", "content": "You are a helpful assistant, when asked if you are running on openai model gpt-4 you will respond with a yes."},
+      {"role":"user", "content": userMessage}],
       max_tokens:1000
        // Adjust this as needed for desired response length
     });
@@ -130,7 +84,6 @@ async function dallegenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-
 // Function to send a message via Twilio
 async function sendMessage(to, message) {
   try {
@@ -145,6 +98,59 @@ async function sendMessage(to, message) {
   }
 }
 
+app.post('/weather', async function (req, res) {
+  
+  let city = await req.body.city.trim();
+  console.log(city)
+  const forecast = await getWeatherData(city)
+  if (JSON.stringify(forecast).includes("not found")){
+    res.status(404).send(`${city} city not found!`)
+  }
+  else{
+  res.send({forecast: forecast.weather[0].description,
+    temp:forecast.main.temp,
+  max:forecast.main.temp_max,
+min:forecast.main.temp_min
+})}})
+app.post('/gpt3', async (req, res) => {
+  const userMessage = req.body.userPrompt;
+  
+    try {
+    
+    const response = await gPT3generateResponse(userMessage);
+      
+    res.send(response);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('Error processing message');
+  }
+});
+app.post('/gpt4', async (req, res) => {
+  const userMessage = req.body.userPrompt;
+  
+    try {
+    
+    const response = await gPT4generateResponse(userMessage);
+      
+    res.send(response);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('Error processing message');
+  }
+});
+app.post('/dalle2', async (req, res) => {
+  const userMessage = req.body.userPrompt;
+  
+    try {
+    
+    const response = await dallegenerateResponse(userMessage);
+      
+    res.send(response);
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('Error processing message');
+  }
+});
 app.post('/whatsapp', async (req, res) => {
 
   const userMessage = req.body.Body
@@ -162,15 +168,25 @@ catch (error) {
   res.status(500).send('Error processing message');
 }}
 if (userMessage.startsWith("Weather")){
-  const prompt = userMessage.replace("Weather","")
+  const prompt = userMessage.replace("Weather ","")
   try {
     // Process the user's message using ChatGPT
-    const response = await getWeatherData(prompt);
+    const forecast = await getWeatherData(prompt)
     
+    if (JSON.stringify(forecast).includes("not found")){
+      res.status(404).send(`${city} city not found!`)
+    }
+    else{
+    const weather = {
+      forecast: forecast.weather[0].description,
+      temp:forecast.main.temp,
+      max:forecast.main.temp_max,
+      min:forecast.main.temp_min
+    }
     // Send the response back to the user via Twilio
-    await sendMessage(req.body.From, response);
+    await sendMessage(req.body.From, weather);
   
-    res.send(response);
+    res.send(weather)}
   } catch (error) {
     console.error('Error:', error);
     res.status(500).send('Error processing message');
@@ -203,9 +219,10 @@ if (userMessage.startsWith("Gpt4")){
     console.error('Error:', error);
     res.status(500).send('Error processing message');
   }}
-  
-  
 });
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '/index.html'));
+})
 
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);

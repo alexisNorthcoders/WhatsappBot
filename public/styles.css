@@ -1,0 +1,105 @@
+body {
+    font-family: 'Roboto', sans-serif; 
+    background-color: #0e141f;
+    color: #ffffff;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    width:80%
+}
+#userPrompt {
+    width: 80%;
+    height: 120px; 
+    padding: 10px;
+    margin-bottom: 20px;
+    border: 2px solid #ffffff;
+    border-radius: 5px;
+    font-size: 16px;
+    background-color: #283040;
+    color: #ffffff;
+    resize: none;
+    font-family: 'Roboto', sans-serif;
+}
+
+.radio-container {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    margin-right: 20px;
+}
+.radio-container label {
+    position: relative;
+    padding-left: 25px; /* Space for the square */
+    cursor: pointer;
+    font-size: 14px; /* Adjust font size for labels */
+    line-height: 1.5;
+    color: #ffffff;
+}
+
+div {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+
+#response {
+    width: 80%; /* Adjust width as needed */
+    padding: 20px;
+    background-color: #283040;
+    border-radius: 5px;
+    display: block;
+    text-align: justify; 
+    margin-top: 20px;
+    font-family: 'Roboto', sans-serif;
+    line-height: 1.4; 
+}
+
+button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    background-color: #1db954;
+    color: #ffffff;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+    font-family: 'Roboto', sans-serif; /* Futuristic font */
+}
+
+button:hover {
+    background-color: #1c793e; /* Darker color on hover */
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1); /* Add shadow on hover */
+    transform: translateY(1px); /* Add subtle lift on hover */
+}
+
+.conversation-history, .conversation-item {
+    width: 80%; /* Make it as wide as the page */
+    max-height: 300px; /* Adjust max height as needed */
+    background-color: #283040;
+    padding: 20px;
+    overflow-y: scroll; /* Enable vertical scrollbar */
+    overflow-x: hidden; /* Disable horizontal scrollbar */
+    display: flex;
+    flex-direction: column; /* Now each conversation item will be stacked vertically */
+    color: #ffffff; /* Text color */
+    border: 2px solid #ffffff;
+    }
+    .conversation-item > div {
+        /* ... other styles ... */
+        display: flex;
+        flex-direction: column;
+        }
