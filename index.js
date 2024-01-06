@@ -10,7 +10,13 @@ const qrcode = require('qrcode-terminal');
 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
-const client = new Client({ authStrategy: new LocalAuth() });
+const client = new Client(
+
+  {
+    puppeteer: {
+      args: ['--no-sandbox'],
+    }, authStrategy: new LocalAuth()
+  });
 const app = express();
 const port = process.env.PORT;
 app.use(express.json());
@@ -50,16 +56,16 @@ client.on('message', async message => {
     }
     else if (message.body.startsWith("Recipe")) {
       const prompt = message.body.replace("Recipe ", "");
-      const response = await recipeGenerateResponse(prompt)
+      const response = await recipeGenerateResponse(prompt);
       client.sendMessage(message.from, response);
     }
     else if (message.body.startsWith("Weather")) {
       const prompt = message.body.replace("Weather ", "");
-      const forecast = await getWeatherData(prompt)
+      const forecast = await getWeatherData(prompt);
       if (JSON.stringify(forecast).includes("not found")) {
         client.sendMessage(message.from, `${city} city not found!`);
       }
-      else{
+      else {
         const weather = `forecast: ${forecast.weather[0].description}\ntemperature:${forecast.main.temp}\nmax:${forecast.main.temp_max}\nmin:${forecast.main.temp_min}`;
         client.sendMessage(message.from, weather);
       }
@@ -74,11 +80,11 @@ client.on('message', async message => {
       const media = await MessageMedia.fromUrl(response);
       client.sendMessage(message.from, media);
     }
-    else if (message.body.startsWith("Help")){
-      client.sendMessage(message.from, "Try any of my commands: \nWizard \nGpt3 \nDalle\nRecipe \nWeather")
+    else if (message.body.startsWith("Help")) {
+      client.sendMessage(message.from, "Try any of my commands: \nWizard \nGpt3 \nDalle\nRecipe \nWeather");
     }
-    else{ 
-      const prompt = message.body
+    else {
+      const prompt = message.body;
       const response = await assistantgenerateResponse(prompt);
       client.sendMessage(message.from, response);
     }
@@ -110,7 +116,7 @@ async function assistantgenerateResponse(userMessage) {
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo-1106',
       messages: [
-        {"role": "system","content":"You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, send random pictures of Daniel, tell jokes and so on."},
+        { "role": "system", "content": "You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, send random pictures of Daniel, tell jokes and so on." },
         { "role": "user", "content": userMessage }],
       max_tokens: 1000
       // Adjust this as needed for desired response length
@@ -209,8 +215,8 @@ async function gPT3WizardgenerateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo-1106',
-      messages: [{"role":"system","content":"You are a wizard. You speak like an eclectic wizard and in riddles. If someone asks your name is Isildor The Great. You always finish your conversation in a form of a wise advice."},
-        { "role": "user", "content": userMessage }],
+      messages: [{ "role": "system", "content": "You are a wizard. You speak like an eclectic wizard and in riddles. If someone asks your name is Isildor The Great. You always finish your conversation in a form of a wise advice." },
+      { "role": "user", "content": userMessage }],
       max_tokens: 1000
       // Adjust this as needed for desired response length
     });
@@ -331,7 +337,7 @@ app.post('/whatsapp?:number', async (req, res) => {
         const weather = `forecast: ${forecast.weather[0].description}\ntemperature:${forecast.main.temp}\nmax:${forecast.main.temp_max}\nmin:${forecast.main.temp_min}`;
 
         console.log(forecast);
-       
+
         await client.sendMessage(`${number}@c.us`, weather);
 
         res.send(weather);
