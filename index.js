@@ -1,6 +1,5 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const twilio = require('twilio');
 const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config();
 const fetch = require('node-fetch');
@@ -19,6 +18,7 @@ const client = new Client(
   });
 const app = express();
 const port = process.env.PORT;
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -148,7 +148,7 @@ async function gPT3generateResponse(userMessage) {
 async function gPT4generateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4',
+      model: 'gpt-4-1106-preview',
       temperature: 0.7,
       messages: [
         { "role": "system", "content": "You are a helpful javascript assistant. When given code you will refactor according to instructions." },
@@ -167,10 +167,11 @@ async function gPT4generateResponse(userMessage) {
 async function dallegenerateResponse(userMessage) {
   try {
     const response = await openai.images.generate({
-      model: "dall-e-2",
+      model: "dall-e-3",
       prompt: userMessage,
       n: 1,
       size: "1024x1024",
+      quality:"standard"
     });
     imageUrl = response.data[0].url;
     console.log(imageUrl);
@@ -272,7 +273,7 @@ app.post('/gpt4', async (req, res) => {
     res.status(500).send('Error processing message');
   }
 });
-app.post('/dalle2', async (req, res) => {
+app.post('/dalle', async (req, res) => {
   const userMessage = req.body.userPrompt;
 
   try {
@@ -377,6 +378,7 @@ app.post('/whatsapp?:number', async (req, res) => {
 });
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '/index.html'));
+ 
 });
 
 app.listen(port, () => {
