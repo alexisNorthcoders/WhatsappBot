@@ -4,8 +4,8 @@ async function sendPrompt() {
     let postURL = '/gpt3'
     if (selectedModel === 'gpt-4') {
         postURL = '/gpt4'
-    } else if (selectedModel === 'dall-e-2') {
-        postURL = '/dalle2'
+    } else if (selectedModel === 'dall-e') {
+        postURL = '/dalle'
     }else if (selectedModel === 'gpt-3.5-turbo-instruct') {
         postURL = '/instruct'
     }else if (selectedModel === 'recipe') {
@@ -58,42 +58,40 @@ function displayConversationHistory() {
     const historyDiv = document.getElementById('history');
     const conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
 
-    // Clear previous content before displaying updated history
-    historyDiv.innerHTML = '';
+    
+    historyDiv.innerText = '';
 
-    // Loop through conversation history and display each item
+   
     conversationHistory.forEach(item => {
         const conversationItem = document.createElement('div');
-        conversationItem.className = "conversation-item"; // Add this line
+        conversationItem.className = "conversation-item"; 
 
-        // Create separate elements for user and bot messages
         const userMessage = document.createElement('div');
-        userMessage.innerHTML = `<strong>User:</strong> ${item.user}`;
+        userMessage.innerHTML = `<strong>User: </strong>`;
+        userMessage.innerText = `${item.user}`;
 
         const botMessage = document.createElement('div');
-        botMessage.innerHTML = `<strong>Bot:</strong> ${item.bot}`;
+        botMessage.innerHTML = `<strong>Bot: </strong>`;
+        botMessage.innerText = `${item.bot}`;
 
-        // Append user and bot messages to conversation item
         conversationItem.appendChild(userMessage);
         conversationItem.appendChild(botMessage);
 
-        // Append conversation item to historyDiv
         historyDiv.appendChild(conversationItem);
     });
 
-    // Scroll to the bottom after updating conversation history
     window.scrollTo(0, document.body.scrollHeight)
 }
 
 function clearConversationHistory() {
     localStorage.removeItem('conversationHistory');
     const historyDiv = document.getElementById('history');
-    historyDiv.innerHTML = ''; // Clear the displayed history on the page
+    historyDiv.innerText = ''; 
 }
 function clearConversation() {
-    clearConversationHistory(); // Call the function to clear history
-    displayConversationHistory(); // Refresh the displayed history on the page
+    clearConversationHistory(); 
+    displayConversationHistory(); 
 }
 window.onload = function() {
-    displayConversationHistory(); // Display conversation history on page load
+    displayConversationHistory(); 
 }

@@ -1,13 +1,18 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>My Server</title>
-    <link rel="stylesheet" type="text/css" href="styles.css">
+    <link rel="stylesheet" type="text/css" href="/public/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
-    <h1>AI Messaging Server</h1>
-  
+    <header>
+        <title>AI Messaging Server </title>
+    </header>
+
+
     <div class="conversation-history">
         <h2>Conversation History</h2>
         <div id="history"></div>
@@ -15,9 +20,10 @@
 
     <div class="container">
         <button onclick="clearConversation()">Clear Conversation History</button>
-        <div id="response"></div></div>
-<div id="userPrompt-container">
-    
+        <div id="response"></div>
+    </div>
+    <div id="userPrompt-container">
+
         <textarea id="userPrompt" placeholder="Enter your message" oninput="updateCharacterCount()"></textarea>
         <div class="radio-container">
             <label>
@@ -35,13 +41,23 @@
             <label>
                 <input type="radio" name="model" value="recipe"> Recipe
             </label>
-           <button onclick="sendPrompt()">Send</button></div>
+            <button onclick="sendPrompt()">Send</button>
         </div>
-       </div>
-       <p>Character count: <span id="charCount">0</span></p>
-       
+    </div>
+    <p>Character count: <span id="charCount">0</span></p>
+    <h1>Send WhatsApp Message</h1>
+    <form id="whatsappForm" action="/whatsapp" method="POST">
+        <label for="phoneNumber">Phone Number:</label>
+        <input type="text" id="phoneNumber" name="phoneNumber">
+        <br>
+        <label for="message">Message:</label>
+        <input type="text" id="message" name="message">
+        <br>
+        <input type="submit" value="Send Message">
+    </form>
     </div>
 
-    <script src="app.js"></script>
+    <script src="/public/app.js"></script>
 </body>
+
 </html>

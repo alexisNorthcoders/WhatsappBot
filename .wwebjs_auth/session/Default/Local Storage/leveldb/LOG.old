@@ -1,0 +1,6 @@
+2024/01/21-00:27:28.026 3647 Reusing MANIFEST /home/alexis/WhatsappBot/.wwebjs_auth/session/Default/Local Storage/leveldb/MANIFEST-000001
+2024/01/21-00:27:28.026 3647 Recovering log #4
+2024/01/21-00:27:28.027 3647 Reusing old log /home/alexis/WhatsappBot/.wwebjs_auth/session/Default/Local Storage/leveldb/000004.log 
+2024/01/21-00:29:29.832 3647 Level-0 table #7: started
+2024/01/21-00:29:29.859 3647 Level-0 table #7: 14604 bytes OK
+2024/01/21-00:29:29.898 3647 Delete type=0 #4

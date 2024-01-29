@@ -4,37 +4,46 @@ const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config();
 const fetch = require('node-fetch');
 const path = require('path');
+const fs = require('fs');
 
 const qrcode = require('qrcode-terminal');
 
+const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
+
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
-const client = new Client(
 
-  {
-    puppeteer: {
-      args: ['--no-sandbox'],
-    }, authStrategy: new LocalAuth()
-  });
 const app = express();
 const port = process.env.PORT;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+const client = new Client(
+  {
+    puppeteer: {
+      args: ['--no-sandbox'],
+    }, authStrategy: new LocalAuth()
+  });
 client.on('qr', qr => {
   qrcode.generate(qr, { small: true });
 });
-
 client.on('ready', () => {
   console.log('Whatsapp Initiated!');
 });
-
 client.on('message', async message => {
   console.log(message.body);
+  let button = message.body.toLowerCase();
   try {
+    if (buttons.includes(button)) {
+      if(['a', 'b'].includes(button)) {
+        button = button.toUpperCase();
+      }
+  
+      fs.writeFileSync('button.txt', button, 'utf8');
 
-    if (message.body.startsWith("Gpt3")) {
+    }
+    else if (message.body.startsWith("Gpt3")) {
       const prompt = message.body.replace("Gpt3 ", "");
       const response = await gPT3generateResponse(prompt);
       client.sendMessage(message.from, response);
@@ -60,16 +69,28 @@ client.on('message', async message => {
       client.sendMessage(message.from, response);
     }
     else if (message.body.startsWith("Weather")) {
-      const prompt = message.body.replace("Weather ", "");
-      const forecast = await getWeatherData(prompt);
-      if (JSON.stringify(forecast).includes("not found")) {
-        client.sendMessage(message.from, `${city} city not found!`);
-      }
-      else {
-        const weather = `forecast: ${forecast.weather[0].description}\ntemperature:${forecast.main.temp}\nmax:${forecast.main.temp_max}\nmin:${forecast.main.temp_min}`;
-        client.sendMessage(message.from, weather);
-      }
+      const city = message.body.replace("Weather ", "");
+      const forecast = await getWeatherData(city);
+      const weather = `${city}
+      ${forecast.list[0].dt_txt}:
+          temperature: ${forecast.list[0].main.temp}
+          humidity: ${forecast.list[0].main.humidity}
+          description: ${forecast.list[0].weather[0].description}
+      ${forecast.list[2].dt_txt}:
+          temperature: ${forecast.list[2].main.temp}
+          humidity: ${forecast.list[2].main.humidity}
+          description: ${forecast.list[2].weather[0].description}
+      ${forecast.list[4].dt_txt}
+          temperature: ${forecast.list[4].main.temp}
+          humidity: ${forecast.list[4].main.humidity}
+          description: ${forecast.list[4].weather[0].description} 
+      ${forecast.list[6].dt_txt}:
+          temperature: ${forecast.list[6].main.temp}
+          humidity: ${forecast.list[6].main.humidity}
+          description: ${forecast.list[6].weather[0].description}`;
+      client.sendMessage(message.from, weather);
     }
+
     else if (message.body === '!Daniel') {
       const media = MessageMedia.fromFilePath('./files/photo001.jpg');
       client.sendMessage(message.from, media, { caption: 'Foto do Daniel' });
@@ -91,17 +112,31 @@ client.on('message', async message => {
   }
   catch (err) { console.log(err); }
 });
-
 client.initialize();
 
 // Initialize OpenAI API client
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+async function getGeocoding(city) {
+  const apiKey = process.env.OPENWEATHER_API_KEY;
+  const geocodeURL = `http://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=1&appid=${apiKey}`;
+  try {
+    const response = await fetch(geocodeURL);
+    const geocode = await response.json();
+    return geocode;
+  } catch (error) {
+    console.log("Error fetching weather data:", error);
+    throw error;
+  }
 
+}
 async function getWeatherData(city) {
   const apiKey = process.env.OPENWEATHER_API_KEY;
-  const weatherURL = `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&APPID=${apiKey}`;
+  ;
   try {
+    const geocode = await getGeocoding(city, cnt = 3);
+    const { lat, lon } = geocode[0];
+    const weatherURL = `http://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&APPID=${apiKey}`;
     const response = await fetch(weatherURL);
     const weatherData = await response.json();
     return weatherData;
@@ -171,10 +206,10 @@ async function dallegenerateResponse(userMessage) {
       prompt: userMessage,
       n: 1,
       size: "1024x1024",
-      quality:"standard"
+      quality: "standard"
     });
     imageUrl = response.data[0].url;
-    console.log(imageUrl);
+
 
     return imageUrl;
   } catch (error) {
@@ -231,20 +266,49 @@ async function gPT3WizardgenerateResponse(userMessage) {
 }
 
 app.post('/weather', async function (req, res) {
+  try {
+    let { city } = await req.body;
 
-  let city = await req.body.city.trim();
-  console.log(city);
-  const forecast = await getWeatherData(city);
-  if (JSON.stringify(forecast).includes("not found")) {
-    res.status(404).send(`${city} city not found!`);
-  }
-  else {
+
+    const forecast = await getWeatherData(city);
+    console.log(forecast);
     res.send({
-      forecast: forecast.weather[0].description,
-      temp: forecast.main.temp,
-      max: forecast.main.temp_max,
-      min: forecast.main.temp_min
+      city,
+      now: {
+        temperature: forecast.list[0].main.temp,
+        humidity: forecast.list[0].main.humidity,
+        description: forecast.list[0].weather[0].description,
+        timestamp: forecast.list[0].dt_txt
+      },
+      "+6hour": {
+        temperature: forecast.list[2].main.temp,
+        humidity: forecast.list[2].main.humidity,
+        description: forecast.list[2].weather[0].description,
+        timestamp: forecast.list[2].dt_txt
+      },
+      "+12hour": {
+        temperature: forecast.list[4].main.temp,
+        humidity: forecast.list[4].main.humidity,
+        description: forecast.list[4].weather[0].description,
+        timestamp: forecast.list[4].dt_txt
+      },
+      "+18hour": {
+        temperature: forecast.list[6].main.temp,
+        humidity: forecast.list[6].main.humidity,
+        description: forecast.list[6].weather[0].description,
+        timestamp: forecast.list[6].dt_txt
+      },
+      "+24hour": {
+        temperature: forecast.list[8].main.temp,
+        humidity: forecast.list[8].main.humidity,
+        description: forecast.list[8].weather[0].description,
+        timestamp: forecast.list[8].dt_txt
+      }
     });
+  }
+  catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('Error processing message');
   }
 });
 app.post('/gpt3', async (req, res) => {
@@ -288,7 +352,6 @@ app.post('/dalle', async (req, res) => {
 });
 app.post('/instruct', async (req, res) => {
   const userMessage = req.body.userPrompt;
-  console.log(userMessage);
   try {
     const response = await instructGenerateResponse(userMessage);
 
@@ -300,7 +363,6 @@ app.post('/instruct', async (req, res) => {
 });
 app.post('/recipe', async (req, res) => {
   const userMessage = req.body.userPrompt;
-  console.log(userMessage);
   try {
     const response = await recipeGenerateResponse(userMessage);
 
@@ -311,14 +373,14 @@ app.post('/recipe', async (req, res) => {
   }
 });
 app.post('/whatsapp?:number', async (req, res) => {
-  const { number } = req.query;
-  const userMessage = req.body.Body;
-  console.log(userMessage);
+  const number = req.query.number ? req.query.number : req.body.phoneNumber;
+  const userMessage = req.body.message;
+
   if (userMessage.startsWith("Dalle")) {
     const prompt = userMessage.replace("Dalle", "");
     try {
       const response = await dallegenerateResponse(prompt);
-      client.sendMessage(`${number}@c.us`, response);
+      client.sendMessage(`whatsapp:${number}@c.us`, response);
       res.send(response);
     }
     catch (error) {
@@ -326,7 +388,7 @@ app.post('/whatsapp?:number', async (req, res) => {
       res.status(500).send('Error processing message');
     }
   }
-  if (userMessage.startsWith("Weather")) {
+  else if (userMessage.startsWith("Weather")) {
     const prompt = userMessage.replace("Weather ", "");
     try {
       const forecast = await getWeatherData(prompt);
@@ -336,9 +398,6 @@ app.post('/whatsapp?:number', async (req, res) => {
       }
       else {
         const weather = `forecast: ${forecast.weather[0].description}\ntemperature:${forecast.main.temp}\nmax:${forecast.main.temp_max}\nmin:${forecast.main.temp_min}`;
-
-        console.log(forecast);
-
         await client.sendMessage(`${number}@c.us`, weather);
 
         res.send(weather);
@@ -348,7 +407,7 @@ app.post('/whatsapp?:number', async (req, res) => {
       res.status(500).send('Error processing message');
     }
   }
-  if (userMessage.startsWith("Gpt3")) {
+  else if (userMessage.startsWith("Gpt3")) {
     const prompt = userMessage.replace("Gpt3", "");
     try {
       // Process the user's message using ChatGPT
@@ -361,10 +420,10 @@ app.post('/whatsapp?:number', async (req, res) => {
       res.status(500).send('Error processing message');
     }
   }
-  if (userMessage.startsWith("Gpt4")) {
+  else if (userMessage.startsWith("Gpt4")) {
     const prompt = userMessage.replace("Gpt4", "");
     try {
-      // Process the user's message using ChatGPT
+
       const response = await gPT4generateResponse(prompt);
 
       await client.sendMessage(`${number}@c.us`, response);
@@ -375,10 +434,15 @@ app.post('/whatsapp?:number', async (req, res) => {
       res.status(500).send('Error processing message');
     }
   }
+  else {
+    console.log(number, userMessage);
+    client.sendMessage(`${number}@c.us`, userMessage).then(err => console.log(err))
+      .catch(err => console.log(err));
+  }
 });
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '/index.html'));
- 
+
 });
 
 app.listen(port, () => {
