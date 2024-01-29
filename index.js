@@ -114,7 +114,6 @@ client.on('message', async message => {
 });
 client.initialize();
 
-// Initialize OpenAI API client
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function getGeocoding(city) {
@@ -170,7 +169,7 @@ async function gPT3generateResponse(userMessage) {
       model: 'gpt-3.5-turbo-1106',
       messages: [{ "role": "user", "content": userMessage }],
       max_tokens: 1000
-      // Adjust this as needed for desired response length
+      
     });
 
 
@@ -189,7 +188,7 @@ async function gPT4generateResponse(userMessage) {
         { "role": "system", "content": "You are a helpful javascript assistant. When given code you will refactor according to instructions." },
         { "role": "user", "content": userMessage }],
       max_tokens: 1000
-      // Adjust this as needed for desired response length
+      
     });
 
 
