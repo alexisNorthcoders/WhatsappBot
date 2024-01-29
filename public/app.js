@@ -32,6 +32,7 @@ async function sendPrompt() {
 
             // Process the chunk as needed, you can append it to the existing data
             chunks += new TextDecoder().decode(value);
+            document.getElementById('response').innerText = chunks
 
             // Update UI or perform other actions with the streaming data
             console.log(chunks);
