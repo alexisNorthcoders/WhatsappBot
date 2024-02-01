@@ -5,6 +5,7 @@ const dotenv = require("dotenv").config();
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
+const {getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse} = require("./models/models")
 
 const qrcode = require('qrcode-terminal');
 
@@ -12,14 +13,13 @@ const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
-
 const app = express();
 const port = process.env.PORT;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-const client = new Client(
+/* const client = new Client(
   {
     puppeteer: {
       args: ['--no-sandbox'],
@@ -112,157 +112,10 @@ client.on('message', async message => {
   }
   catch (err) { console.log(err); }
 });
-client.initialize();
+client.initialize(); */
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function getGeocoding(city) {
-  const apiKey = process.env.OPENWEATHER_API_KEY;
-  const geocodeURL = `http://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=1&appid=${apiKey}`;
-  try {
-    const response = await fetch(geocodeURL);
-    const geocode = await response.json();
-    return geocode;
-  } catch (error) {
-    console.log("Error fetching weather data:", error);
-    throw error;
-  }
-
-}
-async function getWeatherData(city) {
-  const apiKey = process.env.OPENWEATHER_API_KEY;
-  ;
-  try {
-    const geocode = await getGeocoding(city, cnt = 3);
-    const { lat, lon } = geocode[0];
-    const weatherURL = `http://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&APPID=${apiKey}`;
-    const response = await fetch(weatherURL);
-    const weatherData = await response.json();
-    return weatherData;
-  } catch (error) {
-    console.log("Error fetching weather data:", error);
-    throw error;
-  }
-}
-
-async function assistantgenerateResponse(userMessage) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-1106',
-      messages: [
-        { "role": "system", "content": "You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, send random pictures of Daniel, tell jokes and so on." },
-        { "role": "user", "content": userMessage }],
-      max_tokens: 1000
-      // Adjust this as needed for desired response length
-    });
-
-
-    return completion.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-async function gPT3generateResponse(userMessage) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-1106',
-      messages: [{ "role": "user", "content": userMessage }],
-      max_tokens: 1000
-      
-    });
-
-
-    return completion.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-async function gPT4generateResponse(userMessage) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4-1106-preview',
-      temperature: 0.7,
-      messages: [
-        { "role": "system", "content": "You are a helpful javascript assistant. When given code you will refactor according to instructions." },
-        { "role": "user", "content": userMessage }],
-      max_tokens: 1000
-      
-    });
-
-
-    return completion.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-async function dallegenerateResponse(userMessage) {
-  try {
-    const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: userMessage,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard"
-    });
-    imageUrl = response.data[0].url;
-
-
-    return imageUrl;
-  } catch (error) {
-    console.error('Error generating Dall-e response:', error);
-    throw new Error('Error generating response');
-  }
-}
-async function recipeGenerateResponse(userMessage) {
-  try {
-    const completion = await openai.completions.create({
-      model: 'gpt-3.5-turbo-instruct',
-      temperature: 0.7,
-      prompt: `create a detailed recipe with only the following ingredients: ${userMessage}. Start off with 'recipe name', 'ingredients list' and 'step-by-step procedure for cooking`,
-      max_tokens: 1000
-    });
-
-    return completion.choices[0].text.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-async function instructGenerateResponse(userMessage) {
-  try {
-    const completion = await openai.completions.create({
-      model: 'gpt-3.5-turbo-instruct',
-      temperature: 0.7,
-      prompt: userMessage,
-      max_tokens: 1400
-    });
-
-    return completion.choices[0].text.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-async function gPT3WizardgenerateResponse(userMessage) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-1106',
-      messages: [{ "role": "system", "content": "You are a wizard. You speak like an eclectic wizard and in riddles. If someone asks your name is Isildor The Great. You always finish your conversation in a form of a wise advice." },
-      { "role": "user", "content": userMessage }],
-      max_tokens: 1000
-      // Adjust this as needed for desired response length
-    });
-
-
-    return completion.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
 
 app.post('/weather', async function (req, res) {
   try {
@@ -324,13 +177,30 @@ app.post('/gpt3', async (req, res) => {
   }
 });
 app.post('/gpt4', async (req, res) => {
-  const userMessage = req.body.userPrompt;
-
+  const userMessage = req.body.userPrompt
+  
   try {
+    const stream = await openai.chat.completions.create({
+      model: 'gpt-4-1106-preview',
+      temperature: 0.7,
+      messages: [
+        { "role": "system", "content": "You are a helpful javascript assistant. When given code you will refactor according to instructions." },
+        { "role": "user", "content": userMessage }],
+      stream: true,
+      max_tokens: 1000
 
-    const response = await gPT4generateResponse(userMessage);
+    });
+    let final_response = '';
 
-    res.send(response);
+
+    for await (const chunk of stream) {
+      
+      res.write(chunk.choices[0]?.delta?.content || '');
+      final_response += chunk.choices[0]?.delta?.content || '';
+    }
+    res.end();
+
+
   } catch (error) {
     console.error('Error:', error);
     res.status(500).send('Error processing message');
@@ -444,6 +314,13 @@ app.get('/', (req, res) => {
 
 });
 
+app.use(express.static(path.join(__dirname, '/chat/build')));
+
+app.get('/chat', (req, res) => {
+  res.sendFile(path.join(__dirname, '/chat/build', 'index.html'));
+});
+
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
+

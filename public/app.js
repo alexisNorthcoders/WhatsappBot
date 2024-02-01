@@ -20,27 +20,9 @@ async function sendPrompt() {
             },
             body: JSON.stringify({ userPrompt })
         });
-        const reader = response.body.getReader();
-        let chunks = '';
         
-        while (true) {
-            const { done, value } = await reader.read();
-
-            if (done) {
-                break;
-            }
-
-            // Process the chunk as needed, you can append it to the existing data
-            chunks += new TextDecoder().decode(value);
-            document.getElementById('response').innerText = chunks
-
-            // Update UI or perform other actions with the streaming data
-            console.log(chunks);
-        }
-
-        // When the streaming is complete, you can parse the accumulated data
-        const data = JSON.parse(chunks);
-        //const data = await response.text();
+       
+        const data = await response.text();
         let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
         conversationHistory.push({ user: userPrompt, bot: data });
         localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));

@@ -52,7 +52,7 @@ body {
     position: relative;
   
     cursor: pointer;
-    font-size: 14px; /* Adjust font size for labels */
+    font-size: 14px; 
     line-height: 1.5;
     color: #ffffff;
 }
@@ -67,7 +67,7 @@ div {
 
 
 #response {
-    width: 80%; /* Adjust width as needed */
+    width: 80%; 
     padding: 20px;
     background-color: #283040;
     border-radius: 5px;
@@ -79,45 +79,45 @@ div {
 }
 
 button {
-    padding: 12px 24px; /* Adjust padding */
-    border: 2px solid #1db954; /* Add border */
-    border-radius: 5px; /* Increase border-radius for a rounded look */
-    background-color: transparent; /* Transparent background */
-    color: #1db954; /* Button text color */
+    padding: 12px 24px; 
+    border: 2px solid #1db954; 
+    border-radius: 5px; 
+    background-color: transparent; 
+    color: #1db954; 
     font-size: 16px;
     cursor: pointer;
     transition: all 0.3s ease;
-    font-family: 'Roboto', sans-serif; /* Futuristic font */
-    margin: 8px; /* Add margin for spacing */
+    font-family: 'Roboto', sans-serif;
+    margin: 8px; 
     
 }
 
 
 button:hover {
-    background-color: #1db954; /* Background color on hover */
-    color: #ffffff; /* Text color on hover */
-    box-shadow: 0px 4px 8px rgba(29, 185, 84, 0.3); /* Add shadow on hover */
-    transform: translateY(-2px); /* Add lift effect on hover */
+    background-color: #1db954;
+    color: #ffffff; 
+    box-shadow: 0px 4px 8px rgba(29, 185, 84, 0.3); 
+    transform: translateY(-2px); 
 }
 button:active {
-    transform: translateY(1px); /* Add a slight downward shift on click */
-    box-shadow: none; /* Remove box shadow on click */
+    transform: translateY(1px); 
+    box-shadow: none;
 }
 
 .conversation-item {
-    padding: 0; /* Remove padding */
-    border: none; /* Remove border */
-    margin-bottom: 10px; /* Adjust spacing between conversation items */
+    padding: 0;
+    border: none; 
+    margin-bottom: 10px; 
 }
 
 #history {
-    width: 80%; /* Make it as wide as the page */
+    width: 80%;
     align-items: center;
     background-color: #283040;
-    padding: 10px; /* Add some padding */
-    overflow-y: hidden; /* Enable vertical scrollbar */
-    overflow-x: hidden; /* Disable horizontal scrollbar */
-    color: #ffffff; /* Text color */
+    padding: 10px; 
+    overflow-y: hidden; 
+    overflow-x: hidden; 
+    color: #ffffff; 
     border: 2px solid #ffffff;
 }
 .conversation-history{
