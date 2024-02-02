@@ -1,10 +1,20 @@
-# Chat Assistant
+# Chat Assistant and other small projects
 
 This project was made as a learning experience to practice and showcase my knowledge.
 
 ## Features:
 
 Backend server made in **Node.js**:
+
+- Listens to a Whatsapp Account and responds with messages accordingly.
+- It allows to make easy API calls to wherever our server is set up.
+- Currently you can send and receive messages to OpenAI models directly from Whatsapp.
+- Get Weather forecast, speak with an AI wizard, randomnly stored pictures in the server and much more.
+
+![alt text](image-6.png)
+![alt text](image-4.png)
+![alt text](image-5.png)
+
 - POST **/gpt3** (send a message to OpenAI model gpt-3.5-turbo-1106)
 - POST **/gpt4** (send a message to OpenAI model gpt-4-1106-preview, this will respond with a stream)
 - POST **/dalle** (send a detailed message to ask OpenAI model to create an image)
@@ -17,22 +27,27 @@ Backend server made in **Node.js**:
 
 **index.html** - built using DOM manipulation to showcase this node API calls and display the information.
 ![alt text](image.png)
+
 **React** APP that connects to this Node.js API to make requests to OpenAI and receive responses in a fluid manner.
  - markdown react library
  - highlight library to display code blocks in a stylish way
-![alt text](image-1.png)
+
 ![alt text](image-2.png)
+
 ![alt text](image-3.png)
 
 **Stream.js**:
 - Node.js server using Node-media-server to stream content, for example with OBS streaming software.
 
-**Vision.js** :
+**AI plays Pokemon Red with Vision.js** :
 - small app that uses OpenAI vision model (gpt-4-vision-preview) to play Pokemon Red.
 - It sends a screenshot from the state of the game and asks which button to press next.
 - AI gives the response back as a JSON object with properties of button and a message with the thought process.
 - Writes the button to press in a text file (button.txt).
 - Emulator running the game and the pokemon.lua script will read the file and press the button.
+- We can also use our Node.js API to sending a Whatsapp message with the key to play. Multiple people could play at the same time.
 
-   
+   ![alt text](image-7.png)
+   ![alt text](image-9.png)
+   ![alt text](image-8.png)
      
