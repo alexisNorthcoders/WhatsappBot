@@ -19,7 +19,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-/* const client = new Client(
+const client = new Client(
   {
     puppeteer: {
       args: ['--no-sandbox'],
@@ -112,7 +112,7 @@ client.on('message', async message => {
   }
   catch (err) { console.log(err); }
 });
-client.initialize(); */
+client.initialize();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -323,4 +323,3 @@ app.get('/chat', (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
-
