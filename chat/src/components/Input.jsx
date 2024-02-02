@@ -24,7 +24,7 @@ export default function Input({setSubmit,setInputValue,inputValue,setReadingStre
         className="input-box"
       />
       <button className="submit-button">
-        Submit
+        Send
       </button>
       </form>
     </div>

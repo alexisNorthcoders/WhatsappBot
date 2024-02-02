@@ -5,11 +5,11 @@ import Header from './components/Header';
 import Home from './components/chat';
 
 function App() {
-  return ( <div class="grid-container">
-    <Header/>
-   <Home/>
+  return ( <>
+   <div id="content"> <Header/>
+   <Home/></div>
    <Footer/>
-   </div>
+   </>
   );
 }
 
