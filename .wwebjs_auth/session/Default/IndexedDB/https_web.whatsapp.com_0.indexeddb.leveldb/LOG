@@ -1,3 +1,11 @@
-2024/01/21-00:31:09.607 37d4 Reusing MANIFEST /home/alexis/WhatsappBot/.wwebjs_auth/session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2024/01/21-00:31:09.608 37d4 Recovering log #77
-2024/01/21-00:31:09.626 37d4 Reusing old log /home/alexis/WhatsappBot/.wwebjs_auth/session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000077.log 
+2024/02/03-15:33:48.569 333b Reusing MANIFEST /home/alexis/WhatsappBot/.wwebjs_auth/session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2024/02/03-15:33:48.569 333b Recovering log #77
+2024/02/03-15:33:48.608 333b Reusing old log /home/alexis/WhatsappBot/.wwebjs_auth/session/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000077.log 
+2024/02/03-15:34:08.232 33f5 Level-0 table #83: started
+2024/02/03-15:34:08.258 33f5 Level-0 table #83: 1043095 bytes OK
+2024/02/03-15:34:08.263 33f5 Delete type=0 #77
+2024/02/03-15:34:08.270 33f5 Compacting 1@1 + 2@2 files
+2024/02/03-15:34:08.353 33f5 Generated table #84@1: 62419 keys, 2280514 bytes
+2024/02/03-15:34:08.374 33f5 Generated table #85@1: 16687 keys, 405211 bytes
+2024/02/03-15:34:08.374 33f5 Compacted 1@1 + 2@2 files => 2685725 bytes
+2024/02/03-15:34:08.377 33f5 compacted to: files[ 0 0 2 0 0 0 0 ]
