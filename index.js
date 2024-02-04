@@ -5,7 +5,7 @@ const dotenv = require("dotenv").config();
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
-const {getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse} = require("./models/models")
+const {getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse, assistantgenerateResponse} = require("./models/models")
 
 const qrcode = require('qrcode-terminal');
 
