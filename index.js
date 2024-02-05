@@ -6,6 +6,7 @@ const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors')
+const app = express();
 const {getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse, assistantgenerateResponse} = require("./models/models")
 
 app.use(cors())
@@ -15,7 +16,7 @@ const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
-const app = express();
+
 const port = process.env.PORT;
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
