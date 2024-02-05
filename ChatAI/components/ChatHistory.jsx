@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import Markdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
+import axios from 'axios'
 
 export default function ChatHistory({
   submit,
@@ -18,13 +19,9 @@ export default function ChatHistory({
 
   const fetchData = async (submitValue) => {
     setMessages("");
-    const response = await fetch("/gpt4", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ userPrompt: submitValue }),
-    });
+    const response = await axios.post("http://192.168.4.41/gpt4", {
+       userPrompt: submitValue 
+    })
     const reader = response.body
       .pipeThrough(new TextDecoderStream())
       .getReader();

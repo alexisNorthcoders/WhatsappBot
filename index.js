@@ -5,8 +5,10 @@ const dotenv = require("dotenv").config();
 const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
+const cors = require('cors')
 const {getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse, assistantgenerateResponse} = require("./models/models")
 
+app.use(cors())
 const qrcode = require('qrcode-terminal');
 
 const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
