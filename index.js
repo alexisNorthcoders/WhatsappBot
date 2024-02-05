@@ -316,10 +316,10 @@ app.get('/', (req, res) => {
 
 });
 
-app.use(express.static(path.join(__dirname, '/chat/build')));
+app.use(express.static(path.join(__dirname, '/ChatAI/build')));
 
 app.get('/chat', (req, res) => {
-  res.sendFile(path.join(__dirname, '/chat/build', 'index.html'));
+  res.sendFile(path.join(__dirname, '/ChatAI/build', 'index.html'));
 });
 
 app.listen(port,'0.0.0.0', () => {
