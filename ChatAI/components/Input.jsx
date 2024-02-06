@@ -1,3 +1,5 @@
+import { Container,Form,FormControl,Button } from "react-bootstrap";
+
 export default function Input({setSubmit,setInputValue,inputValue,setReadingStream}) {
   
   
@@ -14,19 +16,19 @@ export default function Input({setSubmit,setInputValue,inputValue,setReadingStre
   };
 
   return (
-    <div id="input-container">
-        <form onSubmit={handleClick}>
-      <textarea
-        type="text"
+    <Container>
+    <Form onSubmit={handleClick}>
+      <FormControl
+        as="textarea"
         placeholder="Enter text here"
         value={inputValue}
         onChange={handleInputChange}
         className="input-box"
       />
-      <button className="submit-button">
+      <Button type="submit" className="submit-button">
         Send
-      </button>
-      </form>
-    </div>
+      </Button>
+    </Form>
+    </Container>
   );
 }

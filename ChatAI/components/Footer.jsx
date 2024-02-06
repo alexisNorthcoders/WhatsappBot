@@ -1,7 +1,7 @@
 export default function Footer() {
   return (
   
-      <footer id="footer">Build by Alexis</footer>
+      <footer id="footer">Built by Alexis</footer>
     
   );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import Markdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { dracula } from "react-syntax-highlighter/dist/esm/styles/prism";
-import axios from 'axios'
+import { Card, Container } from 'react-bootstrap';
 
 export default function ChatHistory({
   submit,
@@ -19,9 +19,13 @@ export default function ChatHistory({
 
   const fetchData = async (submitValue) => {
     setMessages("");
-    const response = await axios.post("http://192.168.4.41/gpt4", {
-       userPrompt: submitValue 
-    })
+    const response = await fetch("http://192.168.4.41/gpt4", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userPrompt: submitValue }),
+    });
     const reader = response.body
       .pipeThrough(new TextDecoderStream())
       .getReader();
@@ -59,45 +63,52 @@ export default function ChatHistory({
   }, [submit, readingStream]);
 
   return (
-    <div id="chat-history">
+    <Container >
       {history.length > 1 &&
         history.slice(0, -1).map((conversation, index) => (
-          <div key={index} id="conversation-pair">
-            <p>User: {conversation.user}</p>
-            <p>Bot: {conversation.bot}</p>
-          </div>
+          <Card bg="light"className="history" key={index}>
+            <Card.Body >
+              <Card.Header as="h6">User:</Card.Header>
+              <Card.Text as="p">{conversation.user}</Card.Text>
+              <Card.Header as="h6">Bot:</Card.Header>
+              <Card.Text as="p"> {conversation.bot}</Card.Text>
+            </Card.Body>
+          </Card>
         ))}
       {submit ? (
-        <div id="current-pair">
-          <p>User: {submit}</p>
-          <p>
-            Bot:
-            <Markdown
-              children={messages}
-              components={{
-                code(props) {
-                  const { children, className, node, ...rest } = props;
-                  const match = /language-(\w+)/.exec(className || "");
-                  return match ? (
-                    <SyntaxHighlighter
-                      {...rest}
-                      PreTag="div"
-                      children={String(children).replace(/\n$/, "")}
-                      language={match[1]}
-                      style={dracula}
-                    />
-                  ) : (
-                    <code {...rest} className={className}>
-                      {children}
-                    </code>
-                  );
-                },
-              }}
-            />
-          </p>
-        </div>
+        <Card className="current-pair">
+          <Card.Body>
+             <Card.Header as="h6">User:</Card.Header>
+             <Card.Text as="p">{submit}</Card.Text>
+             <Card.Header as="h6">Bot:</Card.Header>
+             <Card.Text as="p">
+             <Markdown
+                children={messages}
+                components={{
+                  code(props) {
+                    const { children, className, node, ...rest } = props;
+                    const match = /language-(\w+)/.exec(className || "");
+                    return match ? (
+                      <SyntaxHighlighter
+                        {...rest}
+                        PreTag="div"
+                        children={String(children).replace(/\n$/, "")}
+                        language={match[1]}
+                        style={dracula}
+                      />
+                    ) : (
+                      <code {...rest} className={className}>
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              />
+            </Card.Text>
+          </Card.Body>
+        </Card>
       ) : null}
       <div ref={bottomRef} />
-    </div>
+      </Container>
   );
 }
