@@ -317,7 +317,7 @@ app.get('/', (req, res) => {
 
 });
 
-app.use(express.static(path.join(__dirname, '/ChatAI/dist')));
+app.use(express.static(path.join(__dirname, '/ChatAI/')));
 
 app.get('/chat', (req, res) => {
   res.sendFile(path.join(__dirname, '/ChatAI/dist', 'index.html'));
