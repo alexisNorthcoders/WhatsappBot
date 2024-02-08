@@ -98,6 +98,11 @@ client.on('message', async message => {
       const media = MessageMedia.fromFilePath('./files/photo001.jpg');
       client.sendMessage(message.from, media, { caption: 'Foto do Daniel' });
     }
+    else if (message.body === "Light off"){
+      const response = switchLight(false)
+      console.log(response)
+      client.sendMessage(message.from, "Switched light off");
+    }
     else if (message.body.startsWith("Dalle")) {
       const prompt = message.body.replace("Dalle ", "");
       const response = await dallegenerateResponse(prompt);
@@ -316,6 +321,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '/index.html'));
 
 });
+
 
 app.use(express.static(path.join(__dirname, '/ChatAI/dist')));
 

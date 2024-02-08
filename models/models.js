@@ -145,5 +145,17 @@ async function gPT3WizardgenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-
-module.exports = {getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}
+async function switchLight(state){
+  
+  const URL = `http://${process.env.HUE_BRIDGE_IP}/api/${process.env.HUE_USERNAME}/lights/8/state`;
+  try {
+    return await fetch(URL,{
+      on: state,
+    })
+   
+  } catch (error) {
+    console.log("Error fetching weather data:", error);
+    
+  }
+}
+module.exports = {switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}
