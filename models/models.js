@@ -145,16 +145,18 @@ async function gPT3WizardgenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function switchLight(state){
+async function switchLight(lightID,state){
   
-  const URL = `http://${process.env.HUE_BRIDGE_IP}/api/${process.env.HUE_USERNAME}/lights/8/state`;
+  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
   try {
+    
     return await fetch(URL,{
-      on: state,
-    })
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: state })})
    
   } catch (error) {
-    console.log("Error fetching weather data:", error);
+    console.log("Error ", error);
     
   }
 }

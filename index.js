@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors')
 const app = express();
-const {getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse, assistantgenerateResponse} = require("./models/models")
+const {switchLight,getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse, assistantgenerateResponse} = require("./models/models")
 
 app.use(cors())
 const qrcode = require('qrcode-terminal');
@@ -99,9 +99,14 @@ client.on('message', async message => {
       client.sendMessage(message.from, media, { caption: 'Foto do Daniel' });
     }
     else if (message.body === "Light off"){
-      const response = switchLight(false)
+      const response = await switchLight(8,false)
       console.log(response)
       client.sendMessage(message.from, "Switched light off");
+    }
+    else if (message.body === "Light on"){
+      const response = await switchLight(8,true)
+      console.log(response)
+      client.sendMessage(message.from, "Switched light on");
     }
     else if (message.body.startsWith("Dalle")) {
       const prompt = message.body.replace("Dalle ", "");
