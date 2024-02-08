@@ -15,7 +15,7 @@ export default function ChatHistory({
   const fetchData = async (submitValue) => {
     setReadingStream(true);
 
-    const response = await fetch("http://192.168.4.41/gpt4", {
+    const response = await fetch("/gpt4", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
