@@ -48,11 +48,3 @@ h6{
    margin-bottom: 4px;
    padding:0;
 }
-
-.chat{
-  width:80vw ;
-  min-height: 40vh;
- height:max-content;
-  margin-bottom: 200px;
-  text-align: justify;
-}

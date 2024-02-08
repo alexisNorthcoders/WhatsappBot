@@ -187,7 +187,7 @@ app.post('/gpt4', async (req, res) => {
       model: 'gpt-4-1106-preview',
       temperature: 0.7,
       messages: [
-        { "role": "system", "content": "You are a helpful javascript assistant. When given code you will refactor according to instructions." },
+        { "role": "system", "content": "I'm the User and you are the Bot.I'm feeding previous interactions with each prompt." },
         { "role": "user", "content": userMessage }],
       stream: true,
       max_tokens: 1000

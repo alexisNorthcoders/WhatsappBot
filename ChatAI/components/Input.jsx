@@ -1,8 +1,8 @@
+import { useState } from "react";
 import { Container,Form,FormControl,Button } from "react-bootstrap";
 
-export default function Input({setSubmit,setInputValue,inputValue,setReadingStream}) {
-  
-  
+export default function Input({setSubmit,setReadingStream}) {
+  const [inputValue, setInputValue] = useState("");
 
   const handleInputChange = (e) => {
     setInputValue(e.target.value);
