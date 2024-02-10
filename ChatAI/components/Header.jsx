@@ -14,7 +14,7 @@ export default function Header() {
       <Col >
         <Image
           id="avatar"
-          src="../dist/assets/pi.jpeg"
+          src="pi.jpeg"
           width="100px"
           alt="avatar image"
         />
