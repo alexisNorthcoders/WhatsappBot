@@ -6,9 +6,9 @@ async function sendPrompt() {
         postURL = '/gpt4'
     } else if (selectedModel === 'dall-e') {
         postURL = '/dalle'
-    }else if (selectedModel === 'gpt-3.5-turbo-instruct') {
+    } else if (selectedModel === 'gpt-3.5-turbo-instruct') {
         postURL = '/instruct'
-    }else if (selectedModel === 'recipe') {
+    } else if (selectedModel === 'recipe') {
         postURL = '/recipe'
     }
     console.log(postURL)
@@ -20,8 +20,8 @@ async function sendPrompt() {
             },
             body: JSON.stringify({ userPrompt })
         });
-        
-       
+
+
         const data = await response.text();
         let conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
         conversationHistory.push({ user: userPrompt, bot: data });
@@ -45,7 +45,7 @@ function updateCharacterCount() {
     charCountSpan.textContent = textarea.value.length;
 }
 
-function getSelectedModel() {   
+function getSelectedModel() {
     const radios = document.getElementsByName('model');
     let selectedModel = '';
     radios.forEach((radio) => {
@@ -60,13 +60,13 @@ function displayConversationHistory() {
     const historyDiv = document.getElementById('history');
     const conversationHistory = JSON.parse(localStorage.getItem('conversationHistory')) || [];
 
-    
+
     historyDiv.innerText = '';
 
-   
+
     conversationHistory.forEach(item => {
         const conversationItem = document.createElement('div');
-        conversationItem.className = "conversation-item"; 
+        conversationItem.className = "conversation-item";
 
         const userMessage = document.createElement('div');
         userMessage.innerHTML = `<strong>User: </strong>`;
@@ -88,12 +88,18 @@ function displayConversationHistory() {
 function clearConversationHistory() {
     localStorage.removeItem('conversationHistory');
     const historyDiv = document.getElementById('history');
-    historyDiv.innerText = ''; 
+    historyDiv.innerText = '';
 }
 function clearConversation() {
-    clearConversationHistory(); 
-    displayConversationHistory(); 
+    clearConversationHistory();
+    displayConversationHistory();
 }
-window.onload = function() {
-    displayConversationHistory(); 
+window.onload = function () {
+    displayConversationHistory();
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('clearButton').addEventListener('click', clearConversation);
+    document.getElementById('sendButton').addEventListener('click', sendPrompt);
+    document.getElementById('userPrompt').addEventListener('input', updateCharacterCount);
+});
