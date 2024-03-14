@@ -1,0 +1,142 @@
+    body {
+        background-color: #1a1a1a;
+        color: #ffffff;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        margin: auto;
+        margin-top:50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 80vh;
+        flex-direction: column;
+    }
+
+    nav {
+        display: flex;
+        flex-direction: row;
+        margin-top: 20px;
+}
+
+    h1 {
+        font-size: 3em;
+        letter-spacing: 5px;
+        text-shadow: 3px 3px 5px rgba(0, 0, 0, 0.7);
+    }
+
+    h2 {
+        font-size: 18px;
+        letter-spacing: 3px;
+        }
+    span {
+        font-size: 30px;
+    }
+    #messages-cnt{
+        display:contents;
+        max-height: 40px;
+        height:40px;
+        overflow: hidden;
+
+    }
+    #messages-cnt p{
+        height:40px;
+    }
+    #messages {
+        font-size: 30px;
+        text-shadow: #000000;
+        white-space: nowrap; 
+        animation: flash 0.5s infinite alternate;
+    }
+
+    @keyframes flash {
+        from {
+            opacity: 1;
+        }
+
+        to {
+            opacity: .5;
+        }
+    }
+
+    #buttons {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    #game {
+        text-align: center;
+       
+    }
+
+    .start-btn {
+        margin-top: auto;
+        background-color: #1a1a1a;
+        width: 200px;
+        height: 60px;
+        color: #ffffff;
+        font-size: 25px;
+        border: solid;
+        border-radius: 10px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+
+    .start-btn:hover {
+        background-color: #0288d1;
+    }
+
+    #round-container h1 {
+        font-size: 30px;
+        border-radius: 5px;
+    }
+  
+    .color-btn {
+        width: 200px;
+        height: 200px;
+        border: none;
+        cursor: pointer;
+        border-radius: 100%;
+        transition: transform 0.2s ease, filter 0.3s ease;
+    }
+
+    .color-btn:hover {
+        filter: brightness(1.2);
+        transform: scale(1.05);
+    }
+
+    .color-btn:active {
+        filter: brightness(0.7);
+        transform: scale(0.95);
+    }
+
+    #green {
+        background-color: #4CAF50;
+        border-radius: 200px 0 0 0;
+        margin: 0 10px 10px 0;
+    }
+
+    #red {
+        background-color: #FF5252;
+        border-radius: 0 200px 0 0;
+        margin: 0 0 10px 10px;
+    }
+
+    #yellow {
+        background-color: #FFEB3B;
+        border-radius: 0 0 0 200px;
+        margin: 10px 10px 0 0;
+    }
+
+    #blue {
+        background-color: #2196F3;
+
+        border-radius: 0 0 200px 0;
+        margin: 10px 0 0 10px;
+    }
+
+   @media screen and (max-width: 600px) {
+        .color-btn {
+            width: 100px;
+            height: 100px;
+        }
+    }

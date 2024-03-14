@@ -329,9 +329,12 @@ app.get('/', (req, res) => {
 
 
 app.use(express.static(path.join(__dirname, '/ChatAI/dist')));
-
+app.use(express.static(path.join(__dirname, '/simongame')));
 app.get('/chat', (req, res) => {
   res.sendFile(path.join(__dirname, '/ChatAI/dist', 'index.html'));
+});
+app.get('/simongame', (req, res) => {
+  res.sendFile(path.join(__dirname, '/simongame', 'index.html'));
 });
 
 app.listen(port,'0.0.0.0', () => {

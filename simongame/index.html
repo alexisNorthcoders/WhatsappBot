@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="simonstyles.css">
+    <script src="index.js" defer></script>
+    <title>Simon</title>
+</head>
+
+<body>
+    <header>
+        <nav>
+            <button class="start-btn" id="start">New Game</button>
+        </nav>
+    </header>
+    
+    <h1>Simon Game</h1>
+    <div id="game">
+        <div id="round-container">
+            <h1>Round: <span id="round">0</span></h1>
+        </div>
+        <div class="buttons">
+            <button class="color-btn" id="green"></button>
+            <button class="color-btn" id="red"></button>
+        </div>
+       
+        <div class="buttons">
+            <button class="color-btn" id="yellow"></button>
+            <button class="color-btn" id="blue"></button>
+        </div>
+        <div id="messages-cnt"><p id="messages"> </p></div>
+        <h2>Score: <span id="score">0</span></h2>
+        <h2>Highest: <span id="highscore">0</span></h2>
+    </div>
+
+</body>
+
+</html>
