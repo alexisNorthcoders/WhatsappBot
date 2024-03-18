@@ -1,5 +1,6 @@
 const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config();
+const fs = require('fs');
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 async function getGeocoding(city) {
@@ -98,6 +99,52 @@ async function dallegenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
+function convertToBase64(file) {
+  let fileData = fs.readFileSync(file);
+  return new Buffer.from(fileData).toString("base64");
+
+}
+async function vision(base64) {
+  const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+          {
+              role: "user",
+              content: [
+                  { type: "text", text: "Scan the image and extract the text." },
+                  {
+                      type: "image_url",
+                      image_url: {
+                          "url": `data:image/jpeg;base64,${base64}`,
+                          "detail": "low"
+                      },
+                  },
+              ],
+          },
+      ],
+      max_tokens: 1500,
+  });
+  console.log(response.usage)
+  return response.choices[0].message.content;
+}
+async function dalle2generateResponse(userMessage) {
+  try {
+    const response = await openai.images.generate({
+      model: "dall-e-2",
+      prompt: userMessage,
+      n: 1,
+      size: "512x512",
+      
+    });
+    imageUrl = response.data[0].url;
+
+
+    return imageUrl;
+  } catch (error) {
+    console.error('Error generating Dall-e response:', error);
+    throw new Error('Error generating response');
+  }
+}
 async function recipeGenerateResponse(userMessage) {
   try {
     const completion = await openai.completions.create({
@@ -160,4 +207,4 @@ async function switchLight(lightID,state){
     
   }
 }
-module.exports = {switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}
+module.exports = {vision,dalle2generateResponse,switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}

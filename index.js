@@ -7,14 +7,14 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors')
 const app = express();
-const {switchLight,getWeatherData,gPT3generateResponse,gPT4generateResponse,dallegenerateResponse, recipeGenerateResponse,instructGenerateResponse,gPT3WizardgenerateResponse, assistantgenerateResponse} = require("./models/models")
+const { dalle2generateResponse, switchLight, getWeatherData, gPT3generateResponse, gPT4generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse, gPT3WizardgenerateResponse, assistantgenerateResponse, vision } = require("./models/models")
 
 app.use(cors())
 const qrcode = require('qrcode-terminal');
 
 const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
 
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia,Buttons ,Poll} = require('whatsapp-web.js');
 
 
 const port = process.env.PORT;
@@ -39,12 +39,36 @@ client.on('message', async message => {
   let button = message.body.toLowerCase();
   try {
     if (buttons.includes(button)) {
-      if(['a', 'b'].includes(button)) {
+      if (['a', 'b'].includes(button)) {
         button = button.toUpperCase();
       }
-  
+
       fs.writeFileSync('button.txt', button, 'utf8');
 
+    }
+    if (message.hasMedia) {
+      if (message.body.startsWith("Text")) {
+        console.log("reading image...")
+        const media = await message.downloadMedia()
+        if (media) {
+          console.log("sending to vision..")
+          const response = await vision(media.data)
+          client.sendMessage(message.from, response)
+        }
+        else {
+          client.sendMessage(message.from, "Error downloading file.")
+        }
+      }
+    }
+    //deprecated
+/*     else if (message.body.startsWith('!buttons')) {
+      let button = new Buttons('Button body', [{ body: 'bt1' }, { body: 'bt2' }, { body: 'bt3' }], 'title', 'footer');
+      console.log("sending buttons message")
+      client.sendMessage(message.from, button)
+    } */
+    else if (message.body === '!sendpoll') {
+      
+      await message.reply(new Poll('Winter or Summer?', ['Winter', 'Summer']))
     }
     else if (message.body.startsWith("Gpt3")) {
       const prompt = message.body.replace("Gpt3 ", "");
@@ -98,15 +122,21 @@ client.on('message', async message => {
       const media = MessageMedia.fromFilePath('./files/photo001.jpg');
       client.sendMessage(message.from, media, { caption: 'Foto do Daniel' });
     }
-    else if (message.body === "Light off"){
-      const response = await switchLight(8,false)
+    else if (message.body === "Light off") {
+      const response = await switchLight(8, false)
       console.log(response)
       client.sendMessage(message.from, "Switched light off");
     }
-    else if (message.body === "Light on"){
-      const response = await switchLight(8,true)
+    else if (message.body === "Light on") {
+      const response = await switchLight(8, true)
       console.log(response)
       client.sendMessage(message.from, "Switched light on");
+    }
+    else if (message.body.startsWith("Dalle2")) {
+      const prompt = message.body.replace("Dalle2 ", "");
+      const response = await dalle2generateResponse(prompt);
+      const media = await MessageMedia.fromUrl(response);
+      client.sendMessage(message.from, media);
     }
     else if (message.body.startsWith("Dalle")) {
       const prompt = message.body.replace("Dalle ", "");
@@ -117,6 +147,7 @@ client.on('message', async message => {
     else if (message.body.startsWith("Help")) {
       client.sendMessage(message.from, "Try any of my commands: \nWizard \nGpt3 \nDalle\nRecipe \nWeather");
     }
+
     else {
       const prompt = message.body;
       const response = await assistantgenerateResponse(prompt);
@@ -191,7 +222,7 @@ app.post('/gpt3', async (req, res) => {
 });
 app.post('/gpt4', async (req, res) => {
   const userMessage = req.body.userPrompt
-  
+
   try {
     const stream = await openai.chat.completions.create({
       model: 'gpt-4-1106-preview',
@@ -207,7 +238,7 @@ app.post('/gpt4', async (req, res) => {
 
 
     for await (const chunk of stream) {
-      
+
       res.write(chunk.choices[0]?.delta?.content || '');
       final_response += chunk.choices[0]?.delta?.content || '';
     }
@@ -330,13 +361,17 @@ app.get('/', (req, res) => {
 
 app.use(express.static(path.join(__dirname, '/ChatAI/dist')));
 app.use(express.static(path.join(__dirname, '/simongame')));
+app.use(express.static(path.join(__dirname, '/Portfolio/dist')));
 app.get('/chat', (req, res) => {
   res.sendFile(path.join(__dirname, '/ChatAI/dist', 'index.html'));
 });
 app.get('/simongame', (req, res) => {
   res.sendFile(path.join(__dirname, '/simongame', 'index.html'));
 });
+app.get('/portfolio', (req, res) => {
+  res.sendFile(path.join(__dirname, '/Portfolio/dist', 'index.html'));
+});
 
-app.listen(port,'0.0.0.0', () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
