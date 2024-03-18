@@ -104,6 +104,30 @@ function convertToBase64(file) {
   return new Buffer.from(fileData).toString("base64");
 
 }
+async function visionQuality(base64) {
+  const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+          {
+              role: "user",
+              content: [
+                  { type: "text", text: "Scan the image and extract the text." },
+                  {
+                      type: "image_url",
+                      image_url: {
+                          "url": `data:image/jpeg;base64,${base64}`,
+                          "detail": "high"
+                      },
+                  },
+              ],
+          },
+      ],
+      max_tokens: 5000,
+  });
+  console.log(response.usage)
+  console.log(`Total cost: $${calculateCost(response.usage)}`)
+  return response.choices[0].message.content;
+}
 async function vision(base64) {
   const response = await openai.chat.completions.create({
       model: "gpt-4-vision-preview",
@@ -125,6 +149,7 @@ async function vision(base64) {
       max_tokens: 1500,
   });
   console.log(response.usage)
+  console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
 async function dalle2generateResponse(userMessage) {
@@ -207,4 +232,9 @@ async function switchLight(lightID,state){
     
   }
 }
-module.exports = {vision,dalle2generateResponse,switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}
+function calculateCost(tokens){
+  const promptCost = tokens.prompt_tokens * 10/1000000
+  const outputCost = tokens.completion_tokens * 30/1000000
+  return (promptCost + outputCost).toFixed(3)
+}
+module.exports = {visionQuality,vision,dalle2generateResponse,switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}

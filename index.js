@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors')
 const app = express();
-const { dalle2generateResponse, switchLight, getWeatherData, gPT3generateResponse, gPT4generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse, gPT3WizardgenerateResponse, assistantgenerateResponse, vision } = require("./models/models")
+const { dalle2generateResponse, switchLight, getWeatherData, gPT3generateResponse, gPT4generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse, gPT3WizardgenerateResponse, assistantgenerateResponse, vision, visionQuality } = require("./models/models")
 
 app.use(cors())
 const qrcode = require('qrcode-terminal');
@@ -47,7 +47,19 @@ client.on('message', async message => {
 
     }
     if (message.hasMedia) {
-      if (message.body.startsWith("Text")) {
+      if (message.body.startsWith("Text high")) {
+        console.log("reading image...")
+        const media = await message.downloadMedia()
+        if (media) {
+          console.log("sending to vision..")
+          const response = await visionQuality(media.data)
+          client.sendMessage(message.from, response)
+        }
+        else {
+          client.sendMessage(message.from, "Error downloading file.")
+        }
+      }
+      else if (message.body.startsWith("Text")) {
         console.log("reading image...")
         const media = await message.downloadMedia()
         if (media) {
