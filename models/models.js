@@ -152,6 +152,30 @@ async function vision(base64) {
   console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
+async function visionHelp(base64) {
+  const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+          {
+              role: "user",
+              content: [
+                  { type: "text", text: "The image is either Java or Javascript code. If code is required just respond with the code. If the answer is multiple choice respond normally." },
+                  {
+                      type: "image_url",
+                      image_url: {
+                          "url": `data:image/jpeg;base64,${base64}`,
+                          "detail": "high"
+                      },
+                  },
+              ],
+          },
+      ],
+      max_tokens: 1500,
+  });
+  console.log(response.usage)
+  console.log(`Total cost: $${calculateCost(response.usage)}`)
+  return response.choices[0].message.content;
+}
 async function dalle2generateResponse(userMessage) {
   try {
     const response = await openai.images.generate({
@@ -237,4 +261,4 @@ function calculateCost(tokens){
   const outputCost = tokens.completion_tokens * 30/1000000
   return (promptCost + outputCost).toFixed(3)
 }
-module.exports = {visionQuality,vision,dalle2generateResponse,switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}
+module.exports = {visionHelp,visionQuality,vision,dalle2generateResponse,switchLight,getGeocoding,getWeatherData,assistantgenerateResponse,gPT3WizardgenerateResponse,gPT4generateResponse,gPT3generateResponse,dallegenerateResponse,recipeGenerateResponse,instructGenerateResponse}
