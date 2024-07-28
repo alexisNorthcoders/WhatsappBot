@@ -2,7 +2,6 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { OpenAI } = require('openai');
 const dotenv = require("dotenv").config();
-const fetch = require('node-fetch');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors')

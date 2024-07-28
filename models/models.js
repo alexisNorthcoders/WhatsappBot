@@ -34,9 +34,9 @@ async function getWeatherData(city) {
 async function assistantgenerateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo-1106',
+      model: 'gpt-4o-mini',
       messages: [
-        { "role": "system", "content": "You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, send random pictures of Daniel, tell jokes and so on." },
+        { "role": "system", "content": "You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, recipes, tell jokes and so on." },
         { "role": "user", "content": userMessage }],
       max_tokens: 1000
       // Adjust this as needed for desired response length
@@ -67,7 +67,7 @@ async function gPT3generateResponse(userMessage) {
 async function gPT4generateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4-1106-preview',
+      model: 'gpt-4o',
       temperature: 0.7,
       messages: [
         { "role": "system", "content": "You will always give your responses summarized in bullet points unless asked otherwise." },
@@ -106,7 +106,7 @@ function convertToBase64(file) {
 }
 async function visionQuality(base64) {
   const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4-turbo",
       messages: [
           {
               role: "user",
@@ -128,38 +128,38 @@ async function visionQuality(base64) {
   console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
-async function vision(base64) {
-  const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
-      messages: [
-          {
-              role: "user",
-              content: [
-                  { type: "text", text: "Scan the image and extract the text." },
-                  {
-                      type: "image_url",
-                      image_url: {
-                          "url": `data:image/jpeg;base64,${base64}`,
-                          "detail": "low"
-                      },
-                  },
-              ],
-          },
-      ],
-      max_tokens: 1500,
-  });
-  console.log(response.usage)
-  console.log(`Total cost: $${calculateCost(response.usage)}`)
-  return response.choices[0].message.content;
-}
+  async function vision(base64) {
+    const response = await openai.chat.completions.create({
+        model: "gpt-4-turbo",
+        messages: [
+            {
+                role: "user",
+                content: [
+                    { type: "text", text: "Scan the image and extract the text." },
+                    {
+                        type: "image_url",
+                        image_url: {
+                            "url": `data:image/jpeg;base64,${base64}`,
+                            "detail": "low"
+                        },
+                    },
+                ],
+            },
+        ],
+        max_tokens: 1500,
+    });
+    console.log(response.usage)
+    console.log(`Total cost: $${calculateCost(response.usage)}`)
+    return response.choices[0].message.content;
+  }
 async function visionHelp(base64) {
   const response = await openai.chat.completions.create({
-      model: "gpt-4-vision-preview",
+      model: "gpt-4-turbo",
       messages: [
           {
               role: "user",
               content: [
-                  { type: "text", text: "The image is either Java or Javascript code. If code is required just respond with the code. If the answer is multiple choice respond normally." },
+                  { type: "text", text: "The image will be coding exercise in python. Help me solve it. Only give me the code." },
                   {
                       type: "image_url",
                       image_url: {

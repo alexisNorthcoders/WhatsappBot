@@ -5,10 +5,16 @@ const dotenv = require("dotenv").config();
 
 const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
 console.log("Starting WhatsApp Assistant...wait..")
-
 const client = new Client({
-    authStrategy: new LocalAuth()
+  webVersionCache: {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2410.1.html',
+    },
+
+    authStrategy: new LocalAuth(),
+
 });
+
 client.on('qr', qr => {
         qrcode.generate(qr, { small: true });
       });
@@ -150,7 +156,7 @@ client.on('message', async message => {
             client.sendMessage(message.from, media);
           }
           else if (message.body.startsWith("Help")) {
-            client.sendMessage(message.from, "Try any of my commands: \nWizard \nGpt3 \nDalle\nRecipe \nWeather");
+            client.sendMessage(message.from, "Try any of my commands: \nWizard \nGpt3 \nDalle\nRecipe \nWeather \nText high (send image to extract text) \nText (send image to extract text \nHelp (send image with code) \n!sendpoll (creates a poll)");
           }
       
           else {
