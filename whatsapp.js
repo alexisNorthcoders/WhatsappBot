@@ -1,6 +1,8 @@
 const { Client, LocalAuth, MessageMedia, Buttons, Poll } = require('whatsapp-web.js');
 const { dalle2generateResponse, switchLight, getWeatherData, gPT3generateResponse, gPT4generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse, gPT3WizardgenerateResponse, assistantgenerateResponse, vision, visionQuality, visionHelp, deepInfraAPI } = require("./models/models")
 const qrcode = require('qrcode-terminal');
+const { pickRandomTopic } = require('./data/helper');
+const { topics } = require('./data/topics');
 const dotenv = require("dotenv").config();
 
 const myPhone = process.env.MY_PHONE;
@@ -29,7 +31,7 @@ client.on('ready', () => {
     const now = new Date();
     const targetTime = new Date(now);
     targetTime.setHours(10, 0, 0, 0);
-   
+
     if (now > targetTime) {
       targetTime.setDate(targetTime.getDate() + 1);
     }
@@ -96,6 +98,9 @@ client.on('message', async message => {
         }
       }
     }
+    else if (message.body.startsWith('Altweather')) {
+      sendWeatherMessage()
+    }
     else if (message.body.startsWith('Deepinfra')) {
       const prompt = message.body.replace("Deepinfra ", "");
       const response = await deepInfraAPI(prompt)
@@ -106,7 +111,9 @@ client.on('message', async message => {
       await message.reply(new Poll('Winter or Summer?', ['Winter', 'Summer']))
     }
     else if (message.body.startsWith("Send")) {
-      sendRandomMessage(secondPhone)
+      await sendRandomMessage()
+      await sendRandomMessage(secondPhone)
+
     }
     else if (message.body.startsWith("Gpt4")) {
       const prompt = message.body.replace("Gpt4 ", "");
@@ -185,13 +192,29 @@ client.on('message', async message => {
 
 client.initialize();
 
-async function sendRandomMessage(recipient) {
+async function sendRandomMessage(recipient = myPhone) {
 
-  const response = await deepInfraAPI("Hello! Give me a random fact.")
+  const randomTopic = pickRandomTopic(topics)
+
+  const response = await deepInfraAPI(`Give me a random fact about ${randomTopic}.`)
 
   client.sendMessage(recipient, response)
     .then(() => {
       console.log('Random message sent:', response);
+    })
+    .catch((err) => {
+      console.error('Failed to send message:', err);
+    });
+}
+async function sendWeatherMessage(recipient = myPhone, city = "Manchester") {
+
+  const weatherResponse = await getWeatherData(city)
+
+  const response = await deepInfraAPI(`Read the following weather data and parse it in bullet points like you were a weatherman. ${JSON.stringify(weatherResponse)}`)
+
+  client.sendMessage(recipient, response)
+    .then(() => {
+      console.log('Weather message sent:', response);
     })
     .catch((err) => {
       console.error('Failed to send message:', err);
