@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
     "bootstrap": "^5.3.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -9,8 +10,7 @@
     "openai": "^4.53.2",
     "qrcode-terminal": "^0.12.0",
     "react-bootstrap": "^2.10.4",
-    "request": "^2.88.2",
-    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js#webpack-exodus"
+    "request": "^2.88.2"
   },
   "name": "whatsappbot",
   "version": "1.0.0",

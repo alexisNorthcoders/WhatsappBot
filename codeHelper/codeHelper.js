@@ -1,8 +1,6 @@
 import { input, confirm } from "@inquirer/prompts";
 import OpenAI from 'openai';
-
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 
 async function askForPrompt() {
   const answers = await input({ message: 'Insert your prompt: ' });
@@ -22,7 +20,7 @@ async function codeResponse(userMessage) {
       model: 'gpt-4o',
       temperature: 0.7,
       messages: [
-        { "role": "system", "content": "You are a senior software engineer. You will respond just with typescript code unless asked otherwise." },
+        { "role": "system", "content": "You are a helper. Keep your answers short and to the point. You are being used in a terminal so keep your answers properly formatted." },
         { "role": "user", "content": userMessage }],
       max_tokens: 1000
 
