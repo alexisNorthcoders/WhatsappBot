@@ -1,16 +1,16 @@
 const makeWASocket = require('@whiskeysockets/baileys').default;
+const commands = require('./whatsapp/commands');
 const {
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
-  makeInMemoryStore,
   downloadMediaMessage
 } = require('@whiskeysockets/baileys');
 const P = require('pino');
+const logger = P()
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
 const {
-  dalle2generateResponse, switchLight, getWeatherData, gPT4generateResponse,
-  gPT3WizardgenerateResponse, recipeGenerateResponse, deepInfraAPI,
+  dalle2generateResponse, switchLight, getWeatherData, deepInfraAPI,
   vision, visionQuality, visionHelp, assistantgenerateResponse
 } = require('./models/models');
 const { pickRandomTopic } = require('./data/helper');
@@ -42,9 +42,9 @@ async function startSock() {
     }
 
     if (connection === 'open') {
-      console.log('✅ WhatsApp connected.');
+      logger.info('✅ WhatsApp connected.');
     } else if (connection === 'close') {
-      console.log('❌ Connection closed.', lastDisconnect?.error?.message);
+      logger.error('❌ Connection closed.', lastDisconnect?.error?.message);
     }
   });
 
@@ -55,6 +55,8 @@ async function startSock() {
     const sender = msg.key.remoteJid;
     const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
     const button = text.toLowerCase();
+
+    const command = text.split(' ')[0].toLowerCase();
 
     try {
       if (buttons.includes(button)) {
@@ -77,15 +79,15 @@ async function startSock() {
           await sock.sendMessage(sender, { text: res });
         }
 
-      } else if (text.startsWith('Altweather')) {
+      }
+      else if (commands[command]) {
+        await commands[command](sock, sender, text);
+      }
+      else if (text.startsWith('Altweather')) {
         await sendWeatherMessage(sock, sender);
 
-      } else if (text.startsWith('Deepinfra')) {
-        const prompt = text.replace("Deepinfra ", "");
-        const response = await deepInfraAPI(prompt);
-        await sock.sendMessage(sender, { text: response });
-
-      } else if (text === '!sendpoll') {
+      }
+      else if (text === '!sendpoll') {
         await sock.sendMessage(sender, {
           poll: {
             name: 'Winter or Summer?',
@@ -98,22 +100,8 @@ async function startSock() {
         await sendRandomMessage(sock, sender);
         await sendRandomMessage(sock, secondPhone + '@s.whatsapp.net');
 
-      } else if (text.startsWith("Gpt4")) {
-        const prompt = text.replace("Gpt4 ", "");
-        const response = await gPT4generateResponse(prompt);
-        await sock.sendMessage(sender, { text: response });
-
-      } else if (text.startsWith("Wizard")) {
-        const prompt = text.replace("Wizard ", "");
-        const response = await gPT3WizardgenerateResponse(prompt);
-        await sock.sendMessage(sender, { text: response });
-
-      } else if (text.startsWith("Recipe")) {
-        const prompt = text.replace("Recipe ", "");
-        const response = await recipeGenerateResponse(prompt);
-        await sock.sendMessage(sender, { text: response });
-
-      } else if (text.startsWith("Weather")) {
+      }
+      else if (text.startsWith("Weather")) {
         const city = text.replace("Weather ", "");
         const forecast = await getWeatherData(city);
         const response = formatWeather(city, forecast);
@@ -126,13 +114,13 @@ async function startSock() {
           caption: 'Foto do Daniel'
         });
 
-      } else if (text === "Light on") {
-        await switchLight(8, true);
-        await sock.sendMessage(sender, { text: "Switched light on" });
+      } else if (text === "Office light") {
+        await switchLight(5, true);
+        await sock.sendMessage(sender, { text: "Switched office light on" });
 
-      } else if (text === "Light off") {
-        await switchLight(8, false);
-        await sock.sendMessage(sender, { text: "Switched light off" });
+      } else if (text === "Lights off") {
+        await switchOffAllLights();
+        await sock.sendMessage(sender, { text: "Switched all lights off" });
 
       } else if (text.startsWith("Dalle2")) {
         const prompt = text.replace("Dalle2 ", "");
@@ -144,19 +132,17 @@ async function startSock() {
         const url = await dallegenerateResponse(prompt);
         await sock.sendMessage(sender, { image: { url }, caption: prompt });
 
-      } else if (text.startsWith("Help")) {
-        await sock.sendMessage(sender, { text: "Try commands: Deepinfra, Wizard, Gpt4, Dalle, Recipe, Weather, Text (image), etc." });
-
-      } else {
+      }
+      else {
         const response = await assistantgenerateResponse(text);
         await sock.sendMessage(sender, { text: response });
       }
     } catch (err) {
-      console.error("❌ Error:", err);
+      logger.error("❌ Error:", err);
     }
   });
 
-  console.log("✅ Baileys connected.");
+  logger.info("✅ Baileys connected.");
 }
 
 function formatWeather(city, forecast) {
