@@ -96,10 +96,10 @@ async function startSock() {
           }
         });
 
-      } else if (text.startsWith("Send")) {
+      }
+      else if (text.startsWith("Send")) {
         await sendRandomMessage(sock, sender);
         await sendRandomMessage(sock, secondPhone + '@s.whatsapp.net');
-
       }
       else if (text.startsWith("Weather")) {
         const city = text.replace("Weather ", "");
@@ -107,30 +107,15 @@ async function startSock() {
         const response = formatWeather(city, forecast);
         await sock.sendMessage(sender, { text: response });
 
-      } else if (text === '!Daniel') {
-        const imageBuffer = fs.readFileSync('./files/photo001.jpg');
-        await sock.sendMessage(sender, {
-          image: imageBuffer,
-          caption: 'Foto do Daniel'
-        });
-
-      } else if (text === "Office light") {
+      }
+      else if (text === "Office light") {
         await switchLight(5, true);
         await sock.sendMessage(sender, { text: "Switched office light on" });
 
-      } else if (text === "Lights off") {
+      }
+      else if (text === "Lights off") {
         await switchOffAllLights();
         await sock.sendMessage(sender, { text: "Switched all lights off" });
-
-      } else if (text.startsWith("Dalle2")) {
-        const prompt = text.replace("Dalle2 ", "");
-        const url = await dalle2generateResponse(prompt);
-        await sock.sendMessage(sender, { image: { url }, caption: prompt });
-
-      } else if (text.startsWith("Dalle")) {
-        const prompt = text.replace("Dalle ", "");
-        const url = await dallegenerateResponse(prompt);
-        await sock.sendMessage(sender, { image: { url }, caption: prompt });
 
       }
       else {
