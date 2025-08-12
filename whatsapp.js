@@ -9,12 +9,12 @@ const P = require('pino');
 const logger = P()
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
-const {
-  dalle2generateResponse, switchLight, getWeatherData, deepInfraAPI,
+const { getWeatherData, deepInfraAPI,
   vision, visionQuality, visionHelp, assistantgenerateResponse
 } = require('./models/models');
 const { pickRandomTopic } = require('./data/helper');
 const { topics } = require('./data/topics');
+const lights = require('./whatsapp/commands/lights');
 require("dotenv").config();
 
 const myPhone = process.env.MY_PHONE;
@@ -108,16 +108,8 @@ async function startSock() {
         await sock.sendMessage(sender, { text: response });
 
       }
-      else if (text === "Office light") {
-        await switchLight(5, true);
-        await sock.sendMessage(sender, { text: "Switched office light on" });
-
-      }
-      else if (text === "Lights off") {
-        await switchOffAllLights();
-        await sock.sendMessage(sender, { text: "Switched all lights off" });
-
-      }
+      else if (text === "Office light") lights.lightOn(sock, send)
+      else if (text === "Lights off") lights.allOff(sock, sender)
       else {
         const response = await assistantgenerateResponse(text);
         await sock.sendMessage(sender, { text: response });
