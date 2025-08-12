@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors')
 const app = express();
-const { dalle2generateResponse, switchLight, getWeatherData, gPT3generateResponse, gPT4generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse, gPT3WizardgenerateResponse, assistantgenerateResponse, vision, visionQuality, visionHelp } = require("./models/models");
+const { getWeatherData, gPT3generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse } = require("./models/models");
 
 app.use(cors())
 

@@ -14,7 +14,6 @@ const { getWeatherData, deepInfraAPI,
 } = require('./models/models');
 const { pickRandomTopic } = require('./data/helper');
 const { topics } = require('./data/topics');
-const lights = require('./whatsapp/commands/lights');
 require("dotenv").config();
 
 const myPhone = process.env.MY_PHONE;
@@ -28,7 +27,7 @@ async function startSock() {
   const sock = makeWASocket({
     version,
     auth: state,
-    logger: P({ level: 'silent' })
+    logger: P({ level: 'debug' })
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -108,8 +107,8 @@ async function startSock() {
         await sock.sendMessage(sender, { text: response });
 
       }
-      else if (text === "Office light") lights.lightOn(sock, send)
-      else if (text === "Lights off") lights.allOff(sock, sender)
+      else if (text === "Office light") commands.hue.lightOn(sock, sender)
+      else if (text === "Lights off") commands.hue.lightsOff(sock, sender)
       else {
         const response = await assistantgenerateResponse(text);
         await sock.sendMessage(sender, { text: response });
