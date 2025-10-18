@@ -7,6 +7,7 @@ import qrcode from 'qrcode-terminal';
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from './models/models.js';
 import { pickRandomTopic } from './data/helper.js';
 import { topics } from './data/topics.js';
+import { initializeLightCache } from './hue/index.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -193,8 +194,22 @@ async function startSock() {
         await sock.sendMessage(sender, { text: response });
 
       }
-      else if (text === "Office light") commands.hue.lightOn(sock, sender)
+      else if (text.startsWith("Light on ")) {
+        const lightName = text.replace("Light on ", "");
+        commands.hue.lightOn(sock, sender, lightName);
+      }
+      else if (text.startsWith("Light off ")) {
+        const lightName = text.replace("Light off ", "");
+        commands.hue.lightOff(sock, sender, lightName);
+      }
       else if (text === "Lights off") commands.hue.lightsOff(sock, sender)
+      else if (text === "List lights") commands.hue.listLights(sock, sender)
+      else if (text.startsWith("Lights in ")) {
+        const roomName = text.replace("Lights in ", "");
+        commands.hue.listLightsByRoom(sock, sender, roomName);
+      }
+      else if (text === "Refresh cache") commands.hue.refreshCache(sock, sender)
+      else if (text === "Cache status") commands.hue.cacheStatus(sock, sender)
       else {
         const response = await assistantgenerateResponse(text);
         await sock.sendMessage(sender, { text: response });
@@ -298,4 +313,19 @@ async function sendWeatherMessage(sock, recipient = myPhone + "@s.whatsapp.net",
   await sock.sendMessage(recipient, { text: summary });
 }
 
-startSock();
+// Initialize the application
+async function initializeApp() {
+  try {
+    // Initialize light cache first
+    await initializeLightCache();
+    
+    // Then start the WhatsApp socket
+    await startSock();
+  } catch (error) {
+    console.error('Failed to initialize application:', error);
+    process.exit(1);
+  }
+}
+
+// Start the application
+initializeApp();

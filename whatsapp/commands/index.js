@@ -19,5 +19,10 @@ export {
 
 export const hue = {
     lightOn: lightsCommands.lightOn,
-    lightsOff: lightsCommands.allOff
+    lightOff: lightsCommands.lightOff,
+    lightsOff: lightsCommands.allOff,
+    listLights: lightsCommands.listLights,
+    listLightsByRoom: lightsCommands.listLightsByRoom,
+    refreshCache: lightsCommands.refreshCache,
+    cacheStatus: lightsCommands.cacheStatus
 }

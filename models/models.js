@@ -262,44 +262,9 @@ export async function gPT3WizardgenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-export async function switchOffAllLights() {
 
- const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/groups/0/action`;
-  try {
-
-    return await fetch(URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on: false })
-    })
-
-  } catch (error) {
-    console.log(error)
-    console.log("Error ", error);
-
-  }
-}
-
-export async function switchLight(lightID, state) {
-
- const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
-
-  try {
-
-    return await fetch(URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ on: state })
-    })
-
-  } catch (error) {
-    console.log("Error ", error);
-
-  }
-}
 export function calculateCost(tokens) {
   const promptCost = tokens.prompt_tokens * 10 / 1000000
   const outputCost = tokens.completion_tokens * 30 / 1000000
   return (promptCost + outputCost).toFixed(3)
 }
-// Exports are now handled by individual export statements
