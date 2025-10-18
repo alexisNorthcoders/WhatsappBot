@@ -157,3 +157,171 @@ export async function switchLightByName(lightName, state) {
     throw error;
   }
 }
+
+// Set light brightness (0-254)
+export async function setLightBrightness(lightID, brightness) {
+  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
+  
+  try {
+    // Clamp brightness between 0 and 254
+    const clampedBrightness = Math.max(0, Math.min(254, brightness));
+    
+    return await fetch(URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        on: clampedBrightness > 0,
+        bri: clampedBrightness 
+      })
+    });
+  } catch (error) {
+    console.log("Error setting brightness:", error);
+    throw error;
+  }
+}
+
+// Set light brightness by name
+export async function setLightBrightnessByName(lightName, brightness) {
+  try {
+    const light = await findLightByName(lightName);
+    
+    if (!light) {
+      throw new Error(`Light "${lightName}" not found`);
+    }
+    
+    return await setLightBrightness(light.id, brightness);
+  } catch (error) {
+    console.log("Error setting brightness by name:", error);
+    throw error;
+  }
+}
+
+// Set color temperature (153-500 mireds, lower = warmer, higher = cooler)
+export async function setLightColorTemperature(lightID, colorTemp) {
+  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
+  
+  try {
+    // Clamp color temperature between 153 and 500 mireds
+    const clampedColorTemp = Math.max(153, Math.min(500, colorTemp));
+    
+    return await fetch(URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        on: true,
+        ct: clampedColorTemp 
+      })
+    });
+  } catch (error) {
+    console.log("Error setting color temperature:", error);
+    throw error;
+  }
+}
+
+// Set color temperature by name
+export async function setLightColorTemperatureByName(lightName, colorTemp) {
+  try {
+    const light = await findLightByName(lightName);
+    
+    if (!light) {
+      throw new Error(`Light "${lightName}" not found`);
+    }
+    
+    return await setLightColorTemperature(light.id, colorTemp);
+  } catch (error) {
+    console.log("Error setting color temperature by name:", error);
+    throw error;
+  }
+}
+
+// Set light color using HSB values
+export async function setLightColor(lightID, hue, saturation, brightness) {
+  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
+  
+  try {
+    // Clamp values to valid ranges
+    const clampedHue = Math.max(0, Math.min(65535, hue));
+    const clampedSat = Math.max(0, Math.min(254, saturation));
+    const clampedBri = Math.max(0, Math.min(254, brightness));
+    
+    return await fetch(URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        on: true,
+        hue: clampedHue,
+        sat: clampedSat,
+        bri: clampedBri
+      })
+    });
+  } catch (error) {
+    console.log("Error setting color:", error);
+    throw error;
+  }
+}
+
+// Set light color by name
+export async function setLightColorByName(lightName, hue, saturation, brightness) {
+  try {
+    const light = await findLightByName(lightName);
+    
+    if (!light) {
+      throw new Error(`Light "${lightName}" not found`);
+    }
+    
+    return await setLightColor(light.id, hue, saturation, brightness);
+  } catch (error) {
+    console.log("Error setting color by name:", error);
+    throw error;
+  }
+}
+
+// Get light capabilities and current state
+export async function getLightInfo(lightID) {
+  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}`;
+  
+  try {
+    const response = await fetch(URL);
+    const light = await response.json();
+    
+    return {
+      id: lightID,
+      name: light.name,
+      type: light.type,
+      modelid: light.modelid,
+      capabilities: {
+        hasColor: light.capabilities && light.capabilities.control && light.capabilities.control.colorgamut,
+        hasColorTemp: light.capabilities && light.capabilities.control && light.capabilities.control.ct,
+        hasBrightness: light.capabilities && light.capabilities.control && light.capabilities.control.bri
+      },
+      state: {
+        on: light.state.on,
+        brightness: light.state.bri,
+        colorTemp: light.state.ct,
+        hue: light.state.hue,
+        saturation: light.state.sat,
+        xy: light.state.xy,
+        colormode: light.state.colormode
+      }
+    };
+  } catch (error) {
+    console.log("Error getting light info:", error);
+    throw error;
+  }
+}
+
+// Get light info by name
+export async function getLightInfoByName(lightName) {
+  try {
+    const light = await findLightByName(lightName);
+    
+    if (!light) {
+      throw new Error(`Light "${lightName}" not found`);
+    }
+    
+    return await getLightInfo(light.id);
+  } catch (error) {
+    console.log("Error getting light info by name:", error);
+    throw error;
+  }
+}

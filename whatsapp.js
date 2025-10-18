@@ -208,6 +208,40 @@ async function startSock() {
         const roomName = text.replace("Lights in ", "");
         commands.hue.listLightsByRoom(sock, sender, roomName);
       }
+      else if (text.startsWith("Brightness ")) {
+        const parts = text.replace("Brightness ", "").split(" ");
+        if (parts.length >= 2) {
+          const brightness = parts[0];
+          const lightName = parts.slice(1).join(" ");
+          commands.hue.setBrightness(sock, sender, lightName, brightness);
+        } else {
+          await sock.sendMessage(sender, { text: "Usage: Brightness <0-100> <light name>" });
+        }
+      }
+      else if (text.startsWith("Color temp ")) {
+        const parts = text.replace("Color temp ", "").split(" ");
+        if (parts.length >= 2) {
+          const colorTemp = parts[0];
+          const lightName = parts.slice(1).join(" ");
+          commands.hue.setColorTemp(sock, sender, lightName, colorTemp);
+        } else {
+          await sock.sendMessage(sender, { text: "Usage: Color temp <1-10> <light name>" });
+        }
+      }
+      else if (text.startsWith("Color ")) {
+        const parts = text.replace("Color ", "").split(" ");
+        if (parts.length >= 2) {
+          const color = parts[0];
+          const lightName = parts.slice(1).join(" ");
+          commands.hue.setColor(sock, sender, lightName, color);
+        } else {
+          await sock.sendMessage(sender, { text: "Usage: Color <color> <light name>" });
+        }
+      }
+      else if (text.startsWith("Light info ")) {
+        const lightName = text.replace("Light info ", "");
+        commands.hue.lightInfo(sock, sender, lightName);
+      }
       else if (text === "Refresh cache") commands.hue.refreshCache(sock, sender)
       else if (text === "Cache status") commands.hue.cacheStatus(sock, sender)
       else {

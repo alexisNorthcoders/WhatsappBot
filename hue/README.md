@@ -47,6 +47,58 @@ Turns a light on or off by its name.
   - `state` (boolean): `true` to turn on, `false` to turn off
 - **Throws:** Error if light is not found
 
+### `setLightBrightness(lightID, brightness)`
+Sets the brightness of a light (0-254).
+- **Parameters:**
+  - `lightID` (string): ID of the light
+  - `brightness` (number): Brightness value (0-254)
+
+### `setLightBrightnessByName(lightName, brightness)`
+Sets the brightness of a light by name.
+- **Parameters:**
+  - `lightName` (string): Name of the light
+  - `brightness` (number): Brightness value (0-254)
+
+### `setLightColorTemperature(lightID, colorTemp)`
+Sets the color temperature of a light (153-500 mireds).
+- **Parameters:**
+  - `lightID` (string): ID of the light
+  - `colorTemp` (number): Color temperature in mireds (153=warmest, 500=coolest)
+
+### `setLightColorTemperatureByName(lightName, colorTemp)`
+Sets the color temperature of a light by name.
+- **Parameters:**
+  - `lightName` (string): Name of the light
+  - `colorTemp` (number): Color temperature in mireds
+
+### `setLightColor(lightID, hue, saturation, brightness)`
+Sets the color of a light using HSB values.
+- **Parameters:**
+  - `lightID` (string): ID of the light
+  - `hue` (number): Hue value (0-65535)
+  - `saturation` (number): Saturation value (0-254)
+  - `brightness` (number): Brightness value (0-254)
+
+### `setLightColorByName(lightName, hue, saturation, brightness)`
+Sets the color of a light by name using HSB values.
+- **Parameters:**
+  - `lightName` (string): Name of the light
+  - `hue` (number): Hue value (0-65535)
+  - `saturation` (number): Saturation value (0-254)
+  - `brightness` (number): Brightness value (0-254)
+
+### `getLightInfo(lightID)`
+Gets detailed information about a light including capabilities and current state.
+- **Parameters:**
+  - `lightID` (string): ID of the light
+- **Returns:** Object with light info, capabilities, and current state
+
+### `getLightInfoByName(lightName)`
+Gets detailed information about a light by name.
+- **Parameters:**
+  - `lightName` (string): Name of the light
+- **Returns:** Object with light info, capabilities, and current state
+
 ## Environment Variables Required
 
 - `HUE_IP`: IP address of your Philips Hue Bridge
@@ -70,8 +122,27 @@ await switchLightByName("Living Room Light", true);
 
 ## WhatsApp Commands
 
+### Basic Control
 - `Light on <name>` - Turn on a specific light by name
 - `Light off <name>` - Turn off a specific light by name
+- `Lights off` - Turn off all lights
+
+### Light Information
 - `List lights` - Show all lights with their names and IDs
 - `Lights in <room>` - Show lights in a specific room
-- `Lights off` - Turn off all lights
+- `Light info <name>` - Get detailed info about a specific light
+
+### Brightness Control
+- `Brightness <0-100> <name>` - Set brightness percentage (0-100%)
+
+### Color Temperature Control
+- `Color temp <1-10> <name>` - Set color temperature (1=warmest, 10=coolest)
+
+### Color Control
+- `Color <color> <name>` - Set light color using predefined colors
+  - Available colors: red, green, blue, yellow, orange, purple, pink, white
+  - Or use HSB values: `Color 0,254,254 <name>` (hue,sat,bri)
+
+### Cache Management
+- `Refresh cache` - Manually refresh the light cache
+- `Cache status` - Check cache status and statistics

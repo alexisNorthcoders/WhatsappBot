@@ -23,6 +23,10 @@ export const hue = {
     lightsOff: lightsCommands.allOff,
     listLights: lightsCommands.listLights,
     listLightsByRoom: lightsCommands.listLightsByRoom,
+    setBrightness: lightsCommands.setBrightness,
+    setColorTemp: lightsCommands.setColorTemp,
+    setColor: lightsCommands.setColor,
+    lightInfo: lightsCommands.lightInfo,
     refreshCache: lightsCommands.refreshCache,
     cacheStatus: lightsCommands.cacheStatus
 }
