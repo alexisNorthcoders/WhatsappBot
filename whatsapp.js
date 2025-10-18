@@ -244,6 +244,28 @@ async function startSock() {
       }
       else if (text === "Refresh cache") commands.hue.refreshCache(sock, sender)
       else if (text === "Cache status") commands.hue.cacheStatus(sock, sender)
+      else if (text.startsWith("Add note ")) {
+        const noteContent = text.replace("Add note ", "");
+        commands.joplin.addNote(sock, sender, `addnote ${noteContent}`);
+      }
+      else if (text === "List notebooks") commands.joplin.listNotebooks(sock, sender)
+      else if (text.startsWith("Search notes ")) {
+        const query = text.replace("Search notes ", "");
+        commands.joplin.searchNotes(sock, sender, `searchnotes ${query}`);
+      }
+      else if (text.startsWith("Get note ")) {
+        const noteId = text.replace("Get note ", "");
+        commands.joplin.getNote(sock, sender, `getnote ${noteId}`);
+      }
+      else if (text.startsWith("Update note ")) {
+        const updateContent = text.replace("Update note ", "");
+        commands.joplin.updateNote(sock, sender, `updatenote ${updateContent}`);
+      }
+      else if (text.startsWith("Delete note ")) {
+        const noteId = text.replace("Delete note ", "");
+        commands.joplin.deleteNote(sock, sender, `deletenote ${noteId}`);
+      }
+      else if (text === "Joplin help") commands.joplin.help(sock, sender)
       else {
         const response = await assistantgenerateResponse(text);
         await sock.sendMessage(sender, { text: response });

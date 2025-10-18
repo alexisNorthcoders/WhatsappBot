@@ -6,6 +6,7 @@ import recipeCommand from './recipe.js';
 import imageCommand from './image.js';
 import danielCommand from './daniel.js';
 import * as lightsCommands from './lights.js';
+import * as joplinCommands from './joplin.js';
 
 export {
     gpt4Command as gpt4,
@@ -29,4 +30,14 @@ export const hue = {
     lightInfo: lightsCommands.lightInfo,
     refreshCache: lightsCommands.refreshCache,
     cacheStatus: lightsCommands.cacheStatus
+}
+
+export const joplin = {
+    addNote: joplinCommands.addNote,
+    listNotebooks: joplinCommands.listNotebooks,
+    searchNotes: joplinCommands.searchNotes,
+    getNote: joplinCommands.getNote,
+    updateNote: joplinCommands.updateNote,
+    deleteNote: joplinCommands.deleteNote,
+    help: joplinCommands.joplinHelp
 }

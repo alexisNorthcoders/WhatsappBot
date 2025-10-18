@@ -17,7 +17,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node --no-deprecation whatsapp.js",
+    "start:joplin": "node --no-deprecation test-joplin.js"
   },
   "keywords": [],
   "author": "",
