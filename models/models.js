@@ -1,6 +1,9 @@
-const { OpenAI } = require('openai');
-const dotenv = require("dotenv").config();
-const fs = require('fs');
+import { OpenAI } from 'openai';
+import dotenv from 'dotenv';
+import { promises as fs } from 'fs';
+
+dotenv.config();
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const deepInfra = new OpenAI({
@@ -8,7 +11,7 @@ const deepInfra = new OpenAI({
   apiKey: process.env.DEEPINFRA_API_KEY,
 });
 
-async function deepInfraAPI(content, model = "deepseek-ai/DeepSeek-V3") {
+export async function deepInfraAPI(content, model = "deepseek-ai/DeepSeek-V3") {
   const completion = await deepInfra.chat.completions.create({
     messages: [{ role: "user", content }],
     model,
@@ -19,7 +22,7 @@ async function deepInfraAPI(content, model = "deepseek-ai/DeepSeek-V3") {
   return completion.choices[0].message.content
 }
 
-async function getGeocoding(city) {
+export async function getGeocoding(city) {
   const apiKey = process.env.OPENWEATHER_API_KEY;
   const geocodeURL = `http://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=1&appid=${apiKey}`;
   try {
@@ -32,7 +35,7 @@ async function getGeocoding(city) {
   }
 
 }
-async function getWeatherData(city) {
+export async function getWeatherData(city) {
   const apiKey = process.env.OPENWEATHER_API_KEY;
   ;
   try {
@@ -47,7 +50,7 @@ async function getWeatherData(city) {
     throw error;
   }
 }
-async function assistantgenerateResponse(userMessage) {
+export async function assistantgenerateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4.1-mini',
@@ -65,7 +68,7 @@ async function assistantgenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function gPT4generateResponse(userMessage) {
+export async function gPT4generateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -82,7 +85,7 @@ async function gPT4generateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function codeResponse(userMessage) {
+export async function codeResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'o4-mini',
@@ -99,7 +102,7 @@ async function codeResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function dallegenerateResponse(userMessage) {
+export async function dallegenerateResponse(userMessage) {
   try {
     const response = await openai.images.generate({
       model: "gpt-image-1",
@@ -117,12 +120,12 @@ async function dallegenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-function convertToBase64(file) {
+export function convertToBase64(file) {
   let fileData = fs.readFileSync(file);
   return new Buffer.from(fileData).toString("base64");
 
 }
-async function visionQuality(base64) {
+export async function visionQuality(base64) {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -146,7 +149,7 @@ async function visionQuality(base64) {
   console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
-async function vision(base64) {
+export async function vision(base64) {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -170,7 +173,7 @@ async function vision(base64) {
   console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
-async function visionHelp(base64) {
+export async function visionHelp(base64) {
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     messages: [
@@ -194,7 +197,7 @@ async function visionHelp(base64) {
   console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
-async function gptImageGenerateResponse(userMessage) {
+export async function gptImageGenerateResponse(userMessage) {
   try {
     const response = await openai.images.generate({
       model: "dall-e-3",
@@ -212,7 +215,7 @@ async function gptImageGenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function recipeGenerateResponse(userMessage) {
+export async function recipeGenerateResponse(userMessage) {
   try {
     const completion = await openai.completions.create({
       model: 'gpt-3.5-turbo-instruct',
@@ -227,7 +230,7 @@ async function recipeGenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function instructGenerateResponse(userMessage) {
+export async function instructGenerateResponse(userMessage) {
   try {
     const completion = await openai.completions.create({
       model: 'gpt-3.5-turbo-instruct',
@@ -242,7 +245,7 @@ async function instructGenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function gPT3WizardgenerateResponse(userMessage) {
+export async function gPT3WizardgenerateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -259,7 +262,7 @@ async function gPT3WizardgenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-async function switchOffAllLights() {
+export async function switchOffAllLights() {
 
  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/groups/0/action`;
   try {
@@ -277,7 +280,7 @@ async function switchOffAllLights() {
   }
 }
 
-async function switchLight(lightID, state) {
+export async function switchLight(lightID, state) {
 
  const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
 
@@ -294,9 +297,9 @@ async function switchLight(lightID, state) {
 
   }
 }
-function calculateCost(tokens) {
+export function calculateCost(tokens) {
   const promptCost = tokens.prompt_tokens * 10 / 1000000
   const outputCost = tokens.completion_tokens * 30 / 1000000
   return (promptCost + outputCost).toFixed(3)
 }
-module.exports = { switchOffAllLights, deepInfraAPI, codeResponse, visionHelp, visionQuality, vision, gptImageGenerateResponse, switchLight, getGeocoding, getWeatherData, assistantgenerateResponse, gPT3WizardgenerateResponse, gPT4generateResponse, dallegenerateResponse, recipeGenerateResponse, instructGenerateResponse }
+// Exports are now handled by individual export statements

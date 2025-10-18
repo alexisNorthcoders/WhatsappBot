@@ -1,7 +1,7 @@
-const { gptImageGenerateResponse } = require("../../models/models");
+import { gptImageGenerateResponse } from "../../models/models.js";
 
-module.exports = async function imageCommand(sock, sender, text) {
+export default async function imageCommand(sock, sender, text) {
     const prompt = text.replace("Image ", "");
     const url = await gptImageGenerateResponse(prompt);
     await sock.sendMessage(sender, { image: { url }, caption: prompt });
-};
+}

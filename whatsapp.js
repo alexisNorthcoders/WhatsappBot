@@ -1,20 +1,14 @@
-const makeWASocket = require('@whiskeysockets/baileys').default;
-const commands = require('./whatsapp/commands');
-const {
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  downloadMediaMessage
-} = require('@whiskeysockets/baileys');
-const P = require('pino');
-const logger = P()
-const fs = require('fs');
-const qrcode = require('qrcode-terminal');
-const { getWeatherData, deepInfraAPI,
-  vision, visionQuality, visionHelp, assistantgenerateResponse
-} = require('./models/models');
-const { pickRandomTopic } = require('./data/helper');
-const { topics } = require('./data/topics');
-require("dotenv").config();
+import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
+import * as commands from './whatsapp/commands/index.js';
+import pino from 'pino';
+const logger = pino();
+import { promises as fs } from 'fs';
+import qrcode from 'qrcode-terminal';
+import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from './models/models.js';
+import { pickRandomTopic } from './data/helper.js';
+import { topics } from './data/topics.js';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const myPhone = process.env.MY_PHONE;
 const secondPhone = process.env.SECOND_PHONE;
@@ -27,10 +21,55 @@ async function startSock() {
   const sock = makeWASocket({
     version,
     auth: state,
-    logger: P({ level: 'debug' })
+    logger: pino({ level: 'debug' }),
+    printQRInTerminal: true,
+    browser: ["WhatsApp Bot", "Chrome", "1.0.0"],
+    
+    // Connection settings
+    connectTimeoutMs: 60_000,
+    defaultQueryTimeoutMs: 60_000,
+    emitOwnEvents: true,
+    markOnlineOnConnect: true,
+    
+    // Sync settings
+    syncFullHistory: false,
+    shouldIgnoreJid: jid => false,
+    shouldSyncHistoryMessage: () => false,
+    
+    // Message retry and cache settings
+    msgRetryCounterCache: {
+      maxRetriesPerMessage: 3,
+    },
+    getMessage: async () => undefined,
+    
+    // Link preview and media settings
+    generateHighQualityLinkPreview: true,
+    patchMessageBeforeSending: (message) => message,
+    
+    // Device and cache settings
+    userDevicesCache: new Map(),
+    
+    // Timeout settings
+    retryRequestDelayMs: 250
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // Handle device properties and messaging history
+  sock.ev.on('messaging-history.set', ({ chats, contacts, messages, isLatest }) => {
+    logger.info(`Received messaging history: ${chats.length} chats, ${contacts.length} contacts, ${messages.length} messages`);
+    if (isLatest) {
+      logger.info('History is up to date');
+    }
+  });
+
+  // Handle received properties
+  sock.ev.on('received-patcher', async ({ data, namespace }) => {
+    logger.info('Received properties:', { namespace });
+    if (namespace === 'critical_block') {
+      logger.info('Received critical properties');
+    }
+  });
 
   sock.ev.on('connection.update', (update) => {
     const { qr, connection, lastDisconnect } = update;
@@ -43,24 +82,65 @@ async function startSock() {
     if (connection === 'open') {
       logger.info('✅ WhatsApp connected.');
     } else if (connection === 'close') {
-      logger.error('❌ Connection closed.', lastDisconnect?.error?.message);
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== 401 && statusCode !== 440;
+      
+      logger.info('❌ Connection closed. Status code:', statusCode);
+      
+      if (shouldReconnect) {
+        logger.info('🔄 Reconnecting...');
+        setTimeout(() => {
+          logger.info('Starting reconnection...');
+          startSock();
+        }, 5000); // Wait 5 seconds before reconnecting
+      } else {
+        logger.error('❌ Connection closed permanently.');
+      }
+    } else if (connection === 'connecting') {
+      logger.info('🔄 Connecting to WhatsApp...');
     }
   });
 
-  sock.ev.on('messages.upsert', async ({ messages }) => {
+  sock.ev.on('messages.upsert', async ({ messages, type }) => {
     const msg = messages[0];
     if (!msg.message || msg.key.fromMe) return;
 
     const sender = msg.key.remoteJid;
+    const messageType = Object.keys(msg.message)[0];
+    
+    // Send read receipt
+    try {
+      await sock.readMessages([msg.key]);
+      logger.info(`Sent read receipt for message ${msg.key.id}`);
+    } catch (err) {
+      logger.warn(`Failed to send read receipt: ${err.message}`);
+    }
+
     const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
     const button = text.toLowerCase();
 
     const command = text.split(' ')[0].toLowerCase();
 
     try {
+      // Log incoming message details for debugging
+      logger.info('Processing message:', {
+        messageId: msg.key.id,
+        type: messageType,
+        command: command,
+        isButton: buttons.includes(button)
+      });
+
       if (buttons.includes(button)) {
-        if (['a', 'b'].includes(button)) fs.writeFileSync('button.txt', button.toUpperCase(), 'utf8');
-        else fs.writeFileSync('button.txt', button, 'utf8');
+        try {
+          if (['a', 'b'].includes(button)) {
+            await fs.writeFile('button.txt', button.toUpperCase(), 'utf8');
+          } else {
+            await fs.writeFile('button.txt', button, 'utf8');
+          }
+          logger.info('Button processed:', button);
+        } catch (fsErr) {
+          throw new Error(`Failed to write button: ${fsErr.message}`);
+        }
       }
 
       // Media processing (image with caption)
@@ -80,7 +160,13 @@ async function startSock() {
 
       }
       else if (commands[command]) {
-        await commands[command](sock, sender, text);
+        try {
+          logger.info(`Executing command: ${command}`);
+          await commands[command](sock, sender, text);
+          logger.info(`Command completed: ${command}`);
+        } catch (cmdErr) {
+          throw new Error(`Command '${command}' failed: ${cmdErr.message}`);
+        }
       }
       else if (text.startsWith('Altweather')) {
         await sendWeatherMessage(sock, sender);
@@ -114,7 +200,76 @@ async function startSock() {
         await sock.sendMessage(sender, { text: response });
       }
     } catch (err) {
-      logger.error("❌ Error:", err);
+      // Log detailed error information
+      logger.error("❌ Error processing message:", {
+        error: err.message,
+        stack: err.stack,
+        messageId: msg.key.id,
+        sender: sender,
+        type: messageType,
+        text: text,
+        command: command,
+        context: {
+          isButton: buttons.includes(button),
+          isImage: !!msg.message.imageMessage,
+          isCommand: !!commands[command]
+        }
+      });
+      
+      // Try to notify the sender of the error with more specific information
+      try {
+        const errorMessage = err.message.includes('network') 
+          ? "Sorry, there seems to be a connection issue. Please try again in a moment."
+          : "Sorry, there was an error processing your message. Please try again.";
+        
+        await sock.sendMessage(sender, { text: errorMessage });
+      } catch (notifyErr) {
+        logger.error("Failed to send error notification:", {
+          error: notifyErr.message,
+          originalError: err.message,
+          sender: sender
+        });
+      }
+    }
+  });
+
+  // Handle message receipt events
+  sock.ev.on('message-receipt.update', async (updates) => {
+    for (const update of updates) {
+      try {
+        const { key, receipt } = update;
+        logger.info('Receipt update:', {
+          messageId: key.id,
+          remoteJid: key.remoteJid,
+          fromMe: key.fromMe,
+          receiptType: receipt.type,
+          timestamp: receipt.timestamp,
+          receiptDetails: receipt
+        });
+      } catch (err) {
+        logger.warn('Failed to process receipt update:', {
+          error: err.message,
+          update: JSON.stringify(update)
+        });
+      }
+    }
+  });
+
+  // Handle acknowledgments
+  sock.ev.on('messages.update', async (updates) => {
+    for (const update of updates) {
+      try {
+        logger.info('Message update:', {
+          messageId: update.key.id,
+          update: update.update,
+          type: update.type
+        });
+      } catch (err) {
+        logger.warn('Failed to process message update:', {
+          error: err.message,
+          update: JSON.stringify(update)
+        });
+      }
     }
   });
 

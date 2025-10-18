@@ -1,23 +1,23 @@
-const gpt4Command = require('./gpt4');
-const helpCommand = require('./help');
-const deepInfraCommand = require('./deepinfra')
-const wizardCommand = require('./wizard')
-const recipeCommand = require('./recipe')
-const imageCommand = require('./image')
-const danielCommand = require('./daniel');
-const lightsCommands = require('./lights');
+import gpt4Command from './gpt4.js';
+import helpCommand from './help.js';
+import deepInfraCommand from './deepinfra.js';
+import wizardCommand from './wizard.js';
+import recipeCommand from './recipe.js';
+import imageCommand from './image.js';
+import danielCommand from './daniel.js';
+import * as lightsCommands from './lights.js';
 
-module.exports = {
-    gpt4: gpt4Command,
-    help: helpCommand,
-    deepinfra: deepInfraCommand,
-    wizard: wizardCommand,
-    recipe: recipeCommand,
-    image: imageCommand,
-    daniel: danielCommand,
-    hue: {
-        lightOn: lightsCommands.lightOn,
-        lightsOff: lightsCommands.allOff
-
-    }
+export {
+    gpt4Command as gpt4,
+    helpCommand as help,
+    deepInfraCommand as deepinfra,
+    wizardCommand as wizard,
+    recipeCommand as recipe,
+    imageCommand as image,
+    danielCommand as daniel
 };
+
+export const hue = {
+    lightOn: lightsCommands.lightOn,
+    lightsOff: lightsCommands.allOff
+}

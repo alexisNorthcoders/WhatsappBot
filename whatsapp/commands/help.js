@@ -1,4 +1,4 @@
-module.exports = async function helpCommand(sock, sender) {
+export default async function helpCommand(sock, sender) {
   const helpText = `Try commands:
 - Deepinfra [prompt]
 - Wizard [prompt]

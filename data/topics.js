@@ -1,4 +1,4 @@
-const topics = [
+export const topics = [
     "Dragonlance",
     "Lord of the Rings",
     "American Psycho",
@@ -136,5 +136,3 @@ const topics = [
     "The Myth of Atlantis",
     "Fairy Tales & Their Origins"
 ]
-
-module.exports = { topics }
