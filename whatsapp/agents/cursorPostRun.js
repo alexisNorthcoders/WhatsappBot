@@ -219,13 +219,42 @@ async function execGit(args, cwd) {
   return { stdout: stdout || '', stderr: stderr || '' };
 }
 
-function slugCommitMessage(prompt) {
-  const s = String(prompt)
-    .replace(/[\r\n]+/g, ' ')
-    .replace(/["`]/g, "'")
+/** Keep CLI auto-commit subjects short for logs and GitHub. */
+const CLI_COMMIT_SUBJECT_MAX = 72;
+
+/**
+ * One-line summary from paths + `git diff --shortstat` (no LLM).
+ * @param {string} nameOnlyStdout
+ * @param {string} shortstatStdout
+ */
+function buildCliCommitMessage(nameOnlyStdout, shortstatStdout) {
+  const paths = String(nameOnlyStdout || '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const statLine = String(shortstatStdout || '')
     .trim()
-    .slice(0, 72);
-  return s || 'cursor run';
+    .replace(/\s+/g, ' ');
+
+  if (!paths.length) {
+    return statLine ? `cli commit: ${statLine}` : 'cli commit: update';
+  }
+
+  const basenames = paths.map((p) => {
+    const base = p.split('/').pop() || p;
+    return base.length > 36 ? `${base.slice(0, 33)}…` : base;
+  });
+  const maxShow = 3;
+  const head = basenames.slice(0, maxShow).join(', ');
+  const extra = basenames.length > maxShow ? ` +${basenames.length - maxShow}` : '';
+  let summary = head + extra;
+  if (statLine) summary = `${summary} — ${statLine}`;
+
+  const prefix = 'cli commit: ';
+  const budget = CLI_COMMIT_SUBJECT_MAX - prefix.length;
+  if (summary.length <= budget) return prefix + summary;
+  if (budget < 12) return `${prefix}update`;
+  return prefix + summary.slice(0, budget - 1) + '…';
 }
 
 function truncate(s, max) {
@@ -280,10 +309,12 @@ async function waitForDirtyWorkspace(repo) {
   return { dirty, porcelain, waitedMs: Date.now() - start, polls };
 }
 
-async function tryCommit(repo, userPrompt) {
-  const msg = `cli commit: ${slugCommitMessage(userPrompt)}`;
+async function tryCommit(repo) {
   try {
     await execGit(['add', '-A'], repo);
+    const { stdout: nameOnly } = await execGit(['diff', '--cached', '--name-only', 'HEAD'], repo);
+    const { stdout: shortstat } = await execGit(['diff', '--cached', '--shortstat', 'HEAD'], repo);
+    const msg = buildCliCommitMessage(nameOnly, shortstat);
     const { stdout, stderr } = await execGit(['commit', '-m', msg], repo);
     const combined = (stdout + stderr).toLowerCase();
     if (combined.includes('nothing to commit')) {
@@ -409,7 +440,7 @@ export async function maybeCommitReviewEmail(opts) {
 
   logPost('working tree dirty, committing', { waitedMs: wait.waitedMs, polls: wait.polls });
 
-  const commit = await tryCommit(repo, userPrompt);
+  const commit = await tryCommit(repo);
   logPost('tryCommit result', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
   const diffFull = await getDiffText(repo, commit.ok);
   if (!diffFull.trim()) {
