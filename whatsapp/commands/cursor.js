@@ -7,10 +7,48 @@ import {
 } from '../agents/cursorCliPending.js';
 import { logAgentInvocation } from '../agents/agentUsageLog.js';
 import { maybeCommitReviewEmail } from '../agents/cursorPostRun.js';
+import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 
 dotenv.config();
 
 const WA_TEXT_MAX = 4096;
+const JOPLIN_NOTEBOOK =
+  process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
+
+const JOPLIN_PREFIX_RE = /^joplin:\s*(.+)/i;
+
+/**
+ * Detect `joplin:<query>` at the start of the prompt.
+ * Returns { noteQuery } if matched, otherwise null.
+ */
+function parseJoplinPrefix(prompt) {
+  const m = prompt.match(JOPLIN_PREFIX_RE);
+  if (!m) return null;
+  return { noteQuery: m[1].trim() };
+}
+
+function isHexId(s) {
+  return /^[a-f0-9]{6,}$/i.test(s);
+}
+
+/**
+ * Fetch the body of a Joplin note by title or hex id, scoped to the bot notebook.
+ * Returns { title, body, id }.
+ */
+async function fetchJoplinNote(noteQuery) {
+  if (isHexId(noteQuery)) {
+    return joplinAPI.getNoteInNotebook(noteQuery, JOPLIN_NOTEBOOK);
+  }
+  const results = await joplinAPI.searchNotesInNotebook(JOPLIN_NOTEBOOK, noteQuery);
+  if (results.length === 0) {
+    throw new Error(`No Joplin notes matching "${noteQuery}" in notebook "${JOPLIN_NOTEBOOK}".`);
+  }
+  const exact = results.find(
+    (n) => n.title.toLowerCase() === noteQuery.toLowerCase()
+  );
+  const best = exact || results[0];
+  return joplinAPI.getNoteInNotebook(best.id, JOPLIN_NOTEBOOK);
+}
 
 function digitsOnly(s) {
   return String(s ?? '').replace(/\D/g, '');
@@ -143,12 +181,39 @@ export default async function cursorCommand(sock, sender, text, msg) {
     return;
   }
 
-  const prompt = text.replace(/^cursor\s*/i, '').trim();
-  if (!prompt) {
+  const rawPrompt = text.replace(/^cursor\s*/i, '').trim();
+  if (!rawPrompt) {
     await sock.sendMessage(sender, {
-      text: 'Usage: cursor <instructions for the agent>\nExample: cursor add a README section about deployment.',
+      text: 'Usage:\ncursor <instructions>\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor joplin:refactor-plan',
     });
     return;
+  }
+
+  let prompt = rawPrompt;
+  let joplinSource = null;
+
+  const joplinMatch = parseJoplinPrefix(rawPrompt);
+  if (joplinMatch) {
+    try {
+      await sock.sendMessage(sender, {
+        text: `Reading Joplin note "${joplinMatch.noteQuery}" from notebook "${JOPLIN_NOTEBOOK}" …`,
+      });
+      const note = await fetchJoplinNote(joplinMatch.noteQuery);
+      const body = (note.body || '').trim();
+      if (!body) {
+        await sock.sendMessage(sender, {
+          text: `Joplin note "${note.title}" (${note.id}) has an empty body — nothing to send to Cursor.`,
+        });
+        return;
+      }
+      prompt = body;
+      joplinSource = { title: note.title, id: note.id };
+    } catch (err) {
+      await sock.sendMessage(sender, {
+        text: `Failed to read Joplin note: ${err.message || String(err)}`,
+      });
+      return;
+    }
   }
 
   const repo = getCursorCliRepoRoot();
@@ -168,9 +233,12 @@ export default async function cursorCommand(sock, sender, text, msg) {
   let delivered = false;
 
   try {
+    const sourceHint = joplinSource
+      ? `\nSource: Joplin note "${joplinSource.title}" (${joplinSource.id})`
+      : '';
     await sock.sendMessage(sender, {
       text:
-        `Running Cursor agent in ${repo} …\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
+        `Running Cursor agent in ${repo} …${sourceHint}\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
     });
 
     result = await runCursorCliAgent(prompt, { runId });

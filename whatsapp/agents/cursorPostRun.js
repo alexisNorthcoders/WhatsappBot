@@ -16,9 +16,27 @@ const DIFF_CAP_LLM = parseInt(process.env.CURSOR_REVIEW_DIFF_MAX_CHARS || '10000
 const DIFF_CAP_EMAIL = parseInt(process.env.CURSOR_REVIEW_EMAIL_DIFF_MAX_CHARS || '200000', 10);
 const REVIEW_MAX_TOKENS = parseInt(process.env.CURSOR_REVIEW_MAX_TOKENS || '2500', 10);
 
+/** Poll after the agent process exits — writes may not be visible to git immediately. */
+const POLL_MS = parseInt(process.env.CURSOR_POST_RUN_POLL_MS || '250', 10);
+const MAX_WAIT_MS = parseInt(process.env.CURSOR_POST_RUN_MAX_WAIT_MS || '8000', 10);
+
 function postRunEnabled() {
+  // Only set CURSOR_POST_RUN=0 in .env to disable. If unset or commented out, post-run is ON.
   if (process.env.CURSOR_POST_RUN === '0') return false;
   return true;
+}
+
+function postRunLogEnabled() {
+  return process.env.CURSOR_POST_RUN_LOG !== '0';
+}
+
+function logPost(message, detail) {
+  if (!postRunLogEnabled()) return;
+  if (detail !== undefined && detail !== '') {
+    console.log('[cursorPostRun]', message, detail);
+  } else {
+    console.log('[cursorPostRun]', message);
+  }
 }
 
 function reviewEmailTo() {
@@ -51,13 +69,50 @@ function truncate(s, max) {
   return `${t.slice(0, max)}\n\n[… truncated at ${max} characters …]\n`;
 }
 
-/**
- * @param {string} repo
- * @returns {Promise<boolean>}
- */
-async function isDirty(repo) {
+async function getStatusPorcelain(repo) {
   const { stdout } = await execGit(['status', '--porcelain'], repo);
-  return Boolean(stdout.trim());
+  return stdout.trim();
+}
+
+/**
+ * Wait until `git status` shows changes or timeout. Avoids racing the agent process exit.
+ * @returns {Promise<{ dirty: boolean, porcelain: string, waitedMs: number, polls: number }>}
+ */
+async function waitForDirtyWorkspace(repo) {
+  const start = Date.now();
+  let polls = 0;
+  while (Date.now() - start < MAX_WAIT_MS) {
+    polls++;
+    let porcelain;
+    try {
+      porcelain = await getStatusPorcelain(repo);
+    } catch (e) {
+      logPost('git status --porcelain failed', e.stderr || e.message || String(e));
+      throw e;
+    }
+    const dirty = Boolean(porcelain);
+    logPost(
+      `poll #${polls} (${Date.now() - start}ms) dirty=${dirty}`,
+      dirty ? porcelain.split('\n').slice(0, 8).join('\n') : '(clean)'
+    );
+    if (dirty) {
+      return { dirty: true, porcelain, waitedMs: Date.now() - start, polls };
+    }
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+  let porcelain = '';
+  try {
+    porcelain = await getStatusPorcelain(repo);
+  } catch (e) {
+    logPost('git status (final) failed', e.stderr || e.message || String(e));
+    throw e;
+  }
+  const dirty = Boolean(porcelain);
+  logPost(
+    `timeout ${MAX_WAIT_MS}ms after ${polls} polls dirty=${dirty}`,
+    dirty ? porcelain.split('\n').slice(0, 8).join('\n') : '(still clean)'
+  );
+  return { dirty, porcelain, waitedMs: Date.now() - start, polls };
 }
 
 async function tryCommit(repo, userPrompt) {
@@ -160,29 +215,49 @@ async function sendReviewEmail(subject, bodyText) {
  */
 export async function maybeCommitReviewEmail(opts) {
   const { repo, userPrompt, agentRunOk } = opts;
+  logPost('start', {
+    repo,
+    postRunEnabled: postRunEnabled(),
+    agentRunOk,
+    pollMs: POLL_MS,
+    maxWaitMs: MAX_WAIT_MS,
+  });
+
   if (!postRunEnabled()) {
-    return { ran: false, note: '' };
+    logPost('skip: CURSOR_POST_RUN=0');
+    return { ran: false, note: '', skipReason: 'disabled' };
   }
   if (!agentRunOk) {
-    return { ran: false, note: '' };
+    logPost('skip: agent run not ok (exit error, timeout, or spawn error)');
+    return { ran: false, note: '', skipReason: 'agent_not_ok' };
   }
 
-  const dirty = await isDirty(repo);
-  if (!dirty) {
-    return { ran: false, note: '' };
+  const wait = await waitForDirtyWorkspace(repo);
+  if (!wait.dirty) {
+    logPost('skip: working tree still clean after wait', { waitedMs: wait.waitedMs, polls: wait.polls });
+    return { ran: false, note: '', skipReason: 'clean_after_wait' };
   }
+
+  logPost('working tree dirty, committing', { waitedMs: wait.waitedMs, polls: wait.polls });
 
   const commit = await tryCommit(repo, userPrompt);
+  logPost('tryCommit result', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
   const diffFull = await getDiffText(repo, commit.ok);
   if (!diffFull.trim()) {
+    logPost('warning: dirty porcelain but empty diff text after commit attempt');
     return {
       ran: true,
       note: 'Working tree was dirty but no diff text could be read after commit attempt.',
+      skipReason: 'empty_diff',
     };
   }
 
+  logPost('diff length chars', diffFull.length);
+
   const diffForLlm = truncate(diffFull, DIFF_CAP_LLM);
+  logPost('calling LLM review', REVIEW_MODEL);
   const { text: review, usage } = await runLlmReview(diffForLlm, userPrompt);
+  logPost('LLM review completed');
 
   const diffForEmail = truncate(diffFull, DIFF_CAP_EMAIL);
   const subject = commit.ok
@@ -199,9 +274,12 @@ export async function maybeCommitReviewEmail(opts) {
 
   let emailResult;
   try {
+    logPost('sending review email', { to: reviewEmailTo() });
     emailResult = await sendReviewEmail(subject, body);
+    logPost('email result', emailResult);
   } catch (e) {
     emailResult = { ok: false, error: e.message || String(e) };
+    logPost('email send threw', emailResult.error);
   }
 
   const parts = [];
