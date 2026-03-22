@@ -1,4 +1,4 @@
-import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
+import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage, DisconnectReason } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
 import pino from 'pino';
 const logger = pino();
@@ -8,12 +8,29 @@ import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assist
 import { pickRandomTopic } from './data/helper.js';
 import { topics } from './data/topics.js';
 import { initializeLightCache } from './hue/index.js';
+import { shouldTryLightsAgent, runLightsAgent, LIGHTS_AGENT_SKIP } from './whatsapp/agents/lightsAgent.js';
+import {
+  shouldTryWeatherAgent,
+  runWeatherAgent,
+  WEATHER_AGENT_SKIP,
+} from './whatsapp/agents/weatherAgent.js';
+import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from './whatsapp/agents/joplinAgent.js';
+import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from './whatsapp/agents/emailAgent.js';
+import { getMessages, appendMessage } from './whatsapp/chatMemory.js';
+import { getCursorCliRepoRoot } from './whatsapp/agents/cursorCliAgent.js';
+import {
+  readPendingCursorRun,
+  clearPendingCursorRun,
+} from './whatsapp/agents/cursorCliPending.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const myPhone = process.env.MY_PHONE;
 const secondPhone = process.env.SECOND_PHONE;
 const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
+
+/** Avoid overlapping reconnect timers when the connection flaps (prevents duplicate sockets → 440 connectionReplaced). */
+let reconnectTimer = null;
 
 async function startSock() {
   const { state, saveCreds } = await useMultiFileAuthState('./.auth/baileys');
@@ -23,7 +40,6 @@ async function startSock() {
     version,
     auth: state,
     logger: pino({ level: 'debug' }),
-    printQRInTerminal: true,
     browser: ["WhatsApp Bot", "Chrome", "1.0.0"],
     
     // Connection settings
@@ -82,20 +98,41 @@ async function startSock() {
 
     if (connection === 'open') {
       logger.info('✅ WhatsApp connected.');
+      (async () => {
+        const pending = await readPendingCursorRun(getCursorCliRepoRoot());
+        if (pending?.sender && pending?.logPath) {
+          try {
+            await sock.sendMessage(pending.sender, {
+              text:
+                'Previous Cursor agent run was interrupted before the bot could send the completion message (for example `pm2 restart` while the agent was still running). Inspect the run on the Pi:\n' +
+                pending.logPath,
+            });
+            await clearPendingCursorRun(getCursorCliRepoRoot());
+          } catch (e) {
+            logger.warn({ err: e }, 'pending Cursor run notice failed');
+          }
+        }
+      })();
     } else if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const shouldReconnect = statusCode !== 401 && statusCode !== 440;
-      
-      logger.info('❌ Connection closed. Status code:', statusCode);
-      
+      // Only loggedOut (401) invalidates this device session — see Baileys README / DisconnectReason.
+      // 440 = connectionReplaced: reconnect after a short delay; not reconnecting often strands the bot until you wipe .auth.
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+
+      logger.info(
+        { statusCode, reason: statusCode != null ? DisconnectReason[statusCode] : 'unknown', err: lastDisconnect?.error?.message },
+        '❌ Connection closed'
+      );
+
       if (shouldReconnect) {
-        logger.info('🔄 Reconnecting...');
-        setTimeout(() => {
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
           logger.info('Starting reconnection...');
           startSock();
-        }, 5000); // Wait 5 seconds before reconnecting
+        }, 5000);
       } else {
-        logger.error('❌ Connection closed permanently.');
+        logger.error('Session logged out — scan QR again (or remove linked device in WhatsApp).');
       }
     } else if (connection === 'connecting') {
       logger.info('🔄 Connecting to WhatsApp...');
@@ -163,7 +200,7 @@ async function startSock() {
       else if (commands[command]) {
         try {
           logger.info(`Executing command: ${command}`);
-          await commands[command](sock, sender, text);
+          await commands[command](sock, sender, text, msg);
           logger.info(`Command completed: ${command}`);
         } catch (cmdErr) {
           throw new Error(`Command '${command}' failed: ${cmdErr.message}`);
@@ -194,81 +231,83 @@ async function startSock() {
         await sock.sendMessage(sender, { text: response });
 
       }
-      else if (text.startsWith("Light on ")) {
-        const lightName = text.replace("Light on ", "");
-        commands.hue.lightOn(sock, sender, lightName);
-      }
-      else if (text.startsWith("Light off ")) {
-        const lightName = text.replace("Light off ", "");
-        commands.hue.lightOff(sock, sender, lightName);
-      }
-      else if (text === "Lights off") commands.hue.lightsOff(sock, sender)
-      else if (text === "List lights") commands.hue.listLights(sock, sender)
-      else if (text.startsWith("Lights in ")) {
-        const roomName = text.replace("Lights in ", "");
-        commands.hue.listLightsByRoom(sock, sender, roomName);
-      }
-      else if (text.startsWith("Brightness ")) {
-        const parts = text.replace("Brightness ", "").split(" ");
-        if (parts.length >= 2) {
-          const brightness = parts[0];
-          const lightName = parts.slice(1).join(" ");
-          commands.hue.setBrightness(sock, sender, lightName, brightness);
-        } else {
-          await sock.sendMessage(sender, { text: "Usage: Brightness <0-100> <light name>" });
-        }
-      }
-      else if (text.startsWith("Color temp ")) {
-        const parts = text.replace("Color temp ", "").split(" ");
-        if (parts.length >= 2) {
-          const colorTemp = parts[0];
-          const lightName = parts.slice(1).join(" ");
-          commands.hue.setColorTemp(sock, sender, lightName, colorTemp);
-        } else {
-          await sock.sendMessage(sender, { text: "Usage: Color temp <1-10> <light name>" });
-        }
-      }
-      else if (text.startsWith("Color ")) {
-        const parts = text.replace("Color ", "").split(" ");
-        if (parts.length >= 2) {
-          const color = parts[0];
-          const lightName = parts.slice(1).join(" ");
-          commands.hue.setColor(sock, sender, lightName, color);
-        } else {
-          await sock.sendMessage(sender, { text: "Usage: Color <color> <light name>" });
-        }
-      }
-      else if (text.startsWith("Light info ")) {
-        const lightName = text.replace("Light info ", "");
-        commands.hue.lightInfo(sock, sender, lightName);
-      }
-      else if (text === "Refresh cache") commands.hue.refreshCache(sock, sender)
-      else if (text === "Cache status") commands.hue.cacheStatus(sock, sender)
-      else if (text.startsWith("Add note ")) {
-        const noteContent = text.replace("Add note ", "");
-        commands.joplin.addNote(sock, sender, `addnote ${noteContent}`);
-      }
-      else if (text === "List notebooks") commands.joplin.listNotebooks(sock, sender)
-      else if (text.startsWith("Search notes ")) {
-        const query = text.replace("Search notes ", "");
-        commands.joplin.searchNotes(sock, sender, `searchnotes ${query}`);
-      }
-      else if (text.startsWith("Get note ")) {
-        const noteId = text.replace("Get note ", "");
-        commands.joplin.getNote(sock, sender, `getnote ${noteId}`);
-      }
-      else if (text.startsWith("Update note ")) {
-        const updateContent = text.replace("Update note ", "");
-        commands.joplin.updateNote(sock, sender, `updatenote ${updateContent}`);
-      }
-      else if (text.startsWith("Delete note ")) {
-        const noteId = text.replace("Delete note ", "");
-        commands.joplin.deleteNote(sock, sender, `deletenote ${noteId}`);
-      }
-      else if (text === "Joplin help") commands.joplin.help(sock, sender)
       else {
-        const response = await assistantgenerateResponse(text);
-        await sock.sendMessage(sender, { text: response });
+        let handled = false;
+        if (shouldTryLightsAgent(text)) {
+          try {
+            const lightsReply = await runLightsAgent(text);
+            if (lightsReply.trim().toUpperCase() !== LIGHTS_AGENT_SKIP) {
+              await sock.sendMessage(sender, { text: lightsReply });
+              await appendMessage(sender, 'user', text);
+              await appendMessage(sender, 'assistant', lightsReply);
+              handled = true;
+            }
+          } catch (lightsErr) {
+            logger.error({ err: lightsErr }, 'Lights agent error');
+            await sock.sendMessage(sender, {
+              text: `Lights assistant error: ${lightsErr.message}`,
+            });
+            handled = true;
+          }
+        }
+        if (!handled && shouldTryWeatherAgent(text)) {
+          try {
+            const weatherReply = await runWeatherAgent(text);
+            if (weatherReply.trim().toUpperCase() !== WEATHER_AGENT_SKIP) {
+              await sock.sendMessage(sender, { text: weatherReply });
+              await appendMessage(sender, 'user', text);
+              await appendMessage(sender, 'assistant', weatherReply);
+              handled = true;
+            }
+          } catch (weatherErr) {
+            logger.error({ err: weatherErr }, 'Weather agent error');
+            await sock.sendMessage(sender, {
+              text: `Weather assistant error: ${weatherErr.message}`,
+            });
+            handled = true;
+          }
+        }
+        if (!handled && shouldTryJoplinAgent(text)) {
+          try {
+            const joplinReply = await runJoplinAgent(text);
+            if (joplinReply.trim().toUpperCase() !== JOPLIN_AGENT_SKIP) {
+              await sock.sendMessage(sender, { text: joplinReply });
+              await appendMessage(sender, 'user', text);
+              await appendMessage(sender, 'assistant', joplinReply);
+              handled = true;
+            }
+          } catch (joplinErr) {
+            logger.error({ err: joplinErr }, 'Joplin agent error');
+            await sock.sendMessage(sender, {
+              text: `Notes assistant error: ${joplinErr.message}`,
+            });
+            handled = true;
+          }
+        }
+        if (!handled && shouldTryEmailAgent(text)) {
+          try {
+            const emailReply = await runEmailAgent(text);
+            if (emailReply.trim().toUpperCase() !== EMAIL_AGENT_SKIP) {
+              await sock.sendMessage(sender, { text: emailReply });
+              await appendMessage(sender, 'user', text);
+              await appendMessage(sender, 'assistant', emailReply);
+              handled = true;
+            }
+          } catch (emailErr) {
+            logger.error({ err: emailErr }, 'Email agent error');
+            await sock.sendMessage(sender, {
+              text: `Email assistant error: ${emailErr.message}`,
+            });
+            handled = true;
+          }
+        }
+        if (!handled) {
+          const prior = await getMessages(sender);
+          const response = await assistantgenerateResponse(text, prior);
+          await sock.sendMessage(sender, { text: response });
+          await appendMessage(sender, 'user', text);
+          await appendMessage(sender, 'assistant', response);
+        }
       }
     } catch (err) {
       // Log detailed error information

@@ -37,9 +37,11 @@ export async function getGeocoding(city) {
 }
 export async function getWeatherData(city) {
   const apiKey = process.env.OPENWEATHER_API_KEY;
-  ;
   try {
-    const geocode = await getGeocoding(city, cnt = 3);
+    const geocode = await getGeocoding(city);
+    if (!Array.isArray(geocode) || geocode.length === 0) {
+      throw new Error(`No location found for "${city}"`);
+    }
     const { lat, lon } = geocode[0];
     const weatherURL = `http://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&APPID=${apiKey}`;
     const response = await fetch(weatherURL);
@@ -50,17 +52,44 @@ export async function getWeatherData(city) {
     throw error;
   }
 }
-export async function assistantgenerateResponse(userMessage) {
+const CHAT_HISTORY_API_CAP = parseInt(process.env.CHAT_MEMORY_MAX_MESSAGES || '10', 10);
+const CHAT_HISTORY_CONTENT_CAP = parseInt(process.env.CHAT_MEMORY_MAX_CONTENT || '4000', 10);
+
+/**
+ * @param {string} userMessage
+ * @param {{ role: string, content: string }[]} [priorMessages] prior user/assistant turns only (no system)
+ */
+export async function assistantgenerateResponse(userMessage, priorMessages = []) {
   try {
+    const maxPrior = Math.max(0, CHAT_HISTORY_API_CAP - 1);
+    const valid = Array.isArray(priorMessages)
+      ? priorMessages
+          .filter(
+            (m) =>
+              m &&
+              (m.role === 'user' || m.role === 'assistant') &&
+              typeof m.content === 'string'
+          )
+          .map((m) => ({
+            role: m.role,
+            content: String(m.content).slice(0, CHAT_HISTORY_CONTENT_CAP),
+          }))
+      : [];
+    const history = maxPrior ? valid.slice(-maxPrior) : [];
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-4.1-mini',
       messages: [
-        { "role": "system", "content": "You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, recipes, tell jokes and so on." },
-        { "role": "user", "content": userMessage }],
-      max_tokens: 1000
-      // Adjust this as needed for desired response length
+        {
+          role: 'system',
+          content:
+            'You are a helpful assistant. You are inside a whatsapp conversation. You have many capabilities. You can tell the weather, recipes, tell jokes and so on.',
+        },
+        ...history,
+        { role: 'user', content: String(userMessage).slice(0, CHAT_HISTORY_CONTENT_CAP) },
+      ],
+      max_tokens: 1000,
     });
-
 
     return completion.choices[0].message.content.trim();
   } catch (error) {

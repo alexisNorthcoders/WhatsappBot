@@ -9,6 +9,15 @@ dotenv.config();
 
 const execAsync = promisify(exec);
 
+/** Default notebook for WhatsApp-created notes (agent should only touch this notebook). */
+export const WHATSAPP_BOT_NOTEBOOK = 'WhatsApp Bot';
+
+function idsMatch(listId, queryId) {
+    const a = listId.toLowerCase();
+    const b = queryId.toLowerCase();
+    return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
 // Environment variables for Joplin Server
 const JOPLIN_SERVER_URL = process.env.JOPLIN_SERVER_URL
 const JOPLIN_EMAIL = process.env.JOPLIN_EMAIL
@@ -282,6 +291,125 @@ class JoplinAPI {
             console.error('❌ Failed to search notes:', error.message);
             throw error;
         }
+    }
+
+    /**
+     * Search only inside one notebook (one `use` + `ls -l`). Use for agents to avoid scanning every notebook.
+     */
+    async searchNotesInNotebook(notebookName, query) {
+        try {
+            await this.configureCli();
+            if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
+                await this.ensureWhatsAppNotebook();
+            }
+            await execAsync(`joplin use "${notebookName}"`);
+            const { stdout, stderr } = await execAsync('joplin ls -l');
+            if (stderr) {
+                console.warn('Joplin CLI warning:', stderr);
+            }
+            const q = query.toLowerCase();
+            const lines = stdout.split('\n').filter((line) => line.trim());
+            const allNotes = [];
+            for (const line of lines) {
+                if (!line.toLowerCase().includes(q)) continue;
+                let match = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+(.+)$/);
+                if (match) {
+                    allNotes.push({
+                        id: match[1],
+                        title: match[2].trim(),
+                        notebook: notebookName,
+                    });
+                    continue;
+                }
+                match = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+(.+)$/);
+                if (match) {
+                    allNotes.push({
+                        id: match[1],
+                        title: match[2].trim(),
+                        notebook: notebookName,
+                    });
+                }
+            }
+            return allNotes;
+        } catch (error) {
+            console.error('❌ Failed to search notes in notebook:', error.message);
+            throw error;
+        }
+    }
+
+    async resolveNoteIdInNotebook(noteId, notebookName) {
+        await this.configureCli();
+        if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
+            await this.ensureWhatsAppNotebook();
+        }
+        await execAsync(`joplin use "${notebookName}"`);
+        const { stdout: listOutput } = await execAsync('joplin ls -l');
+        const lines = listOutput.split('\n').filter((line) => line.trim());
+        for (const line of lines) {
+            const idMatch = line.match(/^([a-f0-9]+)/);
+            if (!idMatch) continue;
+            const lid = idMatch[1];
+            if (idsMatch(lid, noteId)) {
+                return lid;
+            }
+        }
+        throw new Error(`Note "${noteId}" is not in notebook "${notebookName}"`);
+    }
+
+    /**
+     * Read a note only if it lives in the given notebook (prevents cross-notebook reads by id).
+     */
+    async getNoteInNotebook(noteId, notebookName) {
+        try {
+            const resolvedId = await this.resolveNoteIdInNotebook(noteId, notebookName);
+            const { stdout, stderr } = await execAsync(`joplin cat "${resolvedId}"`);
+            if (stderr) {
+                console.warn('Joplin CLI warning:', stderr);
+            }
+            const { stdout: listOutput } = await execAsync('joplin ls -l');
+            const lines = listOutput.split('\n').filter((line) => line.trim());
+            let title = '';
+            for (const line of lines) {
+                if (!line.startsWith(resolvedId)) continue;
+                const match = line.match(/^([a-f0-9]+)\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{2}:\d{2})\s+(.+)$/);
+                if (match) {
+                    title = match[4].trim();
+                    break;
+                }
+            }
+            return {
+                id: resolvedId,
+                title,
+                body: stdout.trim(),
+                created_time: null,
+                updated_time: null,
+            };
+        } catch (error) {
+            console.error('❌ Failed to get note from notebook:', error.message);
+            throw error;
+        }
+    }
+
+    /** Title list + count for a single notebook (cheap: one use + one ls). */
+    async summarizeNotebook(notebookName) {
+        await this.configureCli();
+        if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
+            await this.ensureWhatsAppNotebook();
+        }
+        await execAsync(`joplin use "${notebookName}"`);
+        const { stdout, stderr } = await execAsync('joplin ls -l');
+        if (stderr) {
+            console.warn('Joplin CLI warning:', stderr);
+        }
+        const lines = stdout.split('\n').filter((line) => line.trim());
+        const notes = [];
+        for (const line of lines) {
+            const m = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+(.+)$/);
+            const m2 = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+(.+)$/);
+            if (m) notes.push({ id: m[1], title: m[2].trim() });
+            else if (m2) notes.push({ id: m2[1], title: m2[2].trim() });
+        }
+        return { notebookName, noteCount: notes.length, notes };
     }
 
     async getNote(noteId) {
