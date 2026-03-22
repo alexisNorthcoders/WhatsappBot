@@ -6,6 +6,7 @@ import {
   clearPendingCursorRun,
 } from '../agents/cursorCliPending.js';
 import { logAgentInvocation } from '../agents/agentUsageLog.js';
+import { maybeCommitReviewEmail } from '../agents/cursorPostRun.js';
 
 dotenv.config();
 
@@ -205,6 +206,25 @@ export default async function cursorCommand(sock, sender, text, msg) {
     for (const chunk of chunks) {
       await sock.sendMessage(sender, { text: chunk });
     }
+
+    const agentRunOk = Boolean(
+      result?.ok && !result?.spawnError && !result?.timedOut
+    );
+    try {
+      const post = await maybeCommitReviewEmail({
+        repo,
+        userPrompt: prompt,
+        agentRunOk,
+      });
+      if (post.note) {
+        await sock.sendMessage(sender, { text: post.note });
+      }
+    } catch (postErr) {
+      await sock.sendMessage(sender, {
+        text: `Post-run commit/review/email failed: ${postErr.message || String(postErr)}`,
+      });
+    }
+
     delivered = true;
   } catch (sendErr) {
     try {
