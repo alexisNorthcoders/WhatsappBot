@@ -253,6 +253,36 @@ export async function visionHelp(base64) {
   console.log(`Total cost: $${calculateCost(response.usage)}`)
   return response.choices[0].message.content;
 }
+const VALID_SPRITE_SIZES = ['16x16', '32x32', '48x48', '64x64', '128x128'];
+
+export async function pixelArtGenerateResponse(userMessage, size = '32x32') {
+  try {
+    const pixelArtPrompt = [
+      `Create a ${size} pixel art game sprite of: ${userMessage}.`,
+      `Style rules: clean pixel art, limited retro color palette,`,
+      `hard-edged pixels with NO anti-aliasing or blur,`,
+      `transparent background, centered on canvas,`,
+      `suitable for a 2D game sprite sheet.`,
+    ].join(' ');
+
+    const response = await openai.images.generate({
+      model: 'gpt-image-1.5',
+      prompt: pixelArtPrompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'high',
+      background: 'transparent',
+      output_format: 'png',
+    });
+
+    await saveGeneratedImage(response, `sprite_${size}_${userMessage}`);
+    return Buffer.from(response.data[0].b64_json, 'base64');
+  } catch (error) {
+    console.error('Error generating pixel art sprite:', error);
+    throw new Error('Error generating pixel art sprite');
+  }
+}
+
 export async function gptImageGenerateResponse(userMessage) {
   try {
     const response = await openai.images.generate({

@@ -4,6 +4,7 @@ import deepInfraCommand from './deepinfra.js';
 import wizardCommand from './wizard.js';
 import recipeCommand from './recipe.js';
 import imageCommand from './image.js';
+import spriteCommand from './sprite.js';
 import danielCommand from './daniel.js';
 import cursorCommand from './cursor.js';
 import * as lightsCommands from './lights.js';
@@ -15,6 +16,7 @@ export {
     wizardCommand as wizard,
     recipeCommand as recipe,
     imageCommand as image,
+    spriteCommand as sprite,
     danielCommand as daniel,
     cursorCommand as cursor,
 };
