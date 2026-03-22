@@ -210,6 +210,9 @@ async function startSock() {
         await sendWeatherMessage(sock, sender);
 
       }
+      else if (command === '!help') {
+        await commands.help(sock, sender);
+      }
       else if (text === '!sendpoll') {
         await sock.sendMessage(sender, {
           poll: {

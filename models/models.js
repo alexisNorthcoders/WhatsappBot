@@ -1,8 +1,35 @@
 import { OpenAI } from 'openai';
 import dotenv from 'dotenv';
 import { promises as fs } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const GENERATED_DIR = path.join(__dirname, '..', 'assets', 'generated');
+
+async function saveGeneratedImage(response, prompt) {
+  try {
+    await fs.mkdir(GENERATED_DIR, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const slug = prompt.slice(0, 40).replace(/[^a-zA-Z0-9]+/g, '_').replace(/_+$/, '');
+    const filename = `${timestamp}_${slug}.png`;
+    const filepath = path.join(GENERATED_DIR, filename);
+
+    const entry = response.data[0];
+    if (entry.b64_json) {
+      await fs.writeFile(filepath, Buffer.from(entry.b64_json, 'base64'));
+    } else if (entry.url) {
+      const res = await fetch(entry.url);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      await fs.writeFile(filepath, buffer);
+    }
+    console.log(`Saved generated image: ${filepath}`);
+  } catch (err) {
+    console.error('Failed to save generated image:', err.message);
+  }
+}
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -140,8 +167,8 @@ export async function dallegenerateResponse(userMessage) {
       size: "1024x1024",
       quality: "standard"
     });
+    await saveGeneratedImage(response, userMessage);
     imageUrl = response.data[0].url;
-
 
     return imageUrl;
   } catch (error) {
@@ -233,10 +260,9 @@ export async function gptImageGenerateResponse(userMessage) {
       prompt: userMessage,
       n: 1,
       size: "1024x1024",
-
     });
+    await saveGeneratedImage(response, userMessage);
     imageUrl = response.data[0].url;
-
 
     return imageUrl;
   } catch (error) {
