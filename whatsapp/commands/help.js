@@ -10,6 +10,7 @@ export default async function helpCommand(sock, sender) {
 • *recipe* [prompt] — Generate a recipe
 • *image* [prompt] — Generate an image (DALL·E)
 • *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
+• *sprite+* [changes] — Refine the last sprite using the file saved on the server (no re-upload). Or *sprite+* filename.png [changes] (assets/generated)
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Cursor Agent*

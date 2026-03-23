@@ -1,6 +1,7 @@
 import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage, DisconnectReason } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
 import restartCommand from './whatsapp/commands/restart.js';
+import { spriteIterateCommand } from './whatsapp/commands/sprite.js';
 import { actorJid, isAllowedActor, lidExtraJidsHint } from './whatsapp/whatsAppActorAllowlist.js';
 import pino from 'pino';
 const logger = pino();
@@ -198,6 +199,9 @@ async function startSock() {
           await sock.sendMessage(sender, { text: res });
         }
 
+      }
+      else if (/^\s*sprite\+/i.test(text)) {
+        await spriteIterateCommand(sock, sender, text);
       }
       else if (commands[command]) {
         try {
