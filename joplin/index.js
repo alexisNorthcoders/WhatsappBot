@@ -23,12 +23,36 @@ const JOPLIN_SERVER_URL = process.env.JOPLIN_SERVER_URL
 const JOPLIN_EMAIL = process.env.JOPLIN_EMAIL
 const JOPLIN_PASSWORD = process.env.JOPLIN_PASSWORD
 
+/** Minimum milliseconds between automatic sync-before-read calls. */
+const SYNC_THROTTLE_MS = 30_000;
+
 class JoplinAPI {
     constructor() {
         this.serverUrl = JOPLIN_SERVER_URL;
         this.email = JOPLIN_EMAIL;
         this.password = JOPLIN_PASSWORD;
         this.sessionId = null;
+        this._lastSyncTime = 0;
+    }
+
+    /**
+     * Pull remote changes so local queries see freshly-created / modified notes.
+     * Throttled: skips if the last sync was less than SYNC_THROTTLE_MS ago.
+     */
+    async syncIfNeeded() {
+        const now = Date.now();
+        if (now - this._lastSyncTime < SYNC_THROTTLE_MS) return;
+        try {
+            await execAsync('joplin sync');
+            this._lastSyncTime = Date.now();
+        } catch (err) {
+            console.warn('⚠️ Pre-read sync failed (non-fatal):', err.message);
+        }
+    }
+
+    /** Mark that a sync just happened (called after write-path syncs). */
+    _markSynced() {
+        this._lastSyncTime = Date.now();
     }
 
     async configureCli() {
@@ -182,6 +206,7 @@ class JoplinAPI {
             
             // Sync to ensure the note is uploaded to the server
             await execAsync('joplin sync');
+            this._markSynced();
             
             console.log('✅ Note created successfully:', noteId);
             
@@ -200,6 +225,7 @@ class JoplinAPI {
         try {
             // Ensure CLI is configured
             await this.configureCli();
+            await this.syncIfNeeded();
             
             const { stdout, stderr } = await execAsync('joplin ls /');
             
@@ -232,6 +258,7 @@ class JoplinAPI {
         try {
             // Ensure CLI is configured
             await this.configureCli();
+            await this.syncIfNeeded();
             
             // Get all notebooks first
             const { stdout: notebooksOutput } = await execAsync('joplin ls /');
@@ -299,6 +326,7 @@ class JoplinAPI {
     async searchNotesInNotebook(notebookName, query) {
         try {
             await this.configureCli();
+            await this.syncIfNeeded();
             if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
                 await this.ensureWhatsAppNotebook();
             }
@@ -339,6 +367,7 @@ class JoplinAPI {
 
     async resolveNoteIdInNotebook(noteId, notebookName) {
         await this.configureCli();
+        await this.syncIfNeeded();
         if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
             await this.ensureWhatsAppNotebook();
         }
@@ -393,6 +422,7 @@ class JoplinAPI {
     /** Title list + count for a single notebook (cheap: one use + one ls). */
     async summarizeNotebook(notebookName) {
         await this.configureCli();
+        await this.syncIfNeeded();
         if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
             await this.ensureWhatsAppNotebook();
         }
@@ -416,6 +446,7 @@ class JoplinAPI {
         try {
             // Ensure CLI is configured
             await this.configureCli();
+            await this.syncIfNeeded();
             
             const { stdout, stderr } = await execAsync(`joplin cat "${noteId}"`);
             
@@ -500,6 +531,7 @@ class JoplinAPI {
             
             // Sync to ensure changes are uploaded to the server
             await execAsync('joplin sync');
+            this._markSynced();
             
             console.log('✅ Note updated successfully:', noteId);
             return { id: noteId, ...updates };
@@ -522,6 +554,7 @@ class JoplinAPI {
             
             // Sync to ensure deletion is uploaded to the server
             await execAsync('joplin sync');
+            this._markSynced();
             
             console.log('✅ Note deleted successfully:', noteId);
             return true;
