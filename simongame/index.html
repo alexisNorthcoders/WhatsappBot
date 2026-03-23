@@ -4,37 +4,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="simonstyles.css">
     <script src="index.js" defer></script>
-    <title>Simon</title>
+    <title>Bluey's Musical Keyboard</title>
 </head>
 
 <body>
-    <header>
-        <nav>
-            <button class="start-btn" id="start">New Game</button>
-        </nav>
-    </header>
-    
-    <h1>Simon Game</h1>
-    <div id="game">
-        <div id="round-container">
-            <h1>Round: <span id="round">0</span></h1>
+    <div class="game-container">
+        <h1 class="title">Bluey's Musical Keyboard</h1>
+        <div class="controls">
+            <button class="btn btn-play" id="play-btn">Play Bluey Theme</button>
+            <button class="btn btn-learn" id="learn-btn">Learn Mode</button>
+            <button class="btn btn-stop" id="stop-btn">Stop</button>
         </div>
-        <div class="buttons">
-            <button class="color-btn" id="green"></button>
-            <button class="color-btn" id="red"></button>
+        <div id="message-box"><p id="message">&nbsp;</p></div>
+        <div id="score-box">
+            <span>Score: <strong id="score">0</strong></span>
+            <span>Best: <strong id="highscore">0</strong></span>
         </div>
-       
-        <div class="buttons">
-            <button class="color-btn" id="yellow"></button>
-            <button class="color-btn" id="blue"></button>
-        </div>
-        <div id="messages-cnt"><p id="messages"> </p></div>
-        <h2>Score: <span id="score">0</span></h2>
-        <h2>Highest: <span id="highscore">0</span></h2>
+        <div class="keyboard" id="keyboard"></div>
+        <p class="hint">Press keys 1-9, 0 or A S D F G H J K L ; to play</p>
     </div>
-
 </body>
 
 </html>
