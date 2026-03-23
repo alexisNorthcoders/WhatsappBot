@@ -4,6 +4,7 @@ import { promisify } from 'util';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 
 dotenv.config();
 
@@ -409,8 +410,36 @@ async function sendReviewEmail(subject, { text, html }) {
   return { ok: true, to };
 }
 
+const JOPLIN_NOTEBOOK =
+  process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
+
+async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt }) {
+  const date = new Date().toISOString().slice(0, 10);
+  const shortSha = commitSha ? ` ${commitSha}` : '';
+  const title = `Code review${shortSha} — ${date}`;
+
+  const filesPlain = formatFileBucketsPlain(buckets);
+  const body = [
+    `**Prompt:** ${truncate(userPrompt, 500)}`,
+    '',
+    commitSha ? `**Commit:** ${commitSha}` : '*No commit*',
+    '',
+    '---',
+    '',
+    review,
+    '',
+    '---',
+    '',
+    '### Changed files',
+    '',
+    filesPlain,
+  ].join('\n');
+
+  return joplinAPI.createNote(title, body);
+}
+
 /**
- * After a successful Cursor CLI run: commit if dirty, LLM review, email review + file list + GitHub links (HTML + plain text).
+ * After a successful Cursor CLI run: commit if dirty, LLM review, email review + file list + GitHub links (HTML + plain text), save to Joplin.
  * @param {{ repo: string, userPrompt: string, agentRunOk: boolean }} opts
  */
 export async function maybeCommitReviewEmail(opts) {
@@ -484,6 +513,21 @@ export async function maybeCommitReviewEmail(opts) {
     logPost('email send threw', emailResult.error);
   }
 
+  let joplinResult;
+  try {
+    logPost('saving review to Joplin', { notebook: JOPLIN_NOTEBOOK });
+    joplinResult = await saveReviewToJoplin({
+      review,
+      buckets,
+      commitSha: commit.ok ? commit.sha : null,
+      userPrompt,
+    });
+    logPost('Joplin note created', { id: joplinResult?.id, title: joplinResult?.title });
+  } catch (e) {
+    joplinResult = { ok: false, error: e.message || String(e) };
+    logPost('Joplin save threw', joplinResult.error);
+  }
+
   const parts = [];
   if (commit.ok) {
     parts.push(`Committed ${commit.sha}: ${commit.message}`);
@@ -497,6 +541,11 @@ export async function maybeCommitReviewEmail(opts) {
   } else {
     parts.push(`Review email not sent: ${emailResult.error}.`);
   }
+  if (joplinResult?.id) {
+    parts.push(`Joplin note saved: "${joplinResult.title}".`);
+  } else {
+    parts.push(`Joplin note not saved: ${joplinResult?.error || 'unknown error'}.`);
+  }
 
   return {
     ran: true,
@@ -504,6 +553,7 @@ export async function maybeCommitReviewEmail(opts) {
     commit,
     review,
     emailResult,
+    joplinResult,
     usage,
   };
 }
