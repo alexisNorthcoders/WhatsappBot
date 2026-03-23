@@ -9,6 +9,7 @@ export default async function helpCommand(sock, sender) {
 • *wizard* [prompt] — Wizard model
 • *recipe* [prompt] — Generate a recipe
 • *image* [prompt] — Generate an image (DALL·E)
+• *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Cursor Agent*
@@ -43,6 +44,7 @@ export default async function helpCommand(sock, sender) {
 *Other*
 ━━━━━━━━━━━━━━━━━━━━━━
 • *!help* — This message
+• *!restart* — Restart the bot (pm2 restart 0; same identities as *cursor*: MY_PHONE, SECOND_PHONE, CURSOR_AGENT_EXTRA_JIDS)
 • *!sendpoll* — Send a sample poll
 • *daniel* — Photo do Daniel
 • *Send* — Random fact to both phones

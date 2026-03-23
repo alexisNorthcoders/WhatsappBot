@@ -1,5 +1,7 @@
 import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage, DisconnectReason } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
+import restartCommand from './whatsapp/commands/restart.js';
+import { actorJid, isAllowedActor, lidExtraJidsHint } from './whatsapp/whatsAppActorAllowlist.js';
 import pino from 'pino';
 const logger = pino();
 import { promises as fs } from 'fs';
@@ -212,6 +214,17 @@ async function startSock() {
       }
       else if (command === '!help') {
         await commands.help(sock, sender);
+      }
+      else if (command === '!restart') {
+        const actor = actorJid(msg, sender);
+        if (!isAllowedActor(actor)) {
+          await sock.sendMessage(sender, {
+            text:
+              `Not allowed to restart this bot from this identity.${lidExtraJidsHint(actor)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CURSOR_AGENT_EXTRA_JIDS.)`,
+          });
+        } else {
+          await restartCommand(sock, sender);
+        }
       }
       else if (text === '!sendpoll') {
         await sock.sendMessage(sender, {
