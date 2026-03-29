@@ -45,6 +45,7 @@ export default async function helpCommand(sock, sender) {
 *Other*
 ━━━━━━━━━━━━━━━━━━━━━━
 • *!help* — This message
+• *!clear* — Clear chat memory (resets AI conversation context)
 • *!restart* — Restart the bot (pm2 restart 0; same identities as *cursor*: MY_PHONE, SECOND_PHONE, CURSOR_AGENT_EXTRA_JIDS)
 • *!sendpoll* — Send a sample poll
 • *daniel* — Photo do Daniel

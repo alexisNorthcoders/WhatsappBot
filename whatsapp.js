@@ -19,7 +19,7 @@ import {
 } from './whatsapp/agents/weatherAgent.js';
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from './whatsapp/agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from './whatsapp/agents/emailAgent.js';
-import { getMessages, appendMessage } from './whatsapp/chatMemory.js';
+import { getMessages, appendMessage, clearMessages } from './whatsapp/chatMemory.js';
 import { getCursorCliRepoRoot } from './whatsapp/agents/cursorCliAgent.js';
 import {
   readPendingCursorRun,
@@ -229,6 +229,14 @@ async function startSock() {
         } else {
           await restartCommand(sock, sender);
         }
+      }
+      else if (command === '!clear') {
+        const count = await clearMessages(sender);
+        await sock.sendMessage(sender, {
+          text: count > 0
+            ? `Chat memory cleared (${count} message${count !== 1 ? 's' : ''} removed).`
+            : 'Chat memory was already empty.',
+        });
       }
       else if (text === '!sendpoll') {
         await sock.sendMessage(sender, {

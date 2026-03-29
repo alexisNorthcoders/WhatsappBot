@@ -74,6 +74,30 @@ export async function getMessages(jid) {
  * @param {'user' | 'assistant'} role
  * @param {string} content
  */
+/**
+ * @param {string} jid
+ * @returns {Promise<number>} number of messages that were cleared
+ */
+export async function clearMessages(jid) {
+  if (!jid) return 0;
+  if (BACKEND === 'redis') {
+    const client = await getRedis();
+    const key = redisKey(jid);
+    const len = await client.lLen(key);
+    await client.del(key);
+    return len;
+  }
+  const arr = memoryStore.get(jid);
+  const len = arr ? arr.length : 0;
+  memoryStore.delete(jid);
+  return len;
+}
+
+/**
+ * @param {string} jid
+ * @param {'user' | 'assistant'} role
+ * @param {string} content
+ */
 export async function appendMessage(jid, role, content) {
   if (!jid) return;
   if (role !== 'user' && role !== 'assistant') return;
