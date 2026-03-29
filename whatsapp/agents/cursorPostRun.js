@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { execFile } from 'child_process';
+import { basename } from 'path';
 import { promisify } from 'util';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
@@ -209,6 +210,14 @@ function reviewEmailTo() {
   const t = process.env.CURSOR_REVIEW_EMAIL_TO?.trim();
   if (t) return t;
   return process.env.GMAIL_EMAIL?.trim() || '';
+}
+
+/** Short label for review email subjects; override with CURSOR_REVIEW_EMAIL_SUBJECT_PREFIX. */
+function reviewEmailSubjectPrefix(repo) {
+  const fromEnv = process.env.CURSOR_REVIEW_EMAIL_SUBJECT_PREFIX?.trim();
+  if (fromEnv) return fromEnv;
+  const b = basename(String(repo || '').replace(/\/+$/, ''));
+  return b || 'WhatsappBot';
 }
 
 async function execGit(args, cwd) {
@@ -492,9 +501,10 @@ export async function maybeCommitReviewEmail(opts) {
     getChangeFileBuckets(repo, commit.ok),
     getGithubRepoBase(repo),
   ]);
+  const subPre = reviewEmailSubjectPrefix(repo);
   const subject = commit.ok
-    ? `[WhatsappBot] Cursor cli commit ${commit.sha} — review`
-    : `[WhatsappBot] Cursor run — review (commit failed)`;
+    ? `[${subPre}] Cursor cli commit ${commit.sha} — review`
+    : `[${subPre}] Cursor run — review (commit failed)`;
 
   const { text: emailText, html: emailHtml } = buildReviewEmailBodies({
     review,

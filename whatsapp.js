@@ -20,7 +20,6 @@ import {
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from './whatsapp/agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from './whatsapp/agents/emailAgent.js';
 import { getMessages, appendMessage, clearMessages } from './whatsapp/chatMemory.js';
-import { getCursorCliRepoRoot } from './whatsapp/agents/cursorCliAgent.js';
 import {
   readPendingCursorRun,
   clearPendingCursorRun,
@@ -102,15 +101,18 @@ async function startSock() {
     if (connection === 'open') {
       logger.info('✅ WhatsApp connected.');
       (async () => {
-        const pending = await readPendingCursorRun(getCursorCliRepoRoot());
+        const pending = await readPendingCursorRun();
         if (pending?.sender && pending?.logPath) {
           try {
+            const ws = pending.workspaceRoot ? `\nWorkspace: ${pending.workspaceRoot}\n` : '';
             await sock.sendMessage(pending.sender, {
               text:
-                'Previous Cursor agent run was interrupted before the bot could send the completion message (for example `pm2 restart` while the agent was still running). Inspect the run on the Pi:\n' +
+                'Previous Cursor agent run was interrupted before the bot could send the completion message (for example `pm2 restart` while the agent was still running).' +
+                ws +
+                'Inspect the run on the Pi:\n' +
                 pending.logPath,
             });
-            await clearPendingCursorRun(getCursorCliRepoRoot());
+            await clearPendingCursorRun();
           } catch (e) {
             logger.warn({ err: e }, 'pending Cursor run notice failed');
           }

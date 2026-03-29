@@ -15,8 +15,10 @@ export default async function helpCommand(sock, sender) {
 ━━━━━━━━━━━━━━━━━━━━━━
 *Cursor Agent*
 ━━━━━━━━━━━━━━━━━━━━━━
-• *cursor* [instructions] — Run the Cursor coding agent on the repo
-• *cursor* joplin:[note] — Use a Joplin note as the prompt
+• *cursor* [instructions] — Run the Cursor agent on this bot’s repo (default workspace)
+• *cursor* *alias*: [instructions] — Run in an allowlisted repo (set CURSOR_WORKSPACE_MAP in .env)
+• *cursor* */absolute/path/to/repo* [instructions] — Same, using an absolute path from the allowlist
+• *cursor* joplin:[note] — Use a Joplin note as the prompt (workspace stays default unless you use alias/path before joplin)
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Image Commands*

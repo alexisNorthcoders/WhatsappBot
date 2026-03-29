@@ -1,10 +1,15 @@
 import dotenv from 'dotenv';
 import { join } from 'path';
-import { runCursorCliAgent, getCursorCliRepoRoot } from '../agents/cursorCliAgent.js';
+import { runCursorCliAgent } from '../agents/cursorCliAgent.js';
 import {
   setPendingCursorRun,
   clearPendingCursorRun,
 } from '../agents/cursorCliPending.js';
+import {
+  getDefaultWorkspaceRoot,
+  resolveWorkspaceFromAlias,
+  resolveWorkspaceFromUserPath,
+} from '../cursorWorkspaces.js';
 import { logAgentInvocation } from '../agents/agentUsageLog.js';
 import { maybeCommitReviewEmail } from '../agents/cursorPostRun.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
@@ -16,7 +21,38 @@ const WA_TEXT_MAX = 4096;
 const JOPLIN_NOTEBOOK =
   process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
 
-const JOPLIN_PREFIX_RE = /^joplin:\s*(.+)/i;
+const JOPLIN_PREFIX_RE = /^joplin:\s*(.+)/is;
+
+/**
+ * After the leading `cursor` command, detect optional workspace prefix.
+ * @returns {{ kind: 'default', rest: string } | { kind: 'alias', alias: string, rest: string } | { kind: 'path', path: string, rest: string }}
+ */
+function parseWorkspacePrefix(remainder) {
+  const trimmed = remainder.trim();
+  if (!trimmed) return { kind: 'default', rest: '' };
+
+  // Do not treat `joplin:…` as a workspace alias (reserved for note-based prompts).
+  if (/^joplin:\s*/i.test(trimmed)) {
+    return { kind: 'default', rest: trimmed };
+  }
+
+  const mAlias = trimmed.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/s);
+  if (mAlias) {
+    return { kind: 'alias', alias: mAlias[1], rest: mAlias[2].trim() };
+  }
+
+  const mPath = trimmed.match(/^(\/[^\s:]+)(?:\s+|:)\s*(.*)$/s);
+  if (mPath) {
+    return { kind: 'path', path: mPath[1], rest: mPath[2].trim() };
+  }
+
+  const mLone = trimmed.match(/^(\/[^\s:]+)$/s);
+  if (mLone) {
+    return { kind: 'path', path: mLone[1], rest: '' };
+  }
+
+  return { kind: 'default', rest: trimmed };
+}
 
 /**
  * Detect `joplin:<query>` at the start of the prompt.
@@ -108,10 +144,36 @@ export default async function cursorCommand(sock, sender, text, msg) {
     return;
   }
 
-  const rawPrompt = text.replace(/^cursor\s*/i, '').trim();
+  const afterCursor = text.replace(/^cursor\s*/i, '').trim();
+  if (!afterCursor) {
+    await sock.sendMessage(sender, {
+      text:
+        'Usage:\ncursor <instructions>\ncursor <alias>: <instructions>\ncursor <absolute-path> <instructions>\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor dots: fix the scoring bug\ncursor /home/user/Projects/my-app add tests\ncursor joplin:refactor-plan',
+    });
+    return;
+  }
+
+  const ws = parseWorkspacePrefix(afterCursor);
+  let workspaceRoot;
+  try {
+    if (ws.kind === 'alias') {
+      workspaceRoot = await resolveWorkspaceFromAlias(ws.alias);
+    } else if (ws.kind === 'path') {
+      workspaceRoot = await resolveWorkspaceFromUserPath(ws.path);
+    } else {
+      workspaceRoot = await getDefaultWorkspaceRoot();
+    }
+  } catch (e) {
+    await sock.sendMessage(sender, {
+      text: `Cursor workspace: ${e.message || String(e)}`,
+    });
+    return;
+  }
+
+  const rawPrompt = ws.rest;
   if (!rawPrompt) {
     await sock.sendMessage(sender, {
-      text: 'Usage:\ncursor <instructions>\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor joplin:refactor-plan',
+      text: 'Usage: after the workspace prefix, add instructions or joplin:…\nExample: cursor dots: fix the bug',
     });
     return;
   }
@@ -143,16 +205,17 @@ export default async function cursorCommand(sock, sender, text, msg) {
     }
   }
 
-  const repo = getCursorCliRepoRoot();
+  const repo = workspaceRoot;
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const logPath = join(repo, 'logs', 'cursor-agent', `${runId}.log`);
   const logRel = `logs/cursor-agent/${runId}.log`;
 
-  await setPendingCursorRun(repo, {
+  await setPendingCursorRun({
     sender,
     logPath,
     runId,
     startedAt: new Date().toISOString(),
+    workspaceRoot: repo,
   });
 
   let outcome = 'error';
@@ -168,7 +231,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
         `Running Cursor agent in ${repo} …${sourceHint}\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
     });
 
-    result = await runCursorCliAgent(prompt, { runId });
+    result = await runCursorCliAgent(prompt, { runId, workspaceRoot: repo });
     if (result.timedOut) outcome = 'timeout';
     else if (result.spawnError) outcome = 'spawn_error';
     else if (result.ok) outcome = 'success';
@@ -231,6 +294,6 @@ export default async function cursorCommand(sock, sender, text, msg) {
       /* keep pending file for startup notice */
     }
   } finally {
-    if (delivered) await clearPendingCursorRun(repo);
+    if (delivered) await clearPendingCursorRun();
   }
 }

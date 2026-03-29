@@ -79,12 +79,12 @@ Never run shell commands that restart or stop the Node.js process that spawned t
 ${userPrompt}`;
 }
 
-function runCursorCliAgentUnqueued(userPrompt, runId) {
+function runCursorCliAgentUnqueued(userPrompt, runId, workspaceRoot) {
   return new Promise((resolve) => {
-    const cwd = REPO_ROOT;
+    const cwd = workspaceRoot;
     const bin = getAgentBin();
     const timeoutMs = getTimeoutMs();
-    const logPath = join(REPO_ROOT, 'logs', 'cursor-agent', `${runId}.log`);
+    const logPath = join(workspaceRoot, 'logs', 'cursor-agent', `${runId}.log`);
     const fullPrompt = buildPromptForAgent(userPrompt);
 
     let logStream = null;
@@ -118,7 +118,7 @@ function runCursorCliAgentUnqueued(userPrompt, runId) {
 
     (async () => {
       try {
-        await fs.mkdir(join(REPO_ROOT, 'logs', 'cursor-agent'), { recursive: true });
+        await fs.mkdir(join(workspaceRoot, 'logs', 'cursor-agent'), { recursive: true });
         logStream = createWriteStream(logPath, { flags: 'w' });
         logStream.write(
           `runId=${runId}\ncwd=${cwd}\nbin=${bin}\n--- user prompt ---\n${userPrompt}\n--- (PM2 / parent-process constraints prepended for agent) ---\n\n`
@@ -135,7 +135,7 @@ function runCursorCliAgentUnqueued(userPrompt, runId) {
         return;
       }
 
-      const child = spawn(bin, ['-p', '--force', fullPrompt], {
+      const child = spawn(bin, ['-p', '--force', '--workspace', workspaceRoot, fullPrompt], {
         cwd,
         env: { ...process.env, PATH: augmentedPathEnv() },
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -221,14 +221,15 @@ function runCursorCliAgentUnqueued(userPrompt, runId) {
 /**
  * Run Cursor headless CLI once (queued). Uses same user env as the bot (CLI login).
  * @param {string} prompt
- * @param {{ runId?: string }} [options]
+ * @param {{ runId?: string, workspaceRoot?: string }} [options]
  */
 export function runCursorCliAgent(prompt, options = {}) {
   const runId =
     options.runId ?? new Date().toISOString().replace(/[:.]/g, '-');
+  const workspaceRoot = options.workspaceRoot ?? REPO_ROOT;
   const next = runQueue.then(
-    () => runCursorCliAgentUnqueued(prompt, runId),
-    () => runCursorCliAgentUnqueued(prompt, runId)
+    () => runCursorCliAgentUnqueued(prompt, runId, workspaceRoot),
+    () => runCursorCliAgentUnqueued(prompt, runId, workspaceRoot)
   );
   runQueue = next.then(
     () => undefined,
