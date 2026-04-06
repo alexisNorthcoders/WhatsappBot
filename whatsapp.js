@@ -1,4 +1,11 @@
-import { default as makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, downloadMediaMessage, DisconnectReason } from '@whiskeysockets/baileys';
+import {
+  default as makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  downloadMediaMessage,
+  DisconnectReason,
+  makeCacheableSignalKeyStore,
+} from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
 import restartCommand from './whatsapp/commands/restart.js';
 import { spriteIterateCommand } from './whatsapp/commands/sprite.js';
@@ -33,9 +40,21 @@ const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
 
 /** Avoid overlapping reconnect timers when the connection flaps (prevents duplicate sockets → 440 connectionReplaced). */
 let reconnectTimer = null;
+/** Latest socket — used to tear down before starting another (avoids duplicate live connections). */
+let waSocket = null;
+/** Resets on successful `connection === 'open'`; used for exponential backoff on transient closes. */
+let reconnectAttempt = 0;
 
 async function startSock() {
+  try {
+    waSocket?.end(undefined);
+  } catch {
+    /* ignore */
+  }
   const { state, saveCreds } = await useMultiFileAuthState('./.auth/baileys');
+  // Reduces disk thrash and missed key writes; Baileys README recommends for non-trivial bots.
+  state.keys = makeCacheableSignalKeyStore(state.keys, logger);
+
   const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
@@ -99,6 +118,7 @@ async function startSock() {
     }
 
     if (connection === 'open') {
+      reconnectAttempt = 0;
       logger.info('✅ WhatsApp connected.');
       (async () => {
         const pending = await readPendingCursorRun();
@@ -120,9 +140,14 @@ async function startSock() {
       })();
     } else if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      // Only loggedOut (401) invalidates this device session — see Baileys README / DisconnectReason.
-      // 440 = connectionReplaced: reconnect after a short delay; not reconnecting often strands the bot until you wipe .auth.
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      /*
+       * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:
+       * WhatsApp has invalidated this linked device (logout, device_removed conflict, ToS, etc.).
+       * Logs showed: stream:error conflict type device_removed — that is decided on WhatsApp’s servers,
+       * not something Baileys can override by reconnecting.
+       */
+      const shouldReconnect =
+        statusCode !== DisconnectReason.loggedOut && statusCode !== DisconnectReason.forbidden;
 
       logger.info(
         { statusCode, reason: statusCode != null ? DisconnectReason[statusCode] : 'unknown', err: lastDisconnect?.error?.message },
@@ -131,13 +156,19 @@ async function startSock() {
 
       if (shouldReconnect) {
         if (reconnectTimer) clearTimeout(reconnectTimer);
+        const delayMs = Math.min(120_000, 5_000 * 2 ** reconnectAttempt);
+        reconnectAttempt += 1;
         reconnectTimer = setTimeout(() => {
           reconnectTimer = null;
-          logger.info('Starting reconnection...');
+          logger.info({ delayMs, attempt: reconnectAttempt }, 'Starting reconnection...');
           startSock();
-        }, 5000);
+        }, delayMs);
       } else {
-        logger.error('Session logged out — scan QR again (or remove linked device in WhatsApp).');
+        logger.error(
+          statusCode === DisconnectReason.loggedOut
+            ? 'Session logged out (401) — scan QR again. Reconnect cannot restore this; WhatsApp revoked the linked device session.'
+            : 'Connection closed with forbidden — not auto-reconnecting.'
+        );
       }
     } else if (connection === 'connecting') {
       logger.info('🔄 Connecting to WhatsApp...');
@@ -413,6 +444,7 @@ async function startSock() {
     }
   });
 
+  waSocket = sock;
   logger.info("✅ Baileys connected.");
 }
 
