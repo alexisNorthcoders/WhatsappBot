@@ -190,7 +190,15 @@ async function startSock() {
       logger.warn(`Failed to send read receipt: ${err.message}`);
     }
 
-    const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+    // Image/video/document captions live on the media object, not conversation / extendedText.
+    const text = (
+      msg.message.conversation
+      || msg.message.extendedTextMessage?.text
+      || msg.message.imageMessage?.caption
+      || msg.message.videoMessage?.caption
+      || msg.message.documentMessage?.caption
+      || ''
+    ).trim();
     const button = text.toLowerCase();
 
     const command = text.split(' ')[0].toLowerCase();
@@ -230,6 +238,14 @@ async function startSock() {
         } else if (text.startsWith("Help")) {
           const res = await visionHelp(buffer.toString('base64'));
           await sock.sendMessage(sender, { text: res });
+        } else if (!text) {
+          await sock.sendMessage(sender, {
+            text:
+              'Add a caption when sending an image:\n' +
+              '• *Text* — extract text\n' +
+              '• *Text high* — higher-quality extraction\n' +
+              '• *Help* — describe / get help with the image',
+          });
         }
 
       }

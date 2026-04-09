@@ -12,8 +12,9 @@ function convertToBase64(file) {
 }
 
 async function vision() {
+    const visionModel = process.env.OPENAI_CHAT_MODEL || 'gpt-5-nano';
     const response = await openai.chat.completions.create({
-        model: "gpt-4-vision-preview",
+        model: visionModel,
         messages: [
             {
                 role: "user",
@@ -29,7 +30,7 @@ async function vision() {
                 ],
             },
         ],
-        max_tokens: 1500,
+        ...( /^(gpt-5|o\d)/i.test(visionModel) ? { max_completion_tokens: 1500 } : { max_tokens: 1500 } ),
     });
     const answer = JSON.parse(response.choices[0].message.content)
     console.log(answer)

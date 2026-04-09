@@ -1,13 +1,14 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
+import { openaiChatTokenOpts } from '../../models/models.js';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const JOPLIN_AGENT_MODEL = process.env.JOPLIN_AGENT_MODEL || 'gpt-4o-mini';
+const JOPLIN_AGENT_MODEL = process.env.JOPLIN_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 const MAX_TOOL_TEXT = 12000;
 
@@ -46,7 +47,84 @@ async function resolveNoteIdOrSearch(noteQuery) {
 }
 
 const KEYWORD_PATTERN =
-  /\b(note|notes|notepad|joplin|notebook|notebooks)\b|\b(save|add|write)\s+(a\s+)?note\b|\b(list|show|search|find|get|open|delete|remove|update|edit)\b.*\bnote/i;
+  /\b(note|notes|notepad|joplin|notebook|notebooks)\b|\b(save|add|write)\s+(a\s+)?note\b|\b(list|show|search|find|get|open|delete|remove|update|edit)\b.*\bnote|\b(fetch|save|archive|capture|store)\s+(the\s+)?(page|url|web|html|site|webpage)\b|\bhttps?:\/\/\S+.*\b(joplin|note|save|archive|page|html)\b|\b(joplin|note|save)\b.*\bhttps?:\/\//i;
+
+const FETCH_USER_AGENT = 'WhatsappBot-JoplinAgent/1.0';
+const DEFAULT_MAX_FETCH_CHARS = 500_000;
+
+function maxFetchChars() {
+  const n = parseInt(process.env.JOPLIN_FETCH_MAX_HTML_CHARS || String(DEFAULT_MAX_FETCH_CHARS), 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 2_000_000) : DEFAULT_MAX_FETCH_CHARS;
+}
+
+/** Block obvious SSRF targets (private/local); http(s) only. */
+function isUrlAllowedForFetch(urlStr) {
+  let u;
+  try {
+    u = new URL(urlStr.trim());
+  } catch {
+    return false;
+  }
+  if (u.username || u.password) return false;
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
+  if (host === '::1') return false;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    if (a === 10) return false;
+    if (a === 127 || a === 0) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+  }
+  return true;
+}
+
+function markdownFence(lang, content) {
+  const inner = String(content);
+  let longest = 0;
+  for (const m of inner.matchAll(/`+/g)) {
+    if (m[0].length > longest) longest = m[0].length;
+  }
+  const fence = '`'.repeat(Math.max(3, longest) + 1);
+  return `${fence}${lang}\n${inner}\n${fence}`;
+}
+
+async function fetchUrlBodyForNote(url) {
+  const maxChars = maxFetchChars();
+  const res = await fetch(url, {
+    headers: { Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8', 'User-Agent': FETCH_USER_AGENT },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(45_000),
+  });
+  const ct = res.headers.get('content-type') || '';
+  const buf = await res.arrayBuffer();
+  const dec = new TextDecoder('utf-8');
+  let text = dec.decode(buf);
+  const fullLen = text.length;
+  let truncated = false;
+  if (fullLen > maxChars) {
+    truncated = true;
+    text = `${text.slice(0, maxChars)}\n\n… (truncated: ${fullLen} characters, limit ${maxChars})`;
+  }
+  let fenceLang = /json/i.test(ct) ? 'json' : /html|xml/i.test(ct) ? 'html' : '';
+  const head = text.trimStart().slice(0, 500);
+  if (!fenceLang && (/^<!DOCTYPE\s+html/i.test(head) || /^<html[\s>]/i.test(head))) {
+    fenceLang = 'html';
+  }
+  if (!fenceLang) fenceLang = 'text';
+  return {
+    ok: res.ok,
+    status: res.status,
+    contentType: ct.split(';')[0].trim() || 'unknown',
+    body: text,
+    fenceLang,
+    truncated,
+  };
+}
 
 export function shouldTryJoplinAgent(text) {
   if (process.env.JOPLIN_AGENT_ALWAYS === '1') return true;
@@ -63,6 +141,7 @@ Rules:
 - Use tools to perform actions. Prefer search_notes when the user is vague about which note they mean.
 - For get_note, pass either a hex note id (6+ hex chars) or a title / partial title (must be in ${AGENT_NOTEBOOK}).
 - create_note: provide title and body (body can be empty).
+- fetch_url_save: download a public http(s) URL and create a note whose body is the raw response (HTML/JSON/text) in a fenced code block, plus metadata. Use when the user wants a webpage or URL saved/archived to Joplin.
 - update_note: mode "append" + text_to_append, OR mode "replace" with new_title and optionally new_body (omit new_body to keep current body).
 - list_notebooks returns a summary of that single bot notebook, not every notebook in Joplin.
 - If the message is clearly NOT about notes / Joplin / notebooks, respond with exactly: ${JOPLIN_AGENT_SKIP}
@@ -82,6 +161,25 @@ const TOOLS = [
           body: { type: 'string', description: 'Markdown/plain body; can be empty' },
         },
         required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'joplin_fetch_url_save',
+      description:
+        'HTTP GET a public URL and save the response body into a new note (markdown with fenced code block). Localhost/private IPs are blocked.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'Full http(s) URL to fetch' },
+          note_title: {
+            type: 'string',
+            description: 'Optional note title; default derived from URL',
+          },
+        },
+        required: ['url'],
       },
     },
   },
@@ -171,6 +269,44 @@ export async function executeJoplinTool(name, args) {
           AGENT_NOTEBOOK === WHATSAPP_BOT_NOTEBOOK ? null : AGENT_NOTEBOOK;
         const note = await joplinAPI.createNote(title, body, parent);
         return `OK: Created note "${note.title}" (id: ${note.id}) in ${AGENT_NOTEBOOK}`;
+      }
+      case 'joplin_fetch_url_save': {
+        const url = String(args.url || '').trim();
+        if (!url) return 'Error: url is required.';
+        if (!isUrlAllowedForFetch(url)) {
+          return 'Error: Only public http(s) URLs are allowed (no localhost, credentials in URL, or private IP ranges).';
+        }
+        let fetched;
+        try {
+          fetched = await fetchUrlBodyForNote(url);
+        } catch (e) {
+          return `Error: Fetch failed: ${e.message || String(e)}`;
+        }
+        const titleRaw = args.note_title != null ? String(args.note_title).trim() : '';
+        let title = titleRaw;
+        if (!title) {
+          try {
+            const u = new URL(url);
+            const path = u.pathname === '/' ? '' : u.pathname;
+            title = `Web: ${u.hostname}${path}`.slice(0, 200);
+          } catch {
+            title = 'Fetched page';
+          }
+        }
+        const headline = [
+          `Source: ${url}`,
+          `Fetched: ${new Date().toISOString()}`,
+          `HTTP ${fetched.status}${fetched.ok ? '' : ' (non-OK)'}`,
+          `Content-Type: ${fetched.contentType}`,
+          fetched.truncated ? 'Truncated: yes' : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+        const body = `${headline}\n\n${markdownFence(fetched.fenceLang, fetched.body)}`;
+        const parent = AGENT_NOTEBOOK === WHATSAPP_BOT_NOTEBOOK ? null : AGENT_NOTEBOOK;
+        const note = await joplinAPI.createNote(title, body, parent);
+        const statusHint = fetched.ok ? 'saved' : 'saved (non-OK HTTP status)';
+        return `OK: ${statusHint} — "${note.title}" (id: ${note.id}) in ${AGENT_NOTEBOOK}`;
       }
       case 'joplin_list_notebooks': {
         const { notebookName, noteCount, notes } = await joplinAPI.summarizeNotebook(AGENT_NOTEBOOK);
@@ -266,7 +402,7 @@ export async function runJoplinAgent(userMessage) {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 1200,
+        ...openaiChatTokenOpts(JOPLIN_AGENT_MODEL, 1200),
       });
 
       addCompletionUsage(completion.usage, usage);

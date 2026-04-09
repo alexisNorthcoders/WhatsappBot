@@ -1,13 +1,14 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
+import { openaiChatTokenOpts } from '../../models/models.js';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const EMAIL_AGENT_MODEL = process.env.EMAIL_AGENT_MODEL || 'gpt-4o-mini';
+const EMAIL_AGENT_MODEL = process.env.EMAIL_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 10;
 
 export const EMAIL_AGENT_SKIP = 'SKIP';
@@ -129,7 +130,7 @@ export async function runEmailAgent(userMessage) {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 1200,
+        ...openaiChatTokenOpts(EMAIL_AGENT_MODEL, 1200),
       });
 
       addCompletionUsage(completion.usage, usage);

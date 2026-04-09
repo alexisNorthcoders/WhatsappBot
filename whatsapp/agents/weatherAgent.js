@@ -1,13 +1,13 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
-import { getWeatherData } from '../../models/models.js';
+import { getWeatherData, openaiChatTokenOpts } from '../../models/models.js';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const WEATHER_AGENT_MODEL = process.env.WEATHER_AGENT_MODEL || 'gpt-4o-mini';
+const WEATHER_AGENT_MODEL = process.env.WEATHER_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 
 const DEFAULT_CITY = process.env.WEATHER_AGENT_DEFAULT_CITY?.trim() || 'Manchester';
@@ -114,7 +114,7 @@ export async function runWeatherAgent(userMessage) {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 1200,
+        ...openaiChatTokenOpts(WEATHER_AGENT_MODEL, 1200),
       });
 
       addCompletionUsage(completion.usage, usage);

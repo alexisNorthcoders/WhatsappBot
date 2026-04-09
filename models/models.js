@@ -38,6 +38,23 @@ async function saveGeneratedImage(response, prompt) {
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const DEFAULT_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-5-mini';
+
+const CODE_CHAT_MODEL = process.env.OPENAI_CODE_CHAT_MODEL || 'gpt-5-mini';
+
+/**
+ * GPT-5 and o-series chat models use `max_completion_tokens` instead of `max_tokens`.
+ * @param {string} model
+ * @param {number} max
+ */
+export function openaiChatTokenOpts(model, max) {
+  const m = String(model || '').trim();
+  if (/^(gpt-5|o\d)/i.test(m)) {
+    return { max_completion_tokens: max };
+  }
+  return { max_tokens: max };
+}
+
 const deepInfra = new OpenAI({
   baseURL: 'https://api.deepinfra.com/v1/openai',
   apiKey: process.env.DEEPINFRA_API_KEY,
@@ -110,7 +127,7 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
     const history = maxPrior ? valid.slice(-maxPrior) : [];
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: DEFAULT_CHAT_MODEL,
       messages: [
         {
           role: 'system',
@@ -120,7 +137,7 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
         ...history,
         { role: 'user', content: String(userMessage).slice(0, CHAT_HISTORY_CONTENT_CAP) },
       ],
-      max_tokens: 1000,
+      ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1000),
     });
 
     return completion.choices[0].message.content.trim();
@@ -132,12 +149,12 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
 export async function gPT4generateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: DEFAULT_CHAT_MODEL,
       temperature: 0.7,
       messages: [
         { "role": "system", "content": "You will always give your responses summarized in bullet points unless asked otherwise." },
         { "role": "user", "content": userMessage }],
-      max_tokens: 1000
+      ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1000),
 
     });
     return completion.choices[0].message.content.trim();
@@ -149,12 +166,12 @@ export async function gPT4generateResponse(userMessage) {
 export async function codeResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'o4-mini',
+      model: CODE_CHAT_MODEL,
       temperature: 0.7,
       messages: [
         { "role": "system", "content": "You are a senior software engineer. You will respond just with typescript code unless asked otherwise." },
         { "role": "user", "content": userMessage }],
-      max_tokens: 1000
+      ...openaiChatTokenOpts(CODE_CHAT_MODEL, 1000),
 
     });
     return completion.choices[0].message.content.trim();
@@ -188,7 +205,7 @@ export function convertToBase64(file) {
 }
 export async function visionQuality(base64) {
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: DEFAULT_CHAT_MODEL,
     messages: [
       {
         role: "user",
@@ -204,7 +221,7 @@ export async function visionQuality(base64) {
         ],
       },
     ],
-    max_tokens: 10000,
+    ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 10000),
   });
   console.log(response.usage)
   console.log(`Total cost: $${calculateCost(response.usage)}`)
@@ -212,7 +229,7 @@ export async function visionQuality(base64) {
 }
 export async function vision(base64) {
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: DEFAULT_CHAT_MODEL,
     messages: [
       {
         role: "user",
@@ -228,7 +245,7 @@ export async function vision(base64) {
         ],
       },
     ],
-    max_tokens: 1500,
+    ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1500),
   });
   console.log(response.usage)
   console.log(`Total cost: $${calculateCost(response.usage)}`)
@@ -236,7 +253,7 @@ export async function vision(base64) {
 }
 export async function visionHelp(base64) {
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: DEFAULT_CHAT_MODEL,
     messages: [
       {
         role: "user",
@@ -252,7 +269,7 @@ export async function visionHelp(base64) {
         ],
       },
     ],
-    max_tokens: 1500,
+    ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1500),
   });
   console.log(response.usage)
   console.log(`Total cost: $${calculateCost(response.usage)}`)
@@ -299,7 +316,7 @@ export async function pixelArtGenerateResponse(userMessage, size = '32x32') {
 async function spriteRefinePromptFromImageFile(absPath, editInstruction, size) {
   const b64 = (await fs.readFile(absPath)).toString('base64');
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: DEFAULT_CHAT_MODEL,
     messages: [
       {
         role: 'user',
@@ -318,7 +335,7 @@ async function spriteRefinePromptFromImageFile(absPath, editInstruction, size) {
         ],
       },
     ],
-    max_tokens: 400,
+    ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 400),
   });
   return response.choices[0].message.content.trim().slice(0, 400);
 }
@@ -436,10 +453,10 @@ export async function instructGenerateResponse(userMessage) {
 export async function gPT3WizardgenerateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: DEFAULT_CHAT_MODEL,
       messages: [{ "role": "system", "content": "You are a wizard. You speak like an eclectic wizard and in riddles. If someone asks your name is Isildor The Great. You always finish your conversation in a form of a wise advice." },
       { "role": "user", "content": userMessage }],
-      max_tokens: 1000
+      ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1000)
       // Adjust this as needed for desired response length
     });
 

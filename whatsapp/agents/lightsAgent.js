@@ -13,13 +13,14 @@ import {
   getCacheStatus,
   getCachedLights,
 } from '../../hue/api.js';
+import { openaiChatTokenOpts } from '../../models/models.js';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const LIGHTS_AGENT_MODEL = process.env.LIGHTS_AGENT_MODEL || 'gpt-4o-mini';
+const LIGHTS_AGENT_MODEL = process.env.LIGHTS_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 
 /** Same preset colors as whatsapp/commands/lights.js */
@@ -352,7 +353,7 @@ export async function runLightsAgent(userMessage) {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 800,
+        ...openaiChatTokenOpts(LIGHTS_AGENT_MODEL, 800),
       });
 
       addCompletionUsage(completion.usage, usage);

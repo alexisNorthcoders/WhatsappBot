@@ -39,7 +39,7 @@ export default async function helpCommand(sock, sender) {
 (triggered automatically by keywords)
 ━━━━━━━━━━━━━━━━━━━━━━
 • *Lights* — Control Philips Hue lights (say "turn on/off", "dim", "brightness", light names, room names…)
-• *Notes* — Manage Joplin notes (say "save a note", "find my notes", "delete note"…)
+• *Notes* — Manage Joplin notes (say "save a note", "find my notes", "delete note"…, or "save https://… to Joplin" / "fetch this page to a note")
 • *Email* — Send emails via Gmail (say "email [person] about…")
 • *Weather* — Ask about forecast, rain, temperature, etc.
 

@@ -80,14 +80,15 @@ app.post('/gpt4', async (req, res) => {
   const userMessage = req.body.userPrompt
 
   try {
+    const streamChatModel = process.env.OPENAI_CHAT_MODEL || 'gpt-5-nano';
     const stream = await openai.chat.completions.create({
-      model: 'gpt-4-1106-preview',
+      model: streamChatModel,
       temperature: 0.7,
       messages: [
         { "role": "system", "content": "I'm the User and you are the Bot.I'm feeding previous interactions with each prompt." },
         { "role": "user", "content": userMessage }],
       stream: true,
-      max_tokens: 1000
+      ...( /^(gpt-5|o\d)/i.test(streamChatModel) ? { max_completion_tokens: 1000 } : { max_tokens: 1000 } ),
 
     });
     let final_response = '';
