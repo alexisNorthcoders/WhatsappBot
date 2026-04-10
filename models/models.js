@@ -105,6 +105,23 @@ const CHAT_HISTORY_API_CAP = parseInt(process.env.CHAT_MEMORY_MAX_MESSAGES || '1
 const CHAT_HISTORY_CONTENT_CAP = parseInt(process.env.CHAT_MEMORY_MAX_CONTENT || '4000', 10);
 
 /**
+ * GPT-5 / o-series models use internal reasoning tokens that count toward the same
+ * `max_completion_tokens` budget as visible text. Too low a limit often yields
+ * empty `message.content` (reasoning exhausts the budget first).
+ *
+ * @param {string} model
+ * @returns {number}
+ */
+function assistantMaxCompletionTokens(model) {
+  const fromEnv = parseInt(process.env.OPENAI_ASSISTANT_MAX_COMPLETION_TOKENS || '', 10);
+  if (Number.isFinite(fromEnv) && fromEnv > 0) {
+    return fromEnv;
+  }
+  const m = String(model || '').trim();
+  return /^(gpt-5|o\d)/i.test(m) ? 8192 : 1000;
+}
+
+/**
  * @param {string} userMessage
  * @param {{ role: string, content: string }[]} [priorMessages] prior user/assistant turns only (no system)
  */
@@ -137,10 +154,23 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
         ...history,
         { role: 'user', content: String(userMessage).slice(0, CHAT_HISTORY_CONTENT_CAP) },
       ],
-      ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1000),
+      ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, assistantMaxCompletionTokens(DEFAULT_CHAT_MODEL)),
     });
 
-    return completion.choices[0].message.content.trim();
+    const raw = completion.choices[0]?.message?.content;
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (!text) {
+      console.error('assistantgenerateResponse: empty assistant content', {
+        model: DEFAULT_CHAT_MODEL,
+        finish_reason: completion.choices[0]?.finish_reason,
+        usage: completion.usage,
+      });
+      return (
+        'Sorry — the model returned no visible text (often the output limit was reached by internal reasoning before the reply). ' +
+        'On the Pi, set OPENAI_ASSISTANT_MAX_COMPLETION_TOKENS higher (e.g. 16384) or use a non-reasoning chat model for OPENAI_CHAT_MODEL.'
+      );
+    }
+    return text;
   } catch (error) {
     console.error('Error generating GPT-3 response:', error);
     throw new Error('Error generating response');
