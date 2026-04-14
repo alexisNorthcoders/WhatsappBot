@@ -29,19 +29,13 @@ export default async function helpCommand(sock, sender) {
 • *Help* — Analyse / get help with image content
 
 ━━━━━━━━━━━━━━━━━━━━━━
-*Weather*
-━━━━━━━━━━━━━━━━━━━━━━
-• *Weather* [city] — 24h forecast for a city
-• Or just ask about weather naturally — the weather agent picks it up
-
-━━━━━━━━━━━━━━━━━━━━━━
 *Smart Agents*
 (triggered automatically by keywords)
 ━━━━━━━━━━━━━━━━━━━━━━
 • *Lights* — Control Philips Hue lights (say "turn on/off", "dim", "brightness", light names, room names…)
 • *Notes* — Manage Joplin notes (say "save a note", "find my notes", "delete note"…, or "save https://… to Joplin" / "fetch this page to a note")
 • *Email* — Send emails via Gmail (say "email [person] about…")
-• *Weather* — Ask about forecast, rain, temperature, etc.
+• *Weather* — Ask naturally: e.g. weather, forecast, temperature, rain/snow/storm, wind, humidity, sunny/cloudy, °C/°F, "will it rain", "how hot/cold", "what's it like outside". Name a city if you want; otherwise the bot uses its default city.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Other*

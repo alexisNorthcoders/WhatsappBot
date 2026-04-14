@@ -301,13 +301,6 @@ async function startSock() {
         await sendRandomMessage(sock, sender);
         await sendRandomMessage(sock, secondPhone + '@s.whatsapp.net');
       }
-      else if (text.startsWith("Weather")) {
-        const city = text.replace("Weather ", "");
-        const forecast = await getWeatherData(city);
-        const response = formatWeather(city, forecast);
-        await sock.sendMessage(sender, { text: response });
-
-      }
       else {
         let handled = false;
         if (shouldTryLightsAgent(text)) {
@@ -462,16 +455,6 @@ async function startSock() {
 
   waSocket = sock;
   logger.info("✅ Baileys connected.");
-}
-
-function formatWeather(city, forecast) {
-  return `${city}
-${forecast.list.slice(0, 8).map(f => `
-${f.dt_txt}:
-• Temp: ${f.main.temp}
-• Humidity: ${f.main.humidity}
-• Desc: ${f.weather[0].description}
-`).join('')}`;
 }
 
 async function sendRandomMessage(sock, recipient = myPhone + "@s.whatsapp.net") {
