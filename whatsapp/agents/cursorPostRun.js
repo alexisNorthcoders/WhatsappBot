@@ -286,6 +286,74 @@ async function prepareWorkBranchForCliCommit(repo) {
   return { didCheckoutNew: true, branchName: newBranch, prBase };
 }
 
+function slugifyForGitBranch(title) {
+  const s = String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-')
+    .slice(0, 48);
+  return s || 'work';
+}
+
+async function localBranchExists(repo, name) {
+  try {
+    await execGit(['show-ref', '--verify', '--quiet', `refs/heads/${name}`], repo);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Before `cursor issue:<n>` runs the CLI: require a clean tree, fetch, checkout the default branch,
+ * fast-forward pull from origin, then create a dedicated branch for this issue.
+ * @param {string} repo
+ * @param {number} issueNumber
+ * @param {string} [issueTitle]
+ * @returns {Promise<{ defaultBranch: string, branchName: string }>}
+ */
+export async function prepareWorkspaceForGithubIssue(repo, issueNumber, issueTitle = '') {
+  const porcelain = await getStatusPorcelain(repo);
+  if (porcelain) {
+    throw new Error(
+      'Working tree is not clean — commit or stash your changes before `cursor issue:…` so main can be checked out safely.'
+    );
+  }
+
+  const hasOrigin = await hasOriginRemote(repo);
+  if (!hasOrigin) {
+    throw new Error('No git remote named `origin` — cannot pull latest default branch.');
+  }
+
+  await execGit(['fetch', 'origin'], repo);
+
+  const defaultBranch = await resolveDefaultBranchName(repo);
+  if (!defaultBranch) {
+    throw new Error('Could not determine default branch (main/master).');
+  }
+
+  await execGit(['checkout', defaultBranch], repo);
+  await execGit(['pull', '--ff-only', 'origin', defaultBranch], repo);
+
+  const prefix = process.env.CURSOR_ISSUE_BRANCH_PREFIX?.trim() || 'cursor/issue';
+  const slug = slugifyForGitBranch(issueTitle);
+  let base = `${prefix}-${issueNumber}-${slug}`;
+  let branchName = base;
+  let guard = 0;
+  while (await localBranchExists(repo, branchName)) {
+    guard++;
+    branchName = `${base}-${randomBranchSuffix()}`;
+    if (guard > 32) {
+      throw new Error(`Could not pick a free local branch name starting with "${base}".`);
+    }
+  }
+
+  await execGit(['checkout', '-b', branchName], repo);
+  logPost('prepareWorkspaceForGithubIssue', { defaultBranch, branchName, issueNumber });
+  return { defaultBranch, branchName };
+}
+
 /**
  * @param {string} repo
  * @returns {Promise<{ ok: boolean, error?: string }>}
