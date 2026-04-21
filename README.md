@@ -58,3 +58,7 @@ Backend server made in **Node.js**:
    
    <img src="image-9.png" alt="pokemon game initial state" width="200"/>
    <img src="image-8.png" alt="pokemon game going right" width="200"/>
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to sync with `main`, branch, and open pull requests before starting new work.
