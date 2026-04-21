@@ -19,6 +19,7 @@ export default async function helpCommand(sock, sender) {
 • *cursor* *alias*: [instructions] — Run in an allowlisted repo (set CURSOR_WORKSPACE_MAP in .env)
 • *cursor* */absolute/path/to/repo* [instructions] — Same, using an absolute path from the allowlist
 • *cursor* joplin:[note] — Use a Joplin note as the prompt (workspace stays default unless you use alias/path before joplin)
+• *cursor* issue:[n] [extra] — Use GitHub issue #n as the prompt (default repo alexisNorthcoders/WhatsappBot; override with GH_ISSUE_REPO in .env)
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Image Commands*

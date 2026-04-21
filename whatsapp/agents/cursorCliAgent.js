@@ -4,6 +4,7 @@ import { promises as fs } from 'fs';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { augmentedPathEnv } from '../processPath.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -16,20 +17,6 @@ let runQueue = Promise.resolve();
 
 export function getCursorCliRepoRoot() {
   return REPO_ROOT;
-}
-
-/** Paths often missing when the bot is not started from an interactive shell (systemd, etc.). */
-function augmentedPathEnv() {
-  const home = homedir();
-  const prefixes = [
-    join(home, '.local', 'bin'),
-    join(home, '.cursor', 'bin'),
-    '/usr/local/bin',
-    '/opt/cursor/bin',
-  ].filter(Boolean);
-  const extra = prefixes.join(':');
-  const base = process.env.PATH || '';
-  return base ? `${extra}:${base}` : extra;
 }
 
 /**

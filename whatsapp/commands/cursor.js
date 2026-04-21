@@ -14,6 +14,7 @@ import { logAgentInvocation } from '../agents/agentUsageLog.js';
 import { maybeCommitReviewEmail } from '../agents/cursorPostRun.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 import { actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { fetchGhIssuePromptText } from '../agents/ghIssueForCursor.js';
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ const JOPLIN_NOTEBOOK =
   process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
 
 const JOPLIN_PREFIX_RE = /^joplin:\s*(.+)/is;
+const ISSUE_PREFIX_RE = /^issue:\s*(\d+)\s*(.*)$/is;
 
 /**
  * After the leading `cursor` command, detect optional workspace prefix.
@@ -33,6 +35,11 @@ function parseWorkspacePrefix(remainder) {
 
   // Do not treat `joplin:…` as a workspace alias (reserved for note-based prompts).
   if (/^joplin:\s*/i.test(trimmed)) {
+    return { kind: 'default', rest: trimmed };
+  }
+
+  // Do not treat `issue:…` as a workspace alias (reserved for GitHub issue prompts).
+  if (/^issue:\s*/i.test(trimmed)) {
     return { kind: 'default', rest: trimmed };
   }
 
@@ -62,6 +69,16 @@ function parseJoplinPrefix(prompt) {
   const m = prompt.match(JOPLIN_PREFIX_RE);
   if (!m) return null;
   return { noteQuery: m[1].trim() };
+}
+
+/**
+ * Detect `issue:<n>` at the start of the prompt (checked before joplin).
+ * @returns {{ issueNumber: number, extraInstructions: string } | null}
+ */
+function parseIssuePrefix(prompt) {
+  const m = prompt.trim().match(ISSUE_PREFIX_RE);
+  if (!m) return null;
+  return { issueNumber: parseInt(m[1], 10), extraInstructions: (m[2] || '').trim() };
 }
 
 function isHexId(s) {
@@ -148,7 +165,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
   if (!afterCursor) {
     await sock.sendMessage(sender, {
       text:
-        'Usage:\ncursor <instructions>\ncursor <alias>: <instructions>\ncursor <absolute-path> <instructions>\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor dots: fix the scoring bug\ncursor /home/user/Projects/my-app add tests\ncursor joplin:refactor-plan',
+        'Usage:\ncursor <instructions>\ncursor <alias>: <instructions>\ncursor <absolute-path> <instructions>\ncursor issue:<n> [extra instructions]\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor dots: fix the scoring bug\ncursor /home/user/Projects/my-app add tests\ncursor issue:42\ncursor issue:3 add unit tests\ncursor joplin:refactor-plan',
     });
     return;
   }
@@ -173,35 +190,59 @@ export default async function cursorCommand(sock, sender, text, msg) {
   const rawPrompt = ws.rest;
   if (!rawPrompt) {
     await sock.sendMessage(sender, {
-      text: 'Usage: after the workspace prefix, add instructions or joplin:…\nExample: cursor dots: fix the bug',
+      text: 'Usage: after the workspace prefix, add instructions, issue:…, or joplin:…\nExample: cursor dots: fix the bug',
     });
     return;
   }
 
   let prompt = rawPrompt;
   let joplinSource = null;
+  let issueSource = null;
 
-  const joplinMatch = parseJoplinPrefix(rawPrompt);
-  if (joplinMatch) {
+  const issueMatch = parseIssuePrefix(rawPrompt);
+  if (issueMatch) {
     try {
       await sock.sendMessage(sender, {
-        text: `Reading Joplin note "${joplinMatch.noteQuery}" from notebook "${JOPLIN_NOTEBOOK}" …`,
+        text: `Fetching GitHub issue #${issueMatch.issueNumber} …`,
       });
-      const note = await fetchJoplinNote(joplinMatch.noteQuery);
-      const body = (note.body || '').trim();
-      if (!body) {
+      const fetched = await fetchGhIssuePromptText(issueMatch.issueNumber, {
+        extraInstructions: issueMatch.extraInstructions,
+      });
+      prompt = fetched.markdown;
+      issueSource = {
+        number: fetched.number,
+        repo: fetched.repo,
+        title: fetched.title,
+      };
+    } catch (err) {
+      await sock.sendMessage(sender, {
+        text: `Failed to read GitHub issue: ${err.message || String(err)}`,
+      });
+      return;
+    }
+  } else {
+    const joplinMatch = parseJoplinPrefix(rawPrompt);
+    if (joplinMatch) {
+      try {
         await sock.sendMessage(sender, {
-          text: `Joplin note "${note.title}" (${note.id}) has an empty body — nothing to send to Cursor.`,
+          text: `Reading Joplin note "${joplinMatch.noteQuery}" from notebook "${JOPLIN_NOTEBOOK}" …`,
+        });
+        const note = await fetchJoplinNote(joplinMatch.noteQuery);
+        const body = (note.body || '').trim();
+        if (!body) {
+          await sock.sendMessage(sender, {
+            text: `Joplin note "${note.title}" (${note.id}) has an empty body — nothing to send to Cursor.`,
+          });
+          return;
+        }
+        prompt = body;
+        joplinSource = { title: note.title, id: note.id };
+      } catch (err) {
+        await sock.sendMessage(sender, {
+          text: `Failed to read Joplin note: ${err.message || String(err)}`,
         });
         return;
       }
-      prompt = body;
-      joplinSource = { title: note.title, id: note.id };
-    } catch (err) {
-      await sock.sendMessage(sender, {
-        text: `Failed to read Joplin note: ${err.message || String(err)}`,
-      });
-      return;
     }
   }
 
@@ -223,9 +264,11 @@ export default async function cursorCommand(sock, sender, text, msg) {
   let delivered = false;
 
   try {
-    const sourceHint = joplinSource
-      ? `\nSource: Joplin note "${joplinSource.title}" (${joplinSource.id})`
-      : '';
+    const sourceHint = issueSource
+      ? `\nSource: GitHub issue #${issueSource.number} (${issueSource.repo}) — ${issueSource.title || '(no title)'}`
+      : joplinSource
+        ? `\nSource: Joplin note "${joplinSource.title}" (${joplinSource.id})`
+        : '';
     await sock.sendMessage(sender, {
       text:
         `Running Cursor agent in ${repo} …${sourceHint}\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
