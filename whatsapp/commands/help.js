@@ -19,7 +19,9 @@ export default async function helpCommand(sock, sender) {
 • *cursor* *alias*: [instructions] — Run in an allowlisted repo (set CURSOR_WORKSPACE_MAP in .env)
 • *cursor* */absolute/path/to/repo* [instructions] — Same, using an absolute path from the allowlist
 • *cursor* joplin:[note] — Use a Joplin note as the prompt (workspace stays default unless you use alias/path before joplin)
-• *cursor* issue:[n] [extra] — Use GitHub issue #n as the prompt (default repo alexisNorthcoders/WhatsappBot; override with GH_ISSUE_REPO in .env)
+• *cursor* issue:[n] [extra] — Use GitHub issue #n as the prompt (repo: git origin of the selected workspace, else GH_ISSUE_REPO, else alexisNorthcoders/WhatsappBot)
+• *cursor* issue:[alias]:[n] [extra] — Same, but run in that allowlisted workspace (CURSOR_WORKSPACE_MAP alias). Repo: CURSOR_ISSUE_REPO_MAP for that alias, else that workspace’s origin, else GH_ISSUE_REPO / default
+• *cursor* [your-alias]: issue:[n] — Workspace from your alias; issue repo follows the same rules from that workspace (map → origin → env/default)
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Image Commands*
