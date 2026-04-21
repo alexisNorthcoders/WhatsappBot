@@ -9,6 +9,69 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_GH_ISSUE_REPO = 'alexisNorthcoders/WhatsappBot';
 
+const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+
+function parseIssueRepoMap() {
+  /** @type {Map<string, string>} */
+  const out = new Map();
+  const s = String(process.env.CURSOR_ISSUE_REPO_MAP || '').trim();
+  if (!s) return out;
+  for (const segment of s.split(',')) {
+    const p = segment.trim();
+    if (!p) continue;
+    const eq = p.indexOf('=');
+    if (eq <= 0) continue;
+    const key = p.slice(0, eq).trim();
+    const val = p.slice(eq + 1).trim();
+    if (!/^[a-zA-Z0-9_-]+$/.test(key) || !val) continue;
+    out.set(key, val);
+  }
+  return out;
+}
+
+function stripTrailingDotGit(segment) {
+  return String(segment || '').replace(/\.git$/i, '');
+}
+
+/**
+ * @param {string} remoteUrl output of `git remote get-url origin`
+ * @returns {string | null} `owner/repo`
+ */
+export function ownerRepoSlugFromGithubRemote(remoteUrl) {
+  const u = String(remoteUrl || '').trim();
+  if (!u) return null;
+  let m = u.match(/^git@github\.com:([^/]+)\/([^/]+)$/i);
+  if (m) return `${m[1]}/${stripTrailingDotGit(m[2])}`;
+  m = u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/?$/i);
+  if (m) return `${m[1]}/${stripTrailingDotGit(m[2])}`;
+  return null;
+}
+
+async function tryOwnerRepoFromGitOrigin(workspaceRoot) {
+  if (!workspaceRoot) return null;
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024,
+      env: { ...process.env, PATH: augmentedPathEnv() },
+    }));
+  } catch {
+    return null;
+  }
+  return ownerRepoSlugFromGithubRemote(stdout.trim());
+}
+
+function assertValidRepoSlug(slug, context) {
+  if (!REPO_SLUG_RE.test(slug)) {
+    throw new Error(
+      `${context} must look like owner/repo (got "${slug}")`
+    );
+  }
+  return slug;
+}
+
 function resolveGhExecutable() {
   const fromEnv = process.env.GH_BIN?.trim();
   if (fromEnv) return fromEnv;
@@ -26,17 +89,43 @@ function resolveGhExecutable() {
 export function resolveIssueRepoSlug() {
   const fromEnv = process.env.GH_ISSUE_REPO?.trim();
   if (fromEnv) {
-    if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(fromEnv)) {
-      throw new Error(`GH_ISSUE_REPO must look like owner/repo (got "${fromEnv}")`);
-    }
-    return fromEnv;
+    return assertValidRepoSlug(fromEnv, 'GH_ISSUE_REPO');
   }
   return DEFAULT_GH_ISSUE_REPO;
 }
 
 /**
+ * Resolve which GitHub repo to read for `gh issue view`, in order:
+ * 1. `CURSOR_ISSUE_REPO_MAP` entry for `workspaceAlias` (when alias is set)
+ * 2. `git remote get-url origin` under `workspaceRoot` (GitHub URLs only)
+ * 3. `GH_ISSUE_REPO` or default `alexisNorthcoders/WhatsappBot`
+ *
+ * @param {string | undefined} workspaceRoot
+ * @param {string | null | undefined} workspaceAlias allowlisted alias, if any
+ * @returns {Promise<string>}
+ */
+export async function resolveIssueRepoSlugForWorkspace(workspaceRoot, workspaceAlias) {
+  const map = parseIssueRepoMap();
+  const alias = workspaceAlias?.trim() || null;
+  if (alias && map.has(alias)) {
+    const v = map.get(alias).trim();
+    return assertValidRepoSlug(v, `CURSOR_ISSUE_REPO_MAP entry for "${alias}"`);
+  }
+
+  const fromGit = await tryOwnerRepoFromGitOrigin(workspaceRoot);
+  if (fromGit && REPO_SLUG_RE.test(fromGit)) return fromGit;
+
+  return resolveIssueRepoSlug();
+}
+
+/**
  * @param {number|string} issueNumber
- * @param {{ extraInstructions?: string }} [opts]
+ * @param {{
+ *   extraInstructions?: string,
+ *   repo?: string,
+ *   workspaceRoot?: string,
+ *   workspaceAlias?: string | null,
+ * }} [opts]
  * @returns {Promise<{ markdown: string, repo: string, number: number, title: string }>}
  */
 export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
@@ -44,7 +133,13 @@ export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
   if (!Number.isFinite(n) || n < 1) {
     throw new Error(`Invalid issue number: ${issueNumber}`);
   }
-  const repo = resolveIssueRepoSlug();
+  let repo;
+  const explicit = (opts.repo || '').trim();
+  if (explicit) {
+    repo = assertValidRepoSlug(explicit, 'repo override');
+  } else {
+    repo = await resolveIssueRepoSlugForWorkspace(opts.workspaceRoot, opts.workspaceAlias ?? null);
+  }
   const extra = (opts.extraInstructions || '').trim();
   const bin = resolveGhExecutable();
 

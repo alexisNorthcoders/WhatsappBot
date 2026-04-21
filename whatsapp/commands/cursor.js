@@ -26,7 +26,6 @@ const JOPLIN_NOTEBOOK =
   process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
 
 const JOPLIN_PREFIX_RE = /^joplin:\s*(.+)/is;
-const ISSUE_PREFIX_RE = /^issue:\s*(\d+)\s*(.*)$/is;
 
 /**
  * After the leading `cursor` command, detect optional workspace prefix.
@@ -75,13 +74,26 @@ function parseJoplinPrefix(prompt) {
 }
 
 /**
- * Detect `issue:<n>` at the start of the prompt (checked before joplin).
- * @returns {{ issueNumber: number, extraInstructions: string } | null}
+ * Detect `issue:<alias>:<n>` or `issue:<n>` at the start of the prompt (checked before joplin).
+ * @returns {{ issueNumber: number, issueAlias: string | null, extraInstructions: string } | null}
  */
 function parseIssuePrefix(prompt) {
-  const m = prompt.trim().match(ISSUE_PREFIX_RE);
+  const trimmed = prompt.trim();
+  const mAlias = trimmed.match(/^issue:\s*([a-zA-Z0-9_-]+):\s*(\d+)\s*(.*)$/is);
+  if (mAlias) {
+    return {
+      issueNumber: parseInt(mAlias[2], 10),
+      issueAlias: mAlias[1],
+      extraInstructions: (mAlias[3] || '').trim(),
+    };
+  }
+  const m = trimmed.match(/^issue:\s*(\d+)\s*(.*)$/is);
   if (!m) return null;
-  return { issueNumber: parseInt(m[1], 10), extraInstructions: (m[2] || '').trim() };
+  return {
+    issueNumber: parseInt(m[1], 10),
+    issueAlias: null,
+    extraInstructions: (m[2] || '').trim(),
+  };
 }
 
 function isHexId(s) {
@@ -168,7 +180,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
   if (!afterCursor) {
     await sock.sendMessage(sender, {
       text:
-        'Usage:\ncursor <instructions>\ncursor <alias>: <instructions>\ncursor <absolute-path> <instructions>\ncursor issue:<n> [extra instructions]\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor dots: fix the scoring bug\ncursor /home/user/Projects/my-app add tests\ncursor issue:42\ncursor issue:3 add unit tests\ncursor joplin:refactor-plan',
+        'Usage:\ncursor <instructions>\ncursor <alias>: <instructions>\ncursor <absolute-path> <instructions>\ncursor issue:<n> [extra instructions]\ncursor issue:<alias>:<n> [extra instructions]\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor dots: fix the scoring bug\ncursor /home/user/Projects/my-app add tests\ncursor issue:42\ncursor issue:platformer:123 add unit tests\ncursor issue:3 add unit tests\ncursor joplin:refactor-plan',
     });
     return;
   }
@@ -203,6 +215,20 @@ export default async function cursorCommand(sock, sender, text, msg) {
   let issueSource = null;
 
   const issueMatch = parseIssuePrefix(rawPrompt);
+  let workspaceAliasForRepo = ws.kind === 'alias' ? ws.alias : null;
+
+  if (issueMatch?.issueAlias && ws.kind === 'default') {
+    try {
+      workspaceRoot = await resolveWorkspaceFromAlias(issueMatch.issueAlias);
+    } catch (e) {
+      await sock.sendMessage(sender, {
+        text: `Cursor workspace: ${e.message || String(e)}`,
+      });
+      return;
+    }
+    workspaceAliasForRepo = issueMatch.issueAlias;
+  }
+
   if (issueMatch) {
     try {
       await sock.sendMessage(sender, {
@@ -210,6 +236,8 @@ export default async function cursorCommand(sock, sender, text, msg) {
       });
       const fetched = await fetchGhIssuePromptText(issueMatch.issueNumber, {
         extraInstructions: issueMatch.extraInstructions,
+        workspaceRoot,
+        workspaceAlias: workspaceAliasForRepo,
       });
       prompt = fetched.markdown;
       issueSource = {
