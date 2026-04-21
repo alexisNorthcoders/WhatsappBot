@@ -125,13 +125,14 @@ function formatFileBucketsHtml(buckets) {
     .join('\n') || '<p><em>No file entries parsed.</em></p>';
 }
 
-function buildReviewEmailBodies({ review, buckets, githubBase, commitSha }) {
+function buildReviewEmailBodies({ review, buckets, githubBase, commitSha, prUrl }) {
   const filesPlain = formatFileBucketsPlain(buckets);
   const linksPlain = [];
   if (githubBase) {
     linksPlain.push(`Repository: ${githubBase}`);
     if (commitSha) linksPlain.push(`Commit: ${githubBase}/commit/${commitSha}`);
   }
+  if (prUrl) linksPlain.push(`Pull request: ${prUrl}`);
   const linksBlock = linksPlain.length ? `\n\n---\n${linksPlain.join('\n')}\n` : '';
 
   const text = [
@@ -151,6 +152,10 @@ function buildReviewEmailBodies({ review, buckets, githubBase, commitSha }) {
       (commitSha ?
         `<p><strong>Commit:</strong> <a href="${escapeHtml(`${githubBase}/commit/${commitSha}`)}">${escapeHtml(commitSha)}</a></p>`
       : '')
+    : '';
+  const prHtml =
+    prUrl ?
+      `<p><strong>Pull request:</strong> <a href="${escapeHtml(prUrl)}">${escapeHtml(prUrl)}</a></p>`
     : '';
 
   const html = `<!DOCTYPE html>
@@ -177,6 +182,7 @@ a { color: #0969da; }
 ${formatFileBucketsHtml(buckets)}
 <h2>Links</h2>
 ${linksHtml || '<p><em>No GitHub URL configured (set <code>CURSOR_REVIEW_GITHUB_URL</code> or add an <code>origin</code> remote).</em></p>'}
+${prHtml}
 </body>
 </html>`;
 
@@ -195,6 +201,146 @@ function postRunEnabled() {
 
 function postRunLogEnabled() {
   return process.env.CURSOR_POST_RUN_LOG !== '0';
+}
+
+function pushAfterCommitEnabled() {
+  if (process.env.CURSOR_POST_RUN_PUSH === '0') return false;
+  return true;
+}
+
+function prAfterPushEnabled() {
+  if (process.env.CURSOR_POST_RUN_PR === '0') return false;
+  return true;
+}
+
+/** UTC stamp safe for git branch names (no colons). */
+function branchTimestampUtc() {
+  const d = new Date();
+  const z = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}${z(d.getUTCMonth() + 1)}${z(d.getUTCDate())}-${z(d.getUTCHours())}${z(d.getUTCMinutes())}${z(d.getUTCSeconds())}`;
+}
+
+function randomBranchSuffix() {
+  return Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
+}
+
+/**
+ * Remote or local default branch name (e.g. main), for base comparisons and PR --base.
+ * @param {string} repo
+ * @returns {Promise<string | null>}
+ */
+async function resolveDefaultBranchName(repo) {
+  try {
+    const { stdout } = await execGit(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], repo);
+    const m = stdout.trim().match(/^origin\/(.+)$/);
+    if (m) return m[1];
+  } catch {
+    /* no origin/HEAD */
+  }
+  for (const b of ['main', 'master']) {
+    try {
+      await execGit(['rev-parse', '--verify', `refs/remotes/origin/${b}`], repo);
+      return b;
+    } catch {
+      /* try next */
+    }
+  }
+  for (const b of ['main', 'master']) {
+    try {
+      await execGit(['rev-parse', '--verify', `refs/heads/${b}`], repo);
+      return b;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
+/** @param {string} repo */
+async function getCurrentBranchName(repo) {
+  const { stdout } = await execGit(['rev-parse', '--abbrev-ref', 'HEAD'], repo);
+  return stdout.trim();
+}
+
+/**
+ * If on default branch or detached HEAD, `git checkout -b` so the CLI commit never lands on main.
+ * @returns {Promise<{ didCheckoutNew: boolean, branchName: string, prBase: string }>}
+ */
+async function prepareWorkBranchForCliCommit(repo) {
+  const defaultBranch = await resolveDefaultBranchName(repo);
+  const prBase = defaultBranch || 'main';
+  const current = await getCurrentBranchName(repo);
+  const onDetached = current === 'HEAD';
+  let needNewBranch = onDetached;
+  if (!onDetached) {
+    if (defaultBranch) needNewBranch = current === defaultBranch;
+    else needNewBranch = /^(main|master)$/i.test(current);
+  }
+  if (!needNewBranch) {
+    return { didCheckoutNew: false, branchName: current, prBase };
+  }
+  const prefix = process.env.CURSOR_CLI_BRANCH_PREFIX?.trim() || 'cursor/wa';
+  const newBranch = `${prefix}-${branchTimestampUtc()}-${randomBranchSuffix()}`;
+  logPost('creating work branch for CLI commit', { newBranch, prBase, previous: current });
+  await execGit(['checkout', '-b', newBranch], repo);
+  return { didCheckoutNew: true, branchName: newBranch, prBase };
+}
+
+/**
+ * @param {string} repo
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+async function tryPushOriginHead(repo) {
+  try {
+    await execFileAsync('git', ['push', '-u', 'origin', 'HEAD'], {
+      cwd: repo,
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+/**
+ * @param {string} repo
+ * @param {{ base: string, title: string, body: string }} opts
+ * @returns {Promise<{ ok: boolean, url?: string, error?: string }>}
+ */
+async function tryGhPrCreate(repo, opts) {
+  const { base, title, body } = opts;
+  try {
+    const { stdout, stderr } = await execFileAsync(
+      'gh',
+      ['pr', 'create', '--base', base, '--title', title, '--body', body],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+    const combined = `${stdout || ''}\n${stderr || ''}`;
+    const urlLine = combined
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => /^https:\/\/github\.com\/.+\/pull\/\d+/i.test(l));
+    if (urlLine) return { ok: true, url: urlLine };
+    const first = (stdout || '').trim();
+    if (/^https:\/\/github\.com\/.+\/pull\/\d+/i.test(first)) return { ok: true, url: first };
+    return { ok: false, error: 'gh pr create did not return a PR URL', raw: combined.trim() };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+async function hasOriginRemote(repo) {
+  try {
+    await execGit(['remote', 'get-url', 'origin'], repo);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function logPost(message, detail) {
@@ -422,7 +568,7 @@ async function sendReviewEmail(subject, { text, html }) {
 const JOPLIN_NOTEBOOK =
   process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
 
-async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt }) {
+async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt, prUrl }) {
   const date = new Date().toISOString().slice(0, 10);
   const shortSha = commitSha ? ` ${commitSha}` : '';
   const title = `Code review${shortSha} — ${date}`;
@@ -432,6 +578,7 @@ async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt }) {
     `**Prompt:** ${truncate(userPrompt, 500)}`,
     '',
     commitSha ? `**Commit:** ${commitSha}` : '*No commit*',
+    prUrl ? `**Pull request:** ${prUrl}` : '',
     '',
     '---',
     '',
@@ -448,7 +595,9 @@ async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt }) {
 }
 
 /**
- * After a successful Cursor CLI run: commit if dirty, LLM review, email review + file list + GitHub links (HTML + plain text), save to Joplin.
+ * After a successful Cursor CLI run: if the repo is dirty, move off the default branch when needed,
+ * commit, push to origin, open a GitHub PR (`gh`), then LLM review, email, and Joplin.
+ * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
  * @param {{ repo: string, userPrompt: string, agentRunOk: boolean }} opts
  */
 export async function maybeCommitReviewEmail(opts) {
@@ -478,6 +627,19 @@ export async function maybeCommitReviewEmail(opts) {
 
   logPost('working tree dirty, committing', { waitedMs: wait.waitedMs, polls: wait.polls });
 
+  let workBranch;
+  try {
+    workBranch = await prepareWorkBranchForCliCommit(repo);
+    logPost('work branch', workBranch);
+  } catch (e) {
+    logPost('prepareWorkBranchForCliCommit failed', e.stderr || e.message || String(e));
+    return {
+      ran: true,
+      note: `Could not prepare a feature branch: ${e.stderr || e.message || String(e)}. No commit was made.`,
+      skipReason: 'branch_prep_failed',
+    };
+  }
+
   const commit = await tryCommit(repo);
   logPost('tryCommit result', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
   const diffFull = await getDiffText(repo, commit.ok);
@@ -501,6 +663,41 @@ export async function maybeCommitReviewEmail(opts) {
     getChangeFileBuckets(repo, commit.ok),
     getGithubRepoBase(repo),
   ]);
+
+  let pushResult = null;
+  let prResult = null;
+  if (commit.ok && pushAfterCommitEnabled()) {
+    const hasOrigin = await hasOriginRemote(repo);
+    if (!hasOrigin) {
+      pushResult = { ok: false, error: 'no origin remote' };
+      logPost('skip push: no origin remote');
+    } else {
+      logPost('pushing branch to origin');
+      pushResult = await tryPushOriginHead(repo);
+      logPost('push result', pushResult);
+      if (pushResult.ok && prAfterPushEnabled()) {
+        const prTitleRaw = commit.message || 'Cursor (WhatsApp) CLI update';
+        const prTitle = prTitleRaw.length > 200 ? `${prTitleRaw.slice(0, 197)}…` : prTitleRaw;
+        const prBody = [
+          'Opened automatically after a Cursor CLI run from the WhatsApp bot.',
+          '',
+          `**Branch:** \`${workBranch.branchName}\``,
+          `**Base:** \`${workBranch.prBase}\``,
+          '',
+          '**Original prompt (truncated):**',
+          '',
+          truncate(userPrompt, 8000),
+        ].join('\n');
+        prResult = await tryGhPrCreate(repo, {
+          base: workBranch.prBase,
+          title: prTitle,
+          body: prBody,
+        });
+        logPost('gh pr create result', prResult);
+      }
+    }
+  }
+
   const subPre = reviewEmailSubjectPrefix(repo);
   const subject = commit.ok
     ? `[${subPre}] Cursor cli commit ${commit.sha} — review`
@@ -511,6 +708,7 @@ export async function maybeCommitReviewEmail(opts) {
     buckets,
     githubBase,
     commitSha: commit.ok ? commit.sha : null,
+    prUrl: prResult?.ok ? prResult.url : null,
   });
 
   let emailResult;
@@ -531,6 +729,7 @@ export async function maybeCommitReviewEmail(opts) {
       buckets,
       commitSha: commit.ok ? commit.sha : null,
       userPrompt,
+      prUrl: prResult?.ok ? prResult.url : null,
     });
     logPost('Joplin note created', { id: joplinResult?.id, title: joplinResult?.title });
   } catch (e) {
@@ -540,7 +739,18 @@ export async function maybeCommitReviewEmail(opts) {
 
   const parts = [];
   if (commit.ok) {
-    parts.push(`Committed ${commit.sha}: ${commit.message}`);
+    parts.push(`Committed ${commit.sha} on \`${workBranch.branchName}\`: ${commit.message}`);
+    if (workBranch.didCheckoutNew) {
+      parts.push('(Created a new branch so this did not commit directly to the default branch.)');
+    }
+    if (pushResult) {
+      if (pushResult.ok) parts.push('Pushed to origin.');
+      else parts.push(`Push to origin skipped or failed: ${pushResult.error}.`);
+    }
+    if (prResult) {
+      if (prResult.ok) parts.push(`PR: ${prResult.url}`);
+      else parts.push(`PR not created (${prResult.error}). Create one manually on GitHub if needed.`);
+    }
   } else {
     parts.push(
       `Auto-commit did not complete (${commit.reason}${commit.error ? `: ${commit.error}` : ''}). Diff was still reviewed.`
@@ -561,6 +771,9 @@ export async function maybeCommitReviewEmail(opts) {
     ran: true,
     note: parts.join(' '),
     commit,
+    workBranch,
+    pushResult,
+    prResult,
     review,
     emailResult,
     joplinResult,
