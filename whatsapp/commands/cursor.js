@@ -11,7 +11,10 @@ import {
   resolveWorkspaceFromUserPath,
 } from '../cursorWorkspaces.js';
 import { logAgentInvocation } from '../agents/agentUsageLog.js';
-import { maybeCommitReviewEmail } from '../agents/cursorPostRun.js';
+import {
+  maybeCommitReviewEmail,
+  prepareWorkspaceForGithubIssue,
+} from '../agents/cursorPostRun.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 import { actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
 import { fetchGhIssuePromptText } from '../agents/ghIssueForCursor.js';
@@ -214,6 +217,24 @@ export default async function cursorCommand(sock, sender, text, msg) {
         repo: fetched.repo,
         title: fetched.title,
       };
+      try {
+        await sock.sendMessage(sender, {
+          text: `Preparing git in ${workspaceRoot}: checkout latest default branch, pull from origin, create issue branch …`,
+        });
+        const prep = await prepareWorkspaceForGithubIssue(
+          workspaceRoot,
+          issueMatch.issueNumber,
+          issueSource.title
+        );
+        await sock.sendMessage(sender, {
+          text: `Ready on branch \`${prep.branchName}\` (synced from \`${prep.defaultBranch}\`).`,
+        });
+      } catch (prepErr) {
+        await sock.sendMessage(sender, {
+          text: `Git setup for issue #${issueMatch.issueNumber} failed: ${prepErr.message || String(prepErr)}`,
+        });
+        return;
+      }
     } catch (err) {
       await sock.sendMessage(sender, {
         text: `Failed to read GitHub issue: ${err.message || String(err)}`,
