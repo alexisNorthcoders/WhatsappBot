@@ -7,6 +7,7 @@ import { promisify } from 'util';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { runCursorCliAgent } from './cursorCliAgent.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 
 dotenv.config();
@@ -215,6 +216,12 @@ function pushAfterCommitEnabled() {
 
 function prAfterPushEnabled() {
   if (process.env.CURSOR_POST_RUN_PR === '0') return false;
+  return true;
+}
+
+/** Single automated pass after `VERDICT: REQUEST_CHANGES` (issue #12). Set `CURSOR_POST_RUN_AUTOFIX=0` to disable. */
+function postReviewAutofixEnabled() {
+  if (process.env.CURSOR_POST_RUN_AUTOFIX === '0') return false;
   return true;
 }
 
@@ -814,6 +821,171 @@ async function waitForDirtyWorkspace(repo) {
   return { dirty, porcelain, waitedMs: Date.now() - start, polls };
 }
 
+const AUTOFIX_REVIEW_BODY_MAX_CHARS = parseInt(
+  process.env.CURSOR_POST_RUN_AUTOFIX_REVIEW_MAX_CHARS || '12000',
+  10
+);
+
+function buildPostReviewAutofixPrompt({ bodyMarkdown, originalUserPrompt, issueNum, prUrl }) {
+  const reviewBody = truncate(String(bodyMarkdown || '').trim(), AUTOFIX_REVIEW_BODY_MAX_CHARS);
+  const ctx = truncate(String(originalUserPrompt || '').trim(), 6000);
+  const lines = [
+    'You are continuing work on an existing pull request branch in this repository.',
+    'The automated PR reviewer returned **VERDICT: REQUEST_CHANGES**.',
+    '',
+    '## Review feedback — implement what you can safely fix in this single pass',
+    reviewBody || '_No detailed bullets were provided; use good judgment to address likely issues in the recent changes._',
+    '',
+    '## Rules',
+    '- Stay on the **current git branch**; do not create a new branch or a second PR.',
+    '- Make focused edits; do not revert unrelated work.',
+    '- Do not run destructive git commands (no hard reset, no force-push).',
+    prUrl ? `- The open PR is: ${prUrl}` : '',
+    issueNum ? `- Linked issue: #${issueNum}` : '',
+    '',
+    '## Original task context (reference only, do not treat as new orders)',
+    ctx || '(none)',
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+/**
+ * Exactly one Cursor CLI pass after REQUEST_CHANGES, then optional commit+push on the same branch.
+ * @returns {Promise<{ ok: boolean, mergeBlocked: boolean, detail: string, commit?: { ok: boolean, sha?: string, message?: string }, pushResult?: { ok: boolean, error?: string }, agentOutcome?: string }>}
+ */
+async function runSinglePostReviewAutofix({
+  repo,
+  issueNum,
+  prUrl,
+  bodyMarkdown,
+  originalUserPrompt,
+}) {
+  const autofixRunId = `${new Date().toISOString().replace(/[:.]/g, '-')}-review-autofix`;
+  logPost('post-review autofix: starting single agent pass', { autofixRunId, issueNum });
+
+  const prompt = buildPostReviewAutofixPrompt({
+    bodyMarkdown,
+    originalUserPrompt,
+    issueNum,
+    prUrl,
+  });
+
+  let agentResult;
+  try {
+    agentResult = await runCursorCliAgent(prompt, { runId: autofixRunId, workspaceRoot: repo });
+  } catch (e) {
+    const msg = e?.message || String(e);
+    logPost('post-review autofix: agent threw', msg);
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail: `Autofix agent crashed: ${msg}`,
+    };
+  }
+
+  const agentRunOk = Boolean(
+    agentResult?.ok && !agentResult?.spawnError && !agentResult?.timedOut
+  );
+  const agentOutcome = agentResult?.timedOut
+    ? 'timeout'
+    : agentResult?.spawnError
+      ? 'spawn_error'
+      : agentResult?.ok
+        ? 'success'
+        : `exit_${agentResult?.exitCode ?? 'unknown'}`;
+
+  if (!agentRunOk) {
+    const hint = agentResult?.timedOut
+      ? 'Autofix timed out.'
+      : agentResult?.spawnError
+        ? `Autofix spawn error: ${agentResult.spawnError}`
+        : `Autofix exited with code ${agentResult?.exitCode ?? 'n/a'}.`;
+    logPost('post-review autofix: agent did not succeed', { agentOutcome, hint });
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail: hint,
+      agentOutcome,
+    };
+  }
+
+  const wait = await waitForDirtyWorkspace(repo);
+  if (!wait.dirty) {
+    logPost('post-review autofix: working tree still clean after agent', {
+      waitedMs: wait.waitedMs,
+      polls: wait.polls,
+    });
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail:
+        'Autofix finished but **git detected no file changes** after waiting — treat as failed for merge purposes.',
+      agentOutcome,
+    };
+  }
+
+  const syntheticPrompt = [
+    `# GitHub issue ${issueNum}`,
+    '',
+    '**Title:** address automated PR review feedback',
+  ].join('\n');
+
+  const commit = await tryCommit(repo, { userPrompt: syntheticPrompt });
+  logPost('post-review autofix: tryCommit', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
+  if (!commit.ok) {
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail: `Autofix made edits but commit failed (${commit.reason}${commit.error ? `: ${commit.error}` : ''}).`,
+      agentOutcome,
+    };
+  }
+
+  if (!pushAfterCommitEnabled()) {
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail:
+        'Autofix committed locally but **push is disabled** (`CURSOR_POST_RUN_PUSH=0`) — push manually to update the PR.',
+      commit,
+      agentOutcome,
+    };
+  }
+
+  const hasOrigin = await hasOriginRemote(repo);
+  if (!hasOrigin) {
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail: 'Autofix committed locally but there is **no `origin` remote** — push manually.',
+      commit,
+      agentOutcome,
+    };
+  }
+
+  const pushResult = await tryPushOriginHead(repo);
+  logPost('post-review autofix: push', pushResult);
+  if (!pushResult.ok) {
+    return {
+      ok: false,
+      mergeBlocked: true,
+      detail: `Autofix commit ${commit.sha} could not be pushed: ${pushResult.error}`,
+      commit,
+      pushResult,
+      agentOutcome,
+    };
+  }
+
+  return {
+    ok: true,
+    mergeBlocked: false,
+    detail: `Autofix applied one pass, committed \`${commit.sha}\`, and pushed to origin.`,
+    commit,
+    pushResult,
+    agentOutcome,
+  };
+}
+
 async function tryCommit(repo, { userPrompt = '' } = {}) {
   try {
     await execGit(['add', '-A'], repo);
@@ -957,6 +1129,9 @@ async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt, prUr
  * After a successful `cursor issue:<n>` CLI run: if the repo is dirty, move off the default branch when needed,
  * commit, push to origin, open or reuse a GitHub PR (`gh`) with `Fixes #n`, then LLM review (verdict line + Markdown),
  * post one PR-level GitHub comment when the PR exists, then email and Joplin.
+ * If the review completes successfully with `VERDICT: REQUEST_CHANGES`, run **exactly one** follow-up Cursor CLI pass
+ * on the same branch (no new PR), then commit and push when there are changes. On autofix failure, the WhatsApp note
+ * and an extra PR comment warn not to merge. Disable with `CURSOR_POST_RUN_AUTOFIX=0`.
  * Freeform `cursor …` runs do not enter this pipeline.
  * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
  * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null }} opts
@@ -1085,8 +1260,9 @@ export async function maybeCommitReviewEmail(opts) {
     runLlmReview(diffForLlm, userPrompt),
   ]);
   const { text: reviewRaw, usage, outcome: reviewOutcome } = llmOut;
-  const { fullComment: review } = normalizePrReviewComment(reviewRaw);
-  logPost('LLM review completed', { outcome: reviewOutcome });
+  const { fullComment: review, verdict: reviewVerdict, bodyMarkdown: reviewBodyMarkdown } =
+    normalizePrReviewComment(reviewRaw);
+  logPost('LLM review completed', { outcome: reviewOutcome, reviewVerdict });
 
   let prCommentResult = null;
   if (prResult?.ok) {
@@ -1100,6 +1276,42 @@ export async function maybeCommitReviewEmail(opts) {
         error: `Review did not complete (${reviewOutcome}); PR comment not posted.`,
       };
       logPost('skip gh pr review comment', prCommentResult.error);
+    }
+  }
+
+  /** Exactly one autofix pass when the model requests changes (issue #12); never loops. */
+  let postReviewAutofix = null;
+  if (
+    postReviewAutofixEnabled() &&
+    reviewVerdict === VERDICT_REQUEST_CHANGES &&
+    reviewOutcome === 'success'
+  ) {
+    const shouldAutofix = commit.ok && Boolean(pushResult?.ok) && Boolean(prResult?.ok);
+    if (shouldAutofix) {
+      postReviewAutofix = await runSinglePostReviewAutofix({
+        repo,
+        issueNum,
+        prUrl: prResult.url,
+        bodyMarkdown: reviewBodyMarkdown,
+        originalUserPrompt: userPrompt,
+      });
+      if (postReviewAutofix.mergeBlocked && prResult.ok) {
+        const gateBody = [
+          '**WhatsApp bot — automated autofix failed**',
+          '',
+          postReviewAutofix.detail,
+          '',
+          '**Do not merge** this PR until the review feedback is addressed (manually or with another `cursor issue:…` run).',
+        ].join('\n');
+        const gateComment = await tryGhPrReviewComment(repo, prResult.url, gateBody);
+        logPost('post-review autofix merge-gate PR comment', gateComment);
+      }
+    } else {
+      logPost('post-review autofix skipped (needs successful commit, push, and open PR)', {
+        commitOk: commit.ok,
+        pushOk: Boolean(pushResult?.ok),
+        prOk: Boolean(prResult?.ok),
+      });
     }
   }
 
@@ -1201,6 +1413,15 @@ export async function maybeCommitReviewEmail(opts) {
     parts.push(`Joplin note not saved: ${joplinResult?.error || 'unknown error'}.`);
   }
 
+  if (postReviewAutofix) {
+    parts.push(postReviewAutofix.detail);
+    if (postReviewAutofix.mergeBlocked) {
+      parts.push(
+        '**Merge note:** do not merge until the autofix problem above is resolved (a merge-gate comment was attempted on the PR).'
+      );
+    }
+  }
+
   return {
     ran: true,
     note: parts.join(' '),
@@ -1212,6 +1433,8 @@ export async function maybeCommitReviewEmail(opts) {
     prCommentResult,
     reviewOutcome,
     review,
+    reviewVerdict,
+    postReviewAutofix,
     emailResult,
     joplinResult,
     usage,
