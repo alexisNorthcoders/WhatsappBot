@@ -372,7 +372,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
       }
     } catch (postErr) {
       await sock.sendMessage(sender, {
-        text: `Post-run commit/review/email failed: ${postErr.message || String(postErr)}`,
+        text: `Post-run commit/PR pipeline failed: ${postErr.message || String(postErr)}`,
       });
     }
 
