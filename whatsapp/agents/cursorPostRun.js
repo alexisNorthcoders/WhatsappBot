@@ -402,6 +402,103 @@ async function tryGhPrCreate(repo, opts) {
   }
 }
 
+/**
+ * Find an open PR from this head branch into the given base (repo default branch).
+ * @param {string} repo
+ * @param {{ head: string, base: string }} opts
+ * @returns {Promise<{ ok: boolean, url?: string, error?: string }>}
+ */
+async function tryGhPrListOpenForHead(repo, { head, base }) {
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      [
+        'pr',
+        'list',
+        '--head',
+        head,
+        '--base',
+        base,
+        '--state',
+        'open',
+        '--json',
+        'url',
+        '--limit',
+        '5',
+      ],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+    const arr = JSON.parse(stdout || '[]');
+    const url = Array.isArray(arr) && arr[0]?.url ? String(arr[0].url).trim() : '';
+    if (url && /^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) return { ok: true, url };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+/**
+ * Fallback: list PRs for head (any base) when create fails with "already exists".
+ * @param {string} repo
+ * @param {string} head
+ * @returns {Promise<string | null>}
+ */
+async function tryGhFirstOpenPrUrlForHead(repo, head) {
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['pr', 'list', '--head', head, '--state', 'open', '--json', 'url', '--limit', '5'],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+    const arr = JSON.parse(stdout || '[]');
+    const url = Array.isArray(arr) && arr[0]?.url ? String(arr[0].url).trim() : '';
+    if (url && /^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) return url;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function ghMessageLooksLikePrAlreadyExists(msg) {
+  const s = String(msg || '').toLowerCase();
+  return (
+    s.includes('already exists') ||
+    s.includes('pull request already') ||
+    (s.includes('a pull request') && s.includes('already'))
+  );
+}
+
+/**
+ * @param {number} issueNumber
+ * @param {{ branchName: string, prBase: string }} workBranch
+ * @param {string} userPrompt
+ */
+function buildIssueModePrBody(issueNumber, workBranch, userPrompt) {
+  const n = parseInt(String(issueNumber), 10);
+  const fixesLine = Number.isFinite(n) && n > 0 ? `Fixes #${n}` : '';
+  const lines = [];
+  if (fixesLine) lines.push(fixesLine, '');
+  lines.push(
+    'Opened automatically after a `cursor issue:…` run from the WhatsApp bot.',
+    '',
+    `**Branch:** \`${workBranch.branchName}\``,
+    `**Base:** \`${workBranch.prBase}\``,
+    '',
+    '**Original prompt (truncated):**',
+    '',
+    truncate(userPrompt, 8000)
+  );
+  return lines.join('\n');
+}
+
 async function hasOriginRemote(repo) {
   try {
     await execGit(['remote', 'get-url', 'origin'], repo);
@@ -768,17 +865,19 @@ async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt, prUr
 }
 
 /**
- * After a successful Cursor CLI run: if the repo is dirty, move off the default branch when needed,
- * commit, push to origin, open a GitHub PR (`gh`), then LLM review, email, and Joplin.
+ * After a successful `cursor issue:<n>` CLI run: if the repo is dirty, move off the default branch when needed,
+ * commit, push to origin, open or reuse a GitHub PR (`gh`) with `Fixes #n`, then LLM review, email, and Joplin.
+ * Freeform `cursor …` runs do not enter this pipeline.
  * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
- * @param {{ repo: string, userPrompt: string, agentRunOk: boolean }} opts
+ * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null }} opts
  */
 export async function maybeCommitReviewEmail(opts) {
-  const { repo, userPrompt, agentRunOk } = opts;
+  const { repo, userPrompt, agentRunOk, issueMode = null } = opts;
   logPost('start', {
     repo,
     postRunEnabled: postRunEnabled(),
     agentRunOk,
+    issueMode: issueMode?.number ?? null,
     pollMs: POLL_MS,
     maxWaitMs: MAX_WAIT_MS,
   });
@@ -790,6 +889,12 @@ export async function maybeCommitReviewEmail(opts) {
   if (!agentRunOk) {
     logPost('skip: agent run not ok (exit error, timeout, or spawn error)');
     return { ran: false, note: '', skipReason: 'agent_not_ok' };
+  }
+
+  const issueNum = issueMode?.number;
+  if (!Number.isFinite(issueNum) || issueNum < 1) {
+    logPost('skip: not a `cursor issue:<n>` run (commit / push / PR is issue-only)');
+    return { ran: false, note: '', skipReason: 'not_issue_mode' };
   }
 
   const wait = await waitForDirtyWorkspace(repo);
@@ -839,10 +944,15 @@ export async function maybeCommitReviewEmail(opts) {
 
   let pushResult = null;
   let prResult = null;
+  /** @type {'listed' | 'created' | 'recovered' | null} */
+  let prOutcome = null;
   if (commit.ok && pushAfterCommitEnabled()) {
     const hasOrigin = await hasOriginRemote(repo);
     if (!hasOrigin) {
-      pushResult = { ok: false, error: 'no origin remote' };
+      pushResult = {
+        ok: false,
+        error: 'no git remote named `origin` — cannot push (add origin or push manually).',
+      };
       logPost('skip push: no origin remote');
     } else {
       logPost('pushing branch to origin');
@@ -851,22 +961,37 @@ export async function maybeCommitReviewEmail(opts) {
       if (pushResult.ok && prAfterPushEnabled()) {
         const prTitleRaw = commit.message || 'Cursor (WhatsApp) CLI update';
         const prTitle = prTitleRaw.length > 200 ? `${prTitleRaw.slice(0, 197)}…` : prTitleRaw;
-        const prBody = [
-          'Opened automatically after a Cursor CLI run from the WhatsApp bot.',
-          '',
-          `**Branch:** \`${workBranch.branchName}\``,
-          `**Base:** \`${workBranch.prBase}\``,
-          '',
-          '**Original prompt (truncated):**',
-          '',
-          truncate(userPrompt, 8000),
-        ].join('\n');
-        prResult = await tryGhPrCreate(repo, {
+        const prBody = buildIssueModePrBody(issueNum, workBranch, userPrompt);
+
+        const listed = await tryGhPrListOpenForHead(repo, {
+          head: workBranch.branchName,
           base: workBranch.prBase,
-          title: prTitle,
-          body: prBody,
         });
-        logPost('gh pr create result', prResult);
+        if (listed.ok && listed.url) {
+          prResult = { ok: true, url: listed.url };
+          prOutcome = 'listed';
+          logPost('found existing open PR for head/base', listed.url);
+        } else {
+          if (!listed.ok) {
+            logPost('gh pr list failed (will still try pr create)', listed.error);
+          }
+          prResult = await tryGhPrCreate(repo, {
+            base: workBranch.prBase,
+            title: prTitle,
+            body: prBody,
+          });
+          logPost('gh pr create result', prResult);
+          if (prResult.ok) {
+            prOutcome = 'created';
+          } else if (ghMessageLooksLikePrAlreadyExists(prResult.error)) {
+            const recovered = await tryGhFirstOpenPrUrlForHead(repo, workBranch.branchName);
+            if (recovered) {
+              prResult = { ok: true, url: recovered };
+              prOutcome = 'recovered';
+              logPost('resolved duplicate PR message; using existing PR', recovered);
+            }
+          }
+        }
       }
     }
   }
@@ -918,11 +1043,25 @@ export async function maybeCommitReviewEmail(opts) {
     }
     if (pushResult) {
       if (pushResult.ok) parts.push('Pushed to origin.');
-      else parts.push(`Push to origin skipped or failed: ${pushResult.error}.`);
+      else {
+        parts.push(`Push to origin failed: ${pushResult.error}`);
+        if (prAfterPushEnabled()) {
+          parts.push('Creating a GitHub PR was skipped because the branch is not on the remote.');
+        }
+      }
     }
     if (prResult) {
-      if (prResult.ok) parts.push(`PR: ${prResult.url}`);
-      else parts.push(`PR not created (${prResult.error}). Create one manually on GitHub if needed.`);
+      if (prResult.ok) {
+        if (prOutcome === 'listed' || prOutcome === 'recovered') {
+          parts.push(`Pull request already open for this branch: ${prResult.url}`);
+        } else {
+          parts.push(`Opened pull request: ${prResult.url}`);
+        }
+      } else {
+        parts.push(
+          `Pull request could not be created (${prResult.error}). Fix GitHub CLI auth (\`gh auth status\`) or network, then push and open a PR manually if needed.`
+        );
+      }
     }
   } else {
     parts.push(
@@ -947,6 +1086,7 @@ export async function maybeCommitReviewEmail(opts) {
     workBranch,
     pushResult,
     prResult,
+    prOutcome,
     review,
     emailResult,
     joplinResult,
