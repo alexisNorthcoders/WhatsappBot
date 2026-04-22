@@ -55,7 +55,8 @@ export function openaiChatTokenOpts(model, max) {
   return { max_tokens: max };
 }
 
-const deepInfra = new OpenAI({
+/** OpenAI-compatible client for DeepInfra (used by WhatsApp commands and cursor post-close email). */
+export const deepInfra = new OpenAI({
   baseURL: 'https://api.deepinfra.com/v1/openai',
   apiKey: process.env.DEEPINFRA_API_KEY,
 });

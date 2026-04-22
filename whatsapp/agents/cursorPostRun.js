@@ -8,7 +8,7 @@ import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 import { runCursorCliAgent } from './cursorCliAgent.js';
-import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
+import { deepInfra } from '../../models/models.js';
 
 dotenv.config();
 
@@ -39,160 +39,22 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function githubHttpsFromRemoteUrl(remote) {
-  const u = String(remote || '').trim();
-  if (!u) return null;
-  const ssh = u.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/i);
-  if (ssh) return `https://github.com/${ssh[1]}/${ssh[2]}`;
-  const https = u.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
-  if (https) return `https://github.com/${https[1]}/${https[2].replace(/\.git$/i, '')}`;
-  return null;
-}
-
-async function getGithubRepoBase(repo) {
-  const fromEnv = process.env.CURSOR_REVIEW_GITHUB_URL?.trim();
-  if (fromEnv) return fromEnv.replace(/\/+$/, '');
-  try {
-    const { stdout } = await execGit(['remote', 'get-url', 'origin'], repo);
-    return githubHttpsFromRemoteUrl(stdout.trim());
-  } catch {
-    return null;
-  }
-}
-
-/**
- * @returns {Promise<{ added: string[], modified: string[], deleted: string[], renamed: string[], copied: string[], other: string[] }>}
- */
-async function getChangeFileBuckets(repo, commitOk) {
-  const buckets = {
-    added: [],
-    modified: [],
-    deleted: [],
-    renamed: [],
-    copied: [],
-    other: [],
-  };
-  const args = commitOk
-    ? ['show', '--name-status', '--format=', 'HEAD']
-    : ['diff', '--name-status', 'HEAD'];
-  const { stdout } = await execGit(args, repo);
-  for (const line of stdout.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const parts = trimmed.split(/\t+/);
-    const statusField = parts[0] || '';
-    const code = statusField.charAt(0);
-    if (code === 'A') buckets.added.push(parts[1] || trimmed);
-    else if (code === 'M') buckets.modified.push(parts[1] || trimmed);
-    else if (code === 'D') buckets.deleted.push(parts[1] || trimmed);
-    else if (code === 'R') {
-      const from = parts[1];
-      const to = parts[2];
-      buckets.renamed.push(from && to ? `${from} → ${to}` : trimmed);
-    } else if (code === 'C') buckets.copied.push(parts[1] && parts[2] ? `${parts[1]} → ${parts[2]}` : trimmed);
-    else buckets.other.push(trimmed);
-  }
-  return buckets;
-}
-
-function formatFileBucketsPlain(buckets) {
-  const lines = [];
-  const sec = (title, arr) => {
-    if (!arr.length) return;
-    lines.push(`${title}`);
-    for (const p of arr) lines.push(`  • ${p}`);
-    lines.push('');
-  };
-  sec('Added', buckets.added);
-  sec('Modified', buckets.modified);
-  sec('Deleted', buckets.deleted);
-  sec('Renamed', buckets.renamed);
-  sec('Copied', buckets.copied);
-  sec('Other', buckets.other);
-  const out = lines.join('\n').trim();
-  return out || '(no file entries parsed)';
-}
-
-function formatFileBucketsHtml(buckets) {
-  const sec = (title, arr) => {
-    if (!arr.length) return '';
-    const items = arr.map((p) => `<li>${escapeHtml(p)}</li>`).join('');
-    return `<h3>${escapeHtml(title)}</h3><ul>${items}</ul>`;
-  };
-  return [
-    sec('Added', buckets.added),
-    sec('Modified', buckets.modified),
-    sec('Deleted', buckets.deleted),
-    sec('Renamed', buckets.renamed),
-    sec('Copied', buckets.copied),
-    sec('Other', buckets.other),
-  ]
-    .filter(Boolean)
-    .join('\n') || '<p><em>No file entries parsed.</em></p>';
-}
-
-function buildReviewEmailBodies({ review, buckets, githubBase, commitSha, prUrl }) {
-  const filesPlain = formatFileBucketsPlain(buckets);
-  const linksPlain = [];
-  if (githubBase) {
-    linksPlain.push(`Repository: ${githubBase}`);
-    if (commitSha) linksPlain.push(`Commit: ${githubBase}/commit/${commitSha}`);
-  }
-  if (prUrl) linksPlain.push(`Pull request: ${prUrl}`);
-  const linksBlock = linksPlain.length ? `\n\n---\n${linksPlain.join('\n')}\n` : '';
-
-  const text = [
-    '=== LLM review ===',
-    review,
-    '',
-    '=== Changed files (no diff attached) ===',
-    filesPlain,
-    linksBlock.trimEnd(),
-  ]
-    .join('\n')
-    .trim();
-
-  const linksHtml =
-    githubBase ?
-      `<p><strong>Repository:</strong> <a href="${escapeHtml(githubBase)}">${escapeHtml(githubBase)}</a></p>` +
-      (commitSha ?
-        `<p><strong>Commit:</strong> <a href="${escapeHtml(`${githubBase}/commit/${commitSha}`)}">${escapeHtml(commitSha)}</a></p>`
-      : '')
-    : '';
-  const prHtml =
-    prUrl ?
-      `<p><strong>Pull request:</strong> <a href="${escapeHtml(prUrl)}">${escapeHtml(prUrl)}</a></p>`
-    : '';
-
-  const html = `<!DOCTYPE html>
+function buildPlainTextEmailHtml(plainBody) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cursor run review</title>
+<title>Issue closed — summary</title>
 <style>
 body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.5; color: #1f2328; max-width: 52rem; margin: 0 auto; padding: 1rem 1.25rem; }
-h2 { font-size: 1.1rem; border-bottom: 1px solid #d0d7de; padding-bottom: 0.35rem; margin-top: 1.5rem; }
-h2:first-of-type { margin-top: 0; }
-h3 { font-size: 0.95rem; margin: 0.75rem 0 0.35rem; color: #656d76; }
-ul { margin: 0.25rem 0 0.75rem 1.25rem; padding: 0; }
-.review { white-space: pre-wrap; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px; padding: 0.85rem 1rem; font-size: 0.9rem; }
-a { color: #0969da; }
+pre.summary { white-space: pre-wrap; font-size: 0.95rem; margin: 0; }
 </style>
 </head>
 <body>
-<h2>LLM review</h2>
-<div class="review">${escapeHtml(review)}</div>
-<h2>Changed files</h2>
-<p style="color:#656d76;font-size:0.9rem;">Git diff is not attached; open the repo or commit on GitHub for the full patch.</p>
-${formatFileBucketsHtml(buckets)}
-<h2>Links</h2>
-${linksHtml || '<p><em>No GitHub URL configured (set <code>CURSOR_REVIEW_GITHUB_URL</code> or add an <code>origin</code> remote).</em></p>'}
-${prHtml}
+<pre class="summary">${escapeHtml(plainBody)}</pre>
 </body>
 </html>`;
-
-  return { text, html };
 }
 
 /** Poll after the agent process exits — writes may not be visible to git immediately. */
@@ -236,6 +98,18 @@ const ISSUE_CLOSE_POLL_MS = parseInt(process.env.CURSOR_POST_RUN_ISSUE_CLOSE_POL
 /** Max time to wait for the issue to show `CLOSED` after auto-merge is enabled (bounded). */
 const ISSUE_CLOSE_MAX_WAIT_MS = parseInt(
   process.env.CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS || '180000',
+  10
+);
+
+/** DeepInfra model for post-close “changes made” email (GitHub issue #14). */
+const POST_CLOSE_CHANGES_MODEL =
+  process.env.CURSOR_POST_CLOSE_CHANGES_MODEL?.trim() || 'meta-llama/Meta-Llama-3-8B-Instruct';
+const POST_CLOSE_ISSUE_BODY_MAX_CHARS = parseInt(
+  process.env.CURSOR_POST_CLOSE_ISSUE_BODY_MAX_CHARS || '12000',
+  10
+);
+const POST_CLOSE_CHANGES_MAX_TOKENS = parseInt(
+  process.env.CURSOR_POST_CLOSE_CHANGES_MAX_TOKENS || '1024',
   10
 );
 
@@ -585,6 +459,34 @@ async function tryGhIssueViewState(repo, issueNumber) {
     const j = JSON.parse(stdout || '{}');
     const state = String(j.state || '').trim().toUpperCase();
     return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+/**
+ * @param {string} repo
+ * @param {number} issueNumber
+ * @returns {Promise<{ ok: true, title: string, body: string, state: string } | { ok: false, error: string }>}
+ */
+async function tryGhIssueViewDetails(repo, issueNumber) {
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['issue', 'view', String(issueNumber), '--json', 'title,body,state'],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+      }
+    );
+    const j = JSON.parse(stdout || '{}');
+    return {
+      ok: true,
+      title: String(j.title || '').trim(),
+      body: String(j.body || '').trim(),
+      state: String(j.state || '').trim().toUpperCase(),
+    };
   } catch (e) {
     return { ok: false, error: e.stderr || e.message || String(e) };
   }
@@ -1193,12 +1095,16 @@ async function runLlmReview(diffForLlm, userPrompt) {
   }
 }
 
-async function sendReviewEmail(subject, { text, html }) {
+async function sendGmailSmtp(subject, { text, html }) {
   const user = process.env.GMAIL_EMAIL?.trim();
   const pass = process.env.GMAIL_PASSWORD?.trim();
   const to = reviewEmailTo();
   if (!user || !pass || !to) {
-    return { ok: false, error: 'Gmail or CURSOR_REVIEW_EMAIL_TO not configured' };
+    return {
+      ok: false,
+      error:
+        'Gmail is not configured (GMAIL_EMAIL / GMAIL_PASSWORD) or CURSOR_REVIEW_EMAIL_TO is missing.',
+    };
   }
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -1214,46 +1120,88 @@ async function sendReviewEmail(subject, { text, html }) {
   return { ok: true, to };
 }
 
-const JOPLIN_NOTEBOOK =
-  process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
-
-async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt, prUrl }) {
-  const date = new Date().toISOString().slice(0, 10);
-  const shortSha = commitSha ? ` ${commitSha}` : '';
-  const title = `Code review${shortSha} — ${date}`;
-
-  const filesPlain = formatFileBucketsPlain(buckets);
-  const body = [
-    `**Prompt:** ${truncate(userPrompt, 500)}`,
-    '',
-    commitSha ? `**Commit:** ${commitSha}` : '*No commit*',
-    prUrl ? `**Pull request:** ${prUrl}` : '',
-    '',
-    '---',
-    '',
-    review,
-    '',
-    '---',
-    '',
-    '### Changed files',
-    '',
-    filesPlain,
-  ].join('\n');
-
-  return joplinAPI.createNote(title, body);
+/**
+ * Generate a concise “changes made” email body from the closed issue text (DeepInfra, issue #14).
+ * @param {{ issueBlock: string }} opts
+ */
+async function runPostCloseChangesDeepInfra({ issueBlock }) {
+  const usage = { prompt: 0, completion: 0, total: 0 };
+  let outcome = 'error';
+  try {
+    if (!process.env.DEEPINFRA_API_KEY?.trim()) {
+      outcome = 'no_api_key';
+      return {
+        ok: false,
+        error: 'DEEPINFRA_API_KEY is not set.',
+        usage,
+        outcome,
+      };
+    }
+    const completion = await deepInfra.chat.completions.create({
+      model: POST_CLOSE_CHANGES_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: [
+            'You write a concise plain-text email body for developers describing what was delivered when a GitHub issue is closed.',
+            'Use only the issue title and description; do not invent merges, commits, or deployments unless the issue text clearly states them.',
+            'Use short paragraphs and/or bullet points. No email subject line, no “Dear …”, no signature block unless the issue explicitly asks for it.',
+            'Aim for under about 250 words.',
+          ].join('\n'),
+        },
+        {
+          role: 'user',
+          content: `The issue below is CLOSED on GitHub. Summarize the changes / outcome as the body of a “what we shipped” email:\n\n${issueBlock}`,
+        },
+      ],
+      max_tokens: POST_CLOSE_CHANGES_MAX_TOKENS,
+    });
+    addCompletionUsage(completion.usage, usage);
+    const text = completion.choices[0]?.message?.content?.trim() || '';
+    if (!text) {
+      outcome = 'empty_response';
+      return {
+        ok: false,
+        error: 'DeepInfra returned an empty email body.',
+        usage,
+        outcome,
+      };
+    }
+    outcome = 'success';
+    return { ok: true, text, usage, outcome };
+  } catch (e) {
+    outcome = 'api_error';
+    return {
+      ok: false,
+      error: e.message || String(e),
+      usage,
+      outcome,
+    };
+  } finally {
+    await logAgentInvocation({
+      agent: 'cursor-post-close-changes-email',
+      model: POST_CLOSE_CHANGES_MODEL,
+      promptTokens: usage.prompt,
+      completionTokens: usage.completion,
+      totalTokens: usage.total,
+      outcome,
+    });
+  }
 }
 
 /**
  * After a successful `cursor issue:<n>` CLI run: if the repo is dirty, move off the default branch when needed,
  * commit, push to origin, open or reuse a GitHub PR (`gh`) with `Fixes #n`, then LLM review (verdict line + Markdown),
- * post one PR-level GitHub comment when the PR exists, then email and Joplin.
+ * post one PR-level GitHub comment when the PR exists.
  * If the review completes successfully with `VERDICT: REQUEST_CHANGES`, run **exactly one** follow-up Cursor CLI pass
  * on the same branch (no new PR), then commit and push when there are changes. On autofix failure, the WhatsApp note
  * and an extra PR comment warn not to merge. Disable with `CURSOR_POST_RUN_AUTOFIX=0`.
  * When guardrails pass (`VERDICT: APPROVE`, or `REQUEST_CHANGES` with a successful autofix push), runs
  * `gh pr merge --auto --squash` and polls the linked issue until `CLOSED` or a bounded timeout (issue #13).
+ * When the issue is confirmed **CLOSED**, sends a separate **“changes made”** email (DeepInfra
+ * `meta-llama/Meta-Llama-3-8B-Instruct` by default) to `CURSOR_REVIEW_EMAIL_TO` via Gmail SMTP (issue #14).
  * Disable auto-merge with `CURSOR_POST_RUN_PR_AUTO_MERGE=0`. Tune wait with `CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS` /
- * `CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS`.
+ * `CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS`. Override the post-close model with `CURSOR_POST_CLOSE_CHANGES_MODEL`.
  * Freeform `cursor …` runs do not enter this pipeline.
  * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
  * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null }} opts
@@ -1376,11 +1324,7 @@ export async function maybeCommitReviewEmail(opts) {
   }
 
   logPost('calling LLM review', REVIEW_MODEL);
-  const [buckets, githubBase, llmOut] = await Promise.all([
-    getChangeFileBuckets(repo, commit.ok),
-    getGithubRepoBase(repo),
-    runLlmReview(diffForLlm, userPrompt),
-  ]);
+  const llmOut = await runLlmReview(diffForLlm, userPrompt);
   const { text: reviewRaw, usage, outcome: reviewOutcome } = llmOut;
   const { fullComment: review, verdict: reviewVerdict, bodyMarkdown: reviewBodyMarkdown } =
     normalizePrReviewComment(reviewRaw);
@@ -1457,43 +1401,65 @@ export async function maybeCommitReviewEmail(opts) {
     logPost('skip auto-merge (review gate)', { reviewOutcome, reviewVerdict, autofixOk: postReviewAutofix?.ok });
   }
 
-  const subPre = reviewEmailSubjectPrefix(repo);
-  const subject = commit.ok
-    ? `[${subPre}] Cursor cli commit ${commit.sha} — review`
-    : `[${subPre}] Cursor run — review (commit failed)`;
+  /** @type {{ ok: boolean, to?: string, error?: string, step?: string } | null} */
+  let postCloseChangesEmail = null;
+  if (issueCloseWait?.closed) {
+    const details = await tryGhIssueViewDetails(repo, issueNum);
+    if (!details.ok) {
+      postCloseChangesEmail = { ok: false, step: 'gh_issue_view', error: details.error };
+      logPost('post-close changes email: gh issue view failed', details.error);
+    } else if (details.state !== 'CLOSED') {
+      postCloseChangesEmail = {
+        ok: false,
+        step: 'issue_state',
+        error: `Expected GitHub state CLOSED, got "${details.state}".`,
+      };
+      logPost('post-close changes email: unexpected issue state', details.state);
+    } else {
+      const prLine =
+        prResult?.ok && prResult.url ?
+          `\n\nRelated pull request (context only): ${prResult.url}`
+        : '';
+      const issueBlock = [
+        `Issue #${issueNum} [${details.state}]`,
+        '',
+        `Title: ${details.title}`,
+        '',
+        'Description:',
+        truncate(details.body, POST_CLOSE_ISSUE_BODY_MAX_CHARS),
+        prLine,
+      ].join('\n');
 
-  const { text: emailText, html: emailHtml } = buildReviewEmailBodies({
-    review,
-    buckets,
-    githubBase,
-    commitSha: commit.ok ? commit.sha : null,
-    prUrl: prResult?.ok ? prResult.url : null,
-  });
-
-  let emailResult;
-  try {
-    logPost('sending review email', { to: reviewEmailTo() });
-    emailResult = await sendReviewEmail(subject, { text: emailText, html: emailHtml });
-    logPost('email result', emailResult);
-  } catch (e) {
-    emailResult = { ok: false, error: e.message || String(e) };
-    logPost('email send threw', emailResult.error);
-  }
-
-  let joplinResult;
-  try {
-    logPost('saving review to Joplin', { notebook: JOPLIN_NOTEBOOK });
-    joplinResult = await saveReviewToJoplin({
-      review,
-      buckets,
-      commitSha: commit.ok ? commit.sha : null,
-      userPrompt,
-      prUrl: prResult?.ok ? prResult.url : null,
-    });
-    logPost('Joplin note created', { id: joplinResult?.id, title: joplinResult?.title });
-  } catch (e) {
-    joplinResult = { ok: false, error: e.message || String(e) };
-    logPost('Joplin save threw', joplinResult.error);
+      const llm = await runPostCloseChangesDeepInfra({ issueBlock });
+      if (!llm.ok) {
+        postCloseChangesEmail = {
+          ok: false,
+          step: 'deepinfra',
+          error: llm.error || 'DeepInfra request failed.',
+        };
+        logPost('post-close changes email: DeepInfra failed', postCloseChangesEmail.error);
+      } else {
+        const subPre = reviewEmailSubjectPrefix(repo);
+        const mailSubject = `[${subPre}] Issue #${issueNum} closed — changes summary`;
+        try {
+          logPost('post-close changes email: sending Gmail', { to: reviewEmailTo() });
+          const mail = await sendGmailSmtp(mailSubject, {
+            text: llm.text,
+            html: buildPlainTextEmailHtml(llm.text),
+          });
+          if (mail.ok) {
+            postCloseChangesEmail = { ok: true, to: mail.to, step: 'sent' };
+          } else {
+            postCloseChangesEmail = { ok: false, step: 'smtp', error: mail.error || 'SMTP send failed.' };
+          }
+          logPost('post-close changes email: SMTP result', postCloseChangesEmail);
+        } catch (e) {
+          const err = e.message || String(e);
+          postCloseChangesEmail = { ok: false, step: 'smtp', error: err };
+          logPost('post-close changes email: SMTP threw', err);
+        }
+      }
+    }
   }
 
   const parts = [];
@@ -1528,9 +1494,7 @@ export async function maybeCommitReviewEmail(opts) {
               `GitHub PR review comment was not posted: ${prCommentResult.error}`
             );
           } else {
-            parts.push(
-              `GitHub PR review comment failed: ${prCommentResult.error}. The review text was still sent by email / Joplin where configured.`
-            );
+            parts.push(`GitHub PR review comment failed: ${prCommentResult.error}.`);
           }
         }
       } else {
@@ -1544,17 +1508,6 @@ export async function maybeCommitReviewEmail(opts) {
       `Auto-commit did not complete (${commit.reason}${commit.error ? `: ${commit.error}` : ''}). Diff was still reviewed.`
     );
   }
-  if (emailResult.ok) {
-    parts.push(`Review email sent to ${emailResult.to}.`);
-  } else {
-    parts.push(`Review email not sent: ${emailResult.error}.`);
-  }
-  if (joplinResult?.id) {
-    parts.push(`Joplin note saved: "${joplinResult.title}".`);
-  } else {
-    parts.push(`Joplin note not saved: ${joplinResult?.error || 'unknown error'}.`);
-  }
-
   if (postReviewAutofix) {
     parts.push(postReviewAutofix.detail);
     if (postReviewAutofix.mergeBlocked) {
@@ -1588,6 +1541,18 @@ export async function maybeCommitReviewEmail(opts) {
     }
   }
 
+  if (issueCloseWait?.closed) {
+    if (postCloseChangesEmail?.ok) {
+      parts.push(
+        `**Post-close summary email** sent to ${postCloseChangesEmail.to} (DeepInfra \`${POST_CLOSE_CHANGES_MODEL}\`).`
+      );
+    } else if (postCloseChangesEmail && !postCloseChangesEmail.ok) {
+      const step = postCloseChangesEmail.step || 'unknown';
+      const err = postCloseChangesEmail.error || 'unknown error';
+      parts.unshift(`**Post-close summary email failed** (step: ${step}): ${err}`);
+    }
+  }
+
   return {
     ran: true,
     note: parts.join(' '),
@@ -1603,8 +1568,7 @@ export async function maybeCommitReviewEmail(opts) {
     postReviewAutofix,
     prAutoMergeResult,
     issueCloseWait,
-    emailResult,
-    joplinResult,
+    postCloseChangesEmail,
     usage,
   };
 }
