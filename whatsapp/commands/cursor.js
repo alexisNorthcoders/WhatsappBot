@@ -365,6 +365,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
         repo,
         userPrompt: prompt,
         agentRunOk,
+        issueMode: issueMatch ? { number: issueMatch.issueNumber } : null,
       });
       if (post.note) {
         await sock.sendMessage(sender, { text: post.note });
