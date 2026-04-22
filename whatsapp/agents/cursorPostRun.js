@@ -9,13 +9,20 @@ import nodemailer from 'nodemailer';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 import { runCursorCliAgent } from './cursorCliAgent.js';
 import { deepInfra } from '../../models/models.js';
+import {
+  VERDICT_APPROVE,
+  VERDICT_REQUEST_CHANGES,
+  ghMessageLooksLikePrAlreadyExists,
+  normalizePrReviewComment,
+  autoMergeAllowedByReviewGate,
+  pickPrResultAfterGhFlow,
+} from './cursorPostRunDecisionLogic.js';
+import { pollGithubIssueClosedOrTimeout } from './cursorPostRunIssuePoll.js';
+import { runPostReviewAutofixMergeFlow } from './cursorPostRunReviewFollowUp.js';
 
 dotenv.config();
 
 const execFileAsync = promisify(execFile);
-
-const VERDICT_APPROVE = 'VERDICT: APPROVE';
-const VERDICT_REQUEST_CHANGES = 'VERDICT: REQUEST_CHANGES';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -367,15 +374,6 @@ async function tryGhFirstOpenPrUrlForHead(repo, head) {
   }
 }
 
-function ghMessageLooksLikePrAlreadyExists(msg) {
-  const s = String(msg || '').toLowerCase();
-  return (
-    s.includes('already exists') ||
-    s.includes('pull request already') ||
-    (s.includes('a pull request') && s.includes('already'))
-  );
-}
-
 /** GitHub caps issue/PR comments well below 64 KiB; stay under with margin. */
 const GITHUB_PR_COMMENT_MAX_CHARS = 62000;
 
@@ -501,52 +499,12 @@ async function tryGhIssueViewDetails(repo, issueNumber) {
 async function waitForGithubIssueClosed(repo, issueNumber, opts = {}) {
   const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : ISSUE_CLOSE_MAX_WAIT_MS;
   const pollMs = Number.isFinite(opts.pollMs) ? opts.pollMs : ISSUE_CLOSE_POLL_MS;
-  const start = Date.now();
-  let polls = 0;
-  let lastError = '';
-
-  while (Date.now() - start < maxWaitMs) {
-    polls++;
-    const r = await tryGhIssueViewState(repo, issueNumber);
-    if (!r.ok) {
-      lastError = r.error || '';
-      logPost(`issue #${issueNumber} poll failed`, lastError);
-    } else if (r.state === 'CLOSED') {
-      return {
-        closed: true,
-        timedOut: false,
-        waitedMs: Date.now() - start,
-        polls,
-        lastState: r.state,
-      };
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-
-  const final = await tryGhIssueViewState(repo, issueNumber);
-  const lastState = final.ok ? final.state || '' : '';
-  if (!final.ok) lastError = final.error || lastError;
-  const closed = lastState === 'CLOSED';
-  return {
-    closed,
-    timedOut: !closed,
-    waitedMs: Date.now() - start,
-    polls,
-    lastState,
-    lastError: final.ok ? '' : lastError,
-  };
-}
-
-/**
- * @param {{ reviewOutcome: string, reviewVerdict: string, postReviewAutofix: { ok?: boolean } | null }} args
- */
-function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix }) {
-  if (reviewOutcome !== 'success') return false;
-  if (reviewVerdict === VERDICT_APPROVE) return true;
-  if (reviewVerdict === VERDICT_REQUEST_CHANGES) {
-    return Boolean(postReviewAutofix?.ok);
-  }
-  return false;
+  return pollGithubIssueClosedOrTimeout({
+    maxWaitMs,
+    pollMs,
+    fetchState: () => tryGhIssueViewState(repo, issueNumber),
+    onPollError: (d) => logPost(`issue #${issueNumber} poll failed`, d.error),
+  });
 }
 
 /**
@@ -760,39 +718,6 @@ function truncate(s, max) {
   const t = String(s);
   if (t.length <= max) return t;
   return `${t.slice(0, max)}\n\n[… truncated at ${max} characters …]\n`;
-}
-
-/**
- * Ensure the GitHub PR comment starts with an exact verdict line (automation-parseable).
- * @param {string} raw model output
- * @returns {{ verdict: typeof VERDICT_APPROVE | typeof VERDICT_REQUEST_CHANGES, bodyMarkdown: string, fullComment: string }}
- */
-function normalizePrReviewComment(raw) {
-  const text = String(raw || '').trim();
-  const lines = text.split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length && !lines[i].trim()) i++;
-  const first = (lines[i] || '').trim();
-  const rest = lines.slice(i + 1).join('\n').trim();
-
-  const up = first.toUpperCase();
-  if (up === VERDICT_APPROVE.toUpperCase()) {
-    const fullComment = rest ? `${VERDICT_APPROVE}\n\n${rest}` : `${VERDICT_APPROVE}\n`;
-    return { verdict: VERDICT_APPROVE, bodyMarkdown: rest, fullComment };
-  }
-  if (up === VERDICT_REQUEST_CHANGES.toUpperCase()) {
-    const fullComment = rest ? `${VERDICT_REQUEST_CHANGES}\n\n${rest}` : `${VERDICT_REQUEST_CHANGES}\n`;
-    return { verdict: VERDICT_REQUEST_CHANGES, bodyMarkdown: rest, fullComment };
-  }
-
-  const body =
-    text ||
-    '_The model returned an empty review._';
-  const fallbackBody =
-    '_The automated reviewer did not put a valid verdict on the first line; defaulting to REQUEST_CHANGES._\n\n' +
-    body;
-  const fullComment = `${VERDICT_REQUEST_CHANGES}\n\n${fallbackBody}`;
-  return { verdict: VERDICT_REQUEST_CHANGES, bodyMarkdown: fallbackBody, fullComment };
 }
 
 async function getStatusPorcelain(repo) {
@@ -1302,21 +1227,33 @@ export async function maybeCommitReviewEmail(opts) {
           if (!listed.ok) {
             logPost('gh pr list failed (will still try pr create)', listed.error);
           }
-          prResult = await tryGhPrCreate(repo, {
+          const created = await tryGhPrCreate(repo, {
             base: workBranch.prBase,
             title: prTitle,
             body: prBody,
           });
-          logPost('gh pr create result', prResult);
-          if (prResult.ok) {
-            prOutcome = 'created';
-          } else if (ghMessageLooksLikePrAlreadyExists(prResult.error)) {
-            const recovered = await tryGhFirstOpenPrUrlForHead(repo, workBranch.branchName);
-            if (recovered) {
-              prResult = { ok: true, url: recovered };
-              prOutcome = 'recovered';
-              logPost('resolved duplicate PR message; using existing PR', recovered);
+          logPost('gh pr create result', created);
+          let recoveredUrl = null;
+          if (!created.ok && ghMessageLooksLikePrAlreadyExists(created.error)) {
+            recoveredUrl = await tryGhFirstOpenPrUrlForHead(repo, workBranch.branchName);
+            if (recoveredUrl) {
+              logPost('resolved duplicate PR message; using existing PR', recoveredUrl);
             }
+          }
+          const picked = pickPrResultAfterGhFlow({
+            listedOk: false,
+            listedUrl: undefined,
+            createOk: created.ok,
+            createUrl: created.url,
+            createError: created.error,
+            recoveredUrl,
+          });
+          if (picked.ok && picked.url) {
+            prResult = { ok: true, url: picked.url };
+            prOutcome = picked.prOutcome;
+          } else {
+            prResult = created;
+            prOutcome = created.ok ? 'created' : null;
           }
         }
       }
@@ -1346,60 +1283,25 @@ export async function maybeCommitReviewEmail(opts) {
   }
 
   /** Exactly one autofix pass when the model requests changes (issue #12); never loops. */
-  let postReviewAutofix = null;
-  if (
-    postReviewAutofixEnabled() &&
-    reviewVerdict === VERDICT_REQUEST_CHANGES &&
-    reviewOutcome === 'success'
-  ) {
-    const shouldAutofix = commit.ok && Boolean(pushResult?.ok) && Boolean(prResult?.ok);
-    if (shouldAutofix) {
-      postReviewAutofix = await runSinglePostReviewAutofix({
-        repo,
-        issueNum,
-        prUrl: prResult.url,
-        bodyMarkdown: reviewBodyMarkdown,
-        originalUserPrompt: userPrompt,
-      });
-      if (postReviewAutofix.mergeBlocked && prResult.ok) {
-        const gateBody = [
-          '**WhatsApp bot — automated autofix failed**',
-          '',
-          postReviewAutofix.detail,
-          '',
-          '**Do not merge** this PR until the review feedback is addressed (manually or with another `cursor issue:…` run).',
-        ].join('\n');
-        const gateComment = await tryGhPrReviewComment(repo, prResult.url, gateBody);
-        logPost('post-review autofix merge-gate PR comment', gateComment);
-      }
-    } else {
-      logPost('post-review autofix skipped (needs successful commit, push, and open PR)', {
-        commitOk: commit.ok,
-        pushOk: Boolean(pushResult?.ok),
-        prOk: Boolean(prResult?.ok),
-      });
-    }
-  }
-
-  /** @type {{ ok: boolean, error?: string } | null} */
-  let prAutoMergeResult = null;
-  /** @type {{ closed: boolean, timedOut: boolean, waitedMs: number, polls: number, lastState?: string, lastError?: string } | null} */
-  let issueCloseWait = null;
-  if (
-    prAutoMergeAfterReviewEnabled() &&
-    prAfterPushEnabled() &&
-    prResult?.ok &&
-    autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })
-  ) {
-    prAutoMergeResult = await tryGhPrMergeAutoSquash(repo, prResult.url);
-    logPost('gh pr merge --auto --squash', prAutoMergeResult);
-    if (prAutoMergeResult.ok) {
-      issueCloseWait = await waitForGithubIssueClosed(repo, issueNum);
-      logPost('wait for issue closed', issueCloseWait);
-    }
-  } else if (prAutoMergeAfterReviewEnabled() && prAfterPushEnabled() && prResult?.ok) {
-    logPost('skip auto-merge (review gate)', { reviewOutcome, reviewVerdict, autofixOk: postReviewAutofix?.ok });
-  }
+  const { postReviewAutofix, prAutoMergeResult, issueCloseWait } = await runPostReviewAutofixMergeFlow({
+    repo,
+    issueNum,
+    userPrompt,
+    prResult,
+    reviewOutcome,
+    reviewVerdict,
+    reviewBodyMarkdown,
+    postReviewAutofixEnabled,
+    prAutoMergeAfterReviewEnabled,
+    prAfterPushEnabled,
+    commitOk: commit.ok,
+    pushResultOk: Boolean(pushResult?.ok),
+    runSinglePostReviewAutofix,
+    tryGhPrReviewComment,
+    tryGhPrMergeAutoSquash,
+    waitForGithubIssueClosed,
+    logPost,
+  });
 
   /** @type {{ ok: boolean, to?: string, error?: string, step?: string } | null} */
   let postCloseChangesEmail = null;
