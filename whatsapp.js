@@ -13,7 +13,15 @@ import { actorJid, isAllowedActor, lidExtraJidsHint } from './whatsapp/whatsAppA
 import pino from 'pino';
 const logger = pino();
 import { promises as fs } from 'fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import qrcode from 'qrcode-terminal';
+
+const BAILEYS_AUTH_DIR = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '.auth',
+  'baileys'
+);
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from './models/models.js';
 import { pickRandomTopic } from './data/helper.js';
 import { topics } from './data/topics.js';
@@ -51,7 +59,7 @@ async function startSock() {
   } catch {
     /* ignore */
   }
-  const { state, saveCreds } = await useMultiFileAuthState('./.auth/baileys');
+  const { state, saveCreds } = await useMultiFileAuthState(BAILEYS_AUTH_DIR);
   // Reduces disk thrash and missed key writes; Baileys README recommends for non-trivial bots.
   state.keys = makeCacheableSignalKeyStore(state.keys, logger);
 
@@ -113,7 +121,11 @@ async function startSock() {
     const { qr, connection, lastDisconnect } = update;
 
     if (qr) {
-      console.log("📱 Scan the QR code below:");
+      logger.info(
+        { path: BAILEYS_AUTH_DIR },
+        '📱 Pairing: scan the QR in this terminal (e.g. pm2 logs) — the ASCII art below; phone → Linked devices → Link a device'
+      );
+      console.log('📱 Scan the QR code below:');
       qrcode.generate(qr, { small: true });
     }
 
@@ -163,12 +175,31 @@ async function startSock() {
           logger.info({ delayMs, attempt: reconnectAttempt }, 'Starting reconnection...');
           startSock();
         }, delayMs);
-      } else {
+      } else if (statusCode === DisconnectReason.loggedOut) {
+        /*
+         * With old creds on disk, Baileys *resumes* and the server may return 401 before a QR is
+         * ever sent — so users see "logged out" but no pairing code. Clear auth and one fresh
+         * `startSock()` so pairing (QR) can run.
+         */
         logger.error(
-          statusCode === DisconnectReason.loggedOut
-            ? 'Session logged out (401) — scan QR again. Reconnect cannot restore this; WhatsApp revoked the linked device session.'
-            : 'Connection closed with forbidden — not auto-reconnecting.'
+          'Session logged out (401). WhatsApp revoked this device; clearing local creds to allow a new QR.'
         );
+        void (async () => {
+          try {
+            await fs.rm(BAILEYS_AUTH_DIR, { recursive: true, force: true });
+            logger.info('Stale auth removed; starting a new pairing. Watch for the QR in the log...');
+            setImmediate(() => {
+              void startSock();
+            });
+          } catch (e) {
+            logger.error(
+              { err: e, path: BAILEYS_AUTH_DIR },
+              'Could not clear auth. Stop the bot, delete .auth/baileys, then start again.'
+            );
+          }
+        })();
+      } else {
+        logger.error('Connection closed with forbidden — not auto-reconnecting.');
       }
     } else if (connection === 'connecting') {
       logger.info('🔄 Connecting to WhatsApp...');
