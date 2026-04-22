@@ -60,20 +60,40 @@ export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, pos
 export function normalizePrReviewComment(raw) {
   const text = String(raw || '').trim();
   const lines = text.split(/\r?\n/);
-  let i = 0;
-  while (i < lines.length && !lines[i].trim()) i++;
-  const first = (lines[i] || '').trim();
-  const rest = lines.slice(i + 1).join('\n').trim();
+  const parseVerdict = (line) => {
+    const cleaned = String(line || '')
+      .trim()
+      .replace(/[*`]/g, '')
+      .replace(/\s+/g, ' ');
+    const m = cleaned.match(/^VERDICT:\s*(APPROVE|REQUEST_CHANGES)\s*\.?\s*$/i);
+    if (!m) return null;
+    return m[1].toUpperCase() === 'APPROVE' ? VERDICT_APPROVE : VERDICT_REQUEST_CHANGES;
+  };
 
-  const up = first.toUpperCase();
-  if (up === VERDICT_APPROVE.toUpperCase()) {
+  // Find the first non-empty line, but tolerate small preambles by scanning a few lines.
+  let firstNonEmpty = 0;
+  while (firstNonEmpty < lines.length && !lines[firstNonEmpty].trim()) firstNonEmpty++;
+  const scanLimit = Math.min(lines.length, firstNonEmpty + 6);
+  let verdictLineIdx = -1;
+  let verdict = null;
+  for (let j = firstNonEmpty; j < scanLimit; j++) {
+    const v = parseVerdict(lines[j]);
+    if (v) {
+      verdictLineIdx = j;
+      verdict = v;
+      break;
+    }
+  }
+
+  const rest =
+    verdictLineIdx >= 0 ? lines.slice(verdictLineIdx + 1).join('\n').trim() : lines.slice(firstNonEmpty + 1).join('\n').trim();
+
+  if (verdict === VERDICT_APPROVE) {
     const fullComment = rest ? `${VERDICT_APPROVE}\n\n${rest}` : `${VERDICT_APPROVE}\n`;
     return { verdict: VERDICT_APPROVE, bodyMarkdown: rest, fullComment };
   }
-  if (up === VERDICT_REQUEST_CHANGES.toUpperCase()) {
-    const fullComment = rest
-      ? `${VERDICT_REQUEST_CHANGES}\n\n${rest}`
-      : `${VERDICT_REQUEST_CHANGES}\n`;
+  if (verdict === VERDICT_REQUEST_CHANGES) {
+    const fullComment = rest ? `${VERDICT_REQUEST_CHANGES}\n\n${rest}` : `${VERDICT_REQUEST_CHANGES}\n`;
     return { verdict: VERDICT_REQUEST_CHANGES, bodyMarkdown: rest, fullComment };
   }
 
