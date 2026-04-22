@@ -443,42 +443,147 @@ async function execGit(args, cwd) {
   return { stdout: stdout || '', stderr: stderr || '' };
 }
 
-/** Keep CLI auto-commit subjects short for logs and GitHub. */
+/** Keep CLI auto-commit subjects short for logs and GitHub (Conventional Commits friendly). */
 const CLI_COMMIT_SUBJECT_MAX = 72;
 
 /**
- * One-line summary from paths + `git diff --shortstat` (no LLM).
- * @param {string} nameOnlyStdout
- * @param {string} shortstatStdout
+ * Prefer issue number from the formatted `gh issue view` markdown we inject into prompts.
+ * @param {string} userPrompt
+ * @returns {number | null}
  */
-function buildCliCommitMessage(nameOnlyStdout, shortstatStdout) {
+function extractGithubIssueNumber(userPrompt) {
+  const m = String(userPrompt || '').match(/^#\s*GitHub issue\s+#(\d+)/im);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * Short imperative-style description from the user's prompt (issue title or first instruction line).
+ * @param {string} userPrompt
+ * @param {string[]} paths
+ */
+function extractCommitDescriptionHint(userPrompt, paths) {
+  const raw = String(userPrompt || '');
+  const titleMatch = raw.match(/^\*\*Title:\*\*\s*(.+)$/m);
+  let hint = '';
+  if (titleMatch) {
+    hint = titleMatch[1].trim();
+    hint = hint.replace(/\s*\(#\d+\)\s*$/, '').trim();
+  } else {
+    const lines = raw
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const noise = /^(#|---|\*\*|source:|repository:|url:|state:|labels?:|body|cursor)/i;
+    for (const line of lines) {
+      if (noise.test(line)) continue;
+      hint = line.replace(/^[-*]\s+/, '').trim();
+      if (hint) break;
+    }
+  }
+  if (!hint) {
+    const basenames = paths.map((p) => {
+      const base = p.split('/').pop() || p;
+      return base.length > 40 ? `${base.slice(0, 37)}…` : base;
+    });
+    if (!basenames.length) return 'update';
+    if (basenames.length === 1) return basenames[0];
+    if (basenames.length === 2) return `${basenames[0]} and ${basenames[1]}`;
+    return `${basenames[0]}, ${basenames[1]} (+${basenames.length - 2})`;
+  }
+  hint = hint.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ');
+  hint = hint.replace(/\.$/, '').trim();
+  return hint;
+}
+
+/**
+ * Conventional-commit style type: feat, fix, docs, refactor, test, chore.
+ * @param {string[]} paths
+ * @param {string} userPrompt
+ */
+function inferConventionalCommitType(paths, userPrompt) {
+  const prompt = String(userPrompt || '').toLowerCase();
+
+  const allMarkdown = paths.length > 0 && paths.every((p) => /\.md$/i.test(p));
+  if (allMarkdown) return 'docs';
+
+  const testPaths =
+    paths.length > 0 &&
+    paths.every((p) =>
+      /(?:^|\/)__tests__\//i.test(p) ||
+      /(?:^|\/)(tests?|spec)\//i.test(p) ||
+      /\.(test|spec)\.[cm]?[jt]sx?$/i.test(p)
+    );
+
+  const labelsMatch = String(userPrompt || '').match(/^\*\*Labels:\*\*\s*(.+)$/im);
+  const labels = (labelsMatch?.[1] || '').toLowerCase();
+
+  if (testPaths) return 'test';
+
+  if (labels.includes('bug') || labels.includes('fix')) return 'fix';
+  if (labels.includes('documentation') || labels.includes('docs')) return 'docs';
+
+  if (
+    /\b(fix|fixes|fixed|bug|bugs|broken|regression|crash|patch|resolve|closes)\b/.test(prompt)
+  )
+    return 'fix';
+  if (/\b(refactor|cleanup|restructure|rename)\b/.test(prompt)) return 'refactor';
+  if (
+    /\b(doc|docs|readme|changelog|comment-only|typo)\b/.test(prompt) &&
+    paths.every((p) => /\.md$/i.test(p))
+  )
+    return 'docs';
+
+  if (
+    /\b(feat|feature|add |adds |adding |implement|introduces?|new api)\b/.test(prompt) ||
+    /\bfeat(\(.+?\))?:/.test(prompt)
+  )
+    return 'feat';
+
+  if (paths.some((p) => /(^|\/)\.github\//i.test(p) || /package-lock\.json$/i.test(p)))
+    return 'chore';
+
+  return 'feat';
+}
+
+/**
+ * @param {string} type
+ * @param {string} description one line, no prefix
+ * @param {number | null} issueNum
+ * @returns {string}
+ */
+function formatConventionalSubject(type, description, issueNum) {
+  let desc = String(description || 'update').trim();
+  if (!desc) desc = 'update';
+
+  let suffix = '';
+  if (issueNum != null && Number.isFinite(issueNum)) suffix = ` (#${issueNum})`;
+
+  const line = `${type}: ${desc}${suffix}`;
+  if (line.length <= CLI_COMMIT_SUBJECT_MAX) return line;
+
+  const overhead = `${type}: `.length + suffix.length + 1;
+  const maxDesc = CLI_COMMIT_SUBJECT_MAX - overhead;
+  const truncated = maxDesc >= 12 ? `${desc.slice(0, maxDesc - 1)}…` : desc.slice(0, 12);
+  return `${type}: ${truncated}${suffix}`;
+}
+
+/**
+ * One-line conventional-commit summary from paths, stats, and the Cursor/user prompt (no LLM).
+ * @param {string} nameOnlyStdout
+ * @param {string} shortstatStdout unused for subject (kept for callers / future body text)
+ * @param {string} [userPrompt]
+ */
+function buildCliCommitMessage(nameOnlyStdout, shortstatStdout, userPrompt = '') {
   const paths = String(nameOnlyStdout || '')
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
-  const statLine = String(shortstatStdout || '')
-    .trim()
-    .replace(/\s+/g, ' ');
 
-  if (!paths.length) {
-    return statLine ? `cli commit: ${statLine}` : 'cli commit: update';
-  }
+  const type = inferConventionalCommitType(paths, userPrompt);
+  const hint = extractCommitDescriptionHint(userPrompt, paths);
+  const issueNum = extractGithubIssueNumber(userPrompt);
 
-  const basenames = paths.map((p) => {
-    const base = p.split('/').pop() || p;
-    return base.length > 36 ? `${base.slice(0, 33)}…` : base;
-  });
-  const maxShow = 3;
-  const head = basenames.slice(0, maxShow).join(', ');
-  const extra = basenames.length > maxShow ? ` +${basenames.length - maxShow}` : '';
-  let summary = head + extra;
-  if (statLine) summary = `${summary} — ${statLine}`;
-
-  const prefix = 'cli commit: ';
-  const budget = CLI_COMMIT_SUBJECT_MAX - prefix.length;
-  if (summary.length <= budget) return prefix + summary;
-  if (budget < 12) return `${prefix}update`;
-  return prefix + summary.slice(0, budget - 1) + '…';
+  return formatConventionalSubject(type, hint, issueNum);
 }
 
 function truncate(s, max) {
@@ -533,12 +638,12 @@ async function waitForDirtyWorkspace(repo) {
   return { dirty, porcelain, waitedMs: Date.now() - start, polls };
 }
 
-async function tryCommit(repo) {
+async function tryCommit(repo, { userPrompt = '' } = {}) {
   try {
     await execGit(['add', '-A'], repo);
     const { stdout: nameOnly } = await execGit(['diff', '--cached', '--name-only', 'HEAD'], repo);
     const { stdout: shortstat } = await execGit(['diff', '--cached', '--shortstat', 'HEAD'], repo);
-    const msg = buildCliCommitMessage(nameOnly, shortstat);
+    const msg = buildCliCommitMessage(nameOnly, shortstat, userPrompt);
     const { stdout, stderr } = await execGit(['commit', '-m', msg], repo);
     const combined = (stdout + stderr).toLowerCase();
     if (combined.includes('nothing to commit')) {
@@ -708,7 +813,7 @@ export async function maybeCommitReviewEmail(opts) {
     };
   }
 
-  const commit = await tryCommit(repo);
+  const commit = await tryCommit(repo, { userPrompt });
   logPost('tryCommit result', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
   const diffFull = await getDiffText(repo, commit.ok);
   if (!diffFull.trim()) {
