@@ -225,6 +225,20 @@ function postReviewAutofixEnabled() {
   return true;
 }
 
+/** After review + optional autofix, queue `gh pr merge --auto --squash` when guardrails pass (issue #13). Set `CURSOR_POST_RUN_PR_AUTO_MERGE=0` to disable. */
+function prAutoMergeAfterReviewEnabled() {
+  if (process.env.CURSOR_POST_RUN_PR_AUTO_MERGE === '0') return false;
+  return true;
+}
+
+/** Poll interval while waiting for the linked GitHub issue to close after auto-merge is queued. */
+const ISSUE_CLOSE_POLL_MS = parseInt(process.env.CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS || '4000', 10);
+/** Max time to wait for the issue to show `CLOSED` after auto-merge is enabled (bounded). */
+const ISSUE_CLOSE_MAX_WAIT_MS = parseInt(
+  process.env.CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS || '180000',
+  10
+);
+
 /** UTC stamp safe for git branch names (no colons). */
 function branchTimestampUtc() {
   const d = new Date();
@@ -527,6 +541,110 @@ async function tryGhPrReviewComment(repo, prUrl, body) {
       /* file may not exist */
     }
   }
+}
+
+/**
+ * Enable GitHub auto-merge with squash for the PR (`gh pr merge --auto --squash`).
+ * @param {string} repo
+ * @param {string} prUrl
+ * @returns {Promise<{ ok: boolean, error?: string }>}
+ */
+async function tryGhPrMergeAutoSquash(repo, prUrl) {
+  const url = String(prUrl || '').trim();
+  if (!/^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) {
+    return { ok: false, error: 'Invalid PR URL for gh pr merge' };
+  }
+  try {
+    await execFileAsync('gh', ['pr', 'merge', url, '--auto', '--squash'], {
+      cwd: repo,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+/**
+ * @param {string} repo
+ * @param {number} issueNumber
+ * @returns {Promise<{ ok: boolean, state?: string, error?: string }>}
+ */
+async function tryGhIssueViewState(repo, issueNumber) {
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['issue', 'view', String(issueNumber), '--json', 'state'],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+      }
+    );
+    const j = JSON.parse(stdout || '{}');
+    const state = String(j.state || '').trim().toUpperCase();
+    return { ok: true, state };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+/**
+ * Poll until the issue is CLOSED or timeout (after auto-merge is queued).
+ * @param {string} repo
+ * @param {number} issueNumber
+ * @param {{ maxWaitMs?: number, pollMs?: number }} [opts]
+ */
+async function waitForGithubIssueClosed(repo, issueNumber, opts = {}) {
+  const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : ISSUE_CLOSE_MAX_WAIT_MS;
+  const pollMs = Number.isFinite(opts.pollMs) ? opts.pollMs : ISSUE_CLOSE_POLL_MS;
+  const start = Date.now();
+  let polls = 0;
+  let lastError = '';
+
+  while (Date.now() - start < maxWaitMs) {
+    polls++;
+    const r = await tryGhIssueViewState(repo, issueNumber);
+    if (!r.ok) {
+      lastError = r.error || '';
+      logPost(`issue #${issueNumber} poll failed`, lastError);
+    } else if (r.state === 'CLOSED') {
+      return {
+        closed: true,
+        timedOut: false,
+        waitedMs: Date.now() - start,
+        polls,
+        lastState: r.state,
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  const final = await tryGhIssueViewState(repo, issueNumber);
+  const lastState = final.ok ? final.state || '' : '';
+  if (!final.ok) lastError = final.error || lastError;
+  const closed = lastState === 'CLOSED';
+  return {
+    closed,
+    timedOut: !closed,
+    waitedMs: Date.now() - start,
+    polls,
+    lastState,
+    lastError: final.ok ? '' : lastError,
+  };
+}
+
+/**
+ * @param {{ reviewOutcome: string, reviewVerdict: string, postReviewAutofix: { ok?: boolean } | null }} args
+ */
+function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix }) {
+  if (reviewOutcome !== 'success') return false;
+  if (reviewVerdict === VERDICT_APPROVE) return true;
+  if (reviewVerdict === VERDICT_REQUEST_CHANGES) {
+    return Boolean(postReviewAutofix?.ok);
+  }
+  return false;
 }
 
 /**
@@ -1132,6 +1250,10 @@ async function saveReviewToJoplin({ review, buckets, commitSha, userPrompt, prUr
  * If the review completes successfully with `VERDICT: REQUEST_CHANGES`, run **exactly one** follow-up Cursor CLI pass
  * on the same branch (no new PR), then commit and push when there are changes. On autofix failure, the WhatsApp note
  * and an extra PR comment warn not to merge. Disable with `CURSOR_POST_RUN_AUTOFIX=0`.
+ * When guardrails pass (`VERDICT: APPROVE`, or `REQUEST_CHANGES` with a successful autofix push), runs
+ * `gh pr merge --auto --squash` and polls the linked issue until `CLOSED` or a bounded timeout (issue #13).
+ * Disable auto-merge with `CURSOR_POST_RUN_PR_AUTO_MERGE=0`. Tune wait with `CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS` /
+ * `CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS`.
  * Freeform `cursor …` runs do not enter this pipeline.
  * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
  * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null }} opts
@@ -1315,6 +1437,26 @@ export async function maybeCommitReviewEmail(opts) {
     }
   }
 
+  /** @type {{ ok: boolean, error?: string } | null} */
+  let prAutoMergeResult = null;
+  /** @type {{ closed: boolean, timedOut: boolean, waitedMs: number, polls: number, lastState?: string, lastError?: string } | null} */
+  let issueCloseWait = null;
+  if (
+    prAutoMergeAfterReviewEnabled() &&
+    prAfterPushEnabled() &&
+    prResult?.ok &&
+    autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })
+  ) {
+    prAutoMergeResult = await tryGhPrMergeAutoSquash(repo, prResult.url);
+    logPost('gh pr merge --auto --squash', prAutoMergeResult);
+    if (prAutoMergeResult.ok) {
+      issueCloseWait = await waitForGithubIssueClosed(repo, issueNum);
+      logPost('wait for issue closed', issueCloseWait);
+    }
+  } else if (prAutoMergeAfterReviewEnabled() && prAfterPushEnabled() && prResult?.ok) {
+    logPost('skip auto-merge (review gate)', { reviewOutcome, reviewVerdict, autofixOk: postReviewAutofix?.ok });
+  }
+
   const subPre = reviewEmailSubjectPrefix(repo);
   const subject = commit.ok
     ? `[${subPre}] Cursor cli commit ${commit.sha} — review`
@@ -1422,6 +1564,30 @@ export async function maybeCommitReviewEmail(opts) {
     }
   }
 
+  if (prAutoMergeAfterReviewEnabled() && prAfterPushEnabled() && prResult?.ok) {
+    if (prAutoMergeResult) {
+      if (prAutoMergeResult.ok) {
+        if (issueCloseWait?.closed) {
+          parts.push(
+            `GitHub **auto-merge (squash)** was enabled for the PR; linked issue **#${issueNum}** is **closed**.`
+          );
+        } else if (issueCloseWait?.timedOut) {
+          parts.push(
+            `**Merge pending / issue not yet closed:** auto-merge (squash) was requested for the PR, but issue **#${issueNum}** is still **not closed** after waiting (bounded poll). The merge may still complete in the background once checks and branch rules allow.`
+          );
+        }
+      } else {
+        parts.push(
+          `GitHub auto-merge (squash) was **not** enabled: ${prAutoMergeResult.error || 'unknown error'}.`
+        );
+      }
+    } else if (reviewOutcome === 'success' && !autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })) {
+      parts.push(
+        'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch.'
+      );
+    }
+  }
+
   return {
     ran: true,
     note: parts.join(' '),
@@ -1435,6 +1601,8 @@ export async function maybeCommitReviewEmail(opts) {
     review,
     reviewVerdict,
     postReviewAutofix,
+    prAutoMergeResult,
+    issueCloseWait,
     emailResult,
     joplinResult,
     usage,
