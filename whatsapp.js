@@ -39,6 +39,7 @@ import {
   readPendingCursorRun,
   clearPendingCursorRun,
 } from './whatsapp/agents/cursorCliPending.js';
+import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -132,6 +133,18 @@ async function startSock() {
     if (connection === 'open') {
       reconnectAttempt = 0;
       logger.info('✅ WhatsApp connected.');
+      if (myPhone) {
+        startCronIssueTracer({
+          getSocket: () => waSocket,
+          getOwnerJid: () => {
+            const raw = String(myPhone).trim();
+            if (raw.includes('@')) return raw;
+            const d = raw.replace(/\D/g, '');
+            return d ? `${d}@s.whatsapp.net` : null;
+          },
+          logger,
+        });
+      }
       (async () => {
         const pending = await readPendingCursorRun();
         if (pending?.sender && pending?.logPath) {
