@@ -40,6 +40,14 @@ describe('pickNextEligibleIssue', () => {
     const r = pickNextEligibleIssue([{ number: 1, title: 'PRD-foo' }]);
     assert.equal(r, null);
   });
+
+  it('treats leading tab as whitespace for the PRD filter', () => {
+    const r = pickNextEligibleIssue([
+      { number: 1, title: '\tPrD:   product' },
+      { number: 2, title: 'bugfix' },
+    ]);
+    assert.deepEqual(r, { number: 2, title: 'bugfix' });
+  });
 });
 
 describe('pickNextRunnableIssueForRepo', () => {
@@ -76,6 +84,20 @@ describe('runCronIssueTracerTick', () => {
     if (isCursorAgentBusy()) {
       releaseAgentBusyLock();
     }
+  });
+
+  it('returns without listing issues when the agent is already busy', async () => {
+    let listCalls = 0;
+    await runCronIssueTracerTick({
+      getSocket: () => makeMockSock(),
+      getOwnerJid: () => OWNER,
+      isCursorAgentBusy: () => true,
+      listOpenGithubIssues: async () => {
+        listCalls++;
+        return [];
+      },
+    });
+    assert.equal(listCalls, 0);
   });
 
   it('releases the agent busy lock when issue fetch / git prep returns null', async () => {
