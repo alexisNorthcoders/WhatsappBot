@@ -106,13 +106,21 @@ function prAutoMergeAfterReviewEnabled() {
   return true;
 }
 
-/** Poll interval while waiting for the linked GitHub issue to close after auto-merge is queued. */
-const ISSUE_CLOSE_POLL_MS = parseInt(process.env.CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS || '4000', 10);
-/** Max time to wait for the issue to show `CLOSED` after auto-merge is enabled (bounded). */
-const ISSUE_CLOSE_MAX_WAIT_MS = parseInt(
-  process.env.CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS || '180000',
-  10
-);
+/**
+ * Issue-close poll tuning (read per wait so tests/env can tune without reloading the module).
+ * Default max wait is 30 minutes — short CI windows (formerly 3 min) caused post-close emails to be skipped when merges lagged (GitHub #36).
+ */
+function readIssueCloseWaitSettings() {
+  const pollMs = parseInt(process.env.CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS || '4000', 10);
+  const maxWaitMs = parseInt(
+    process.env.CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS || '1800000',
+    10
+  );
+  return {
+    pollMs: Number.isFinite(pollMs) && pollMs >= 0 ? pollMs : 4000,
+    maxWaitMs: Number.isFinite(maxWaitMs) && maxWaitMs > 0 ? maxWaitMs : 1_800_000,
+  };
+}
 
 /** DeepInfra model for post-close “changes made” email (GitHub issue #14). */
 const POST_CLOSE_CHANGES_MODEL =
@@ -503,8 +511,9 @@ async function tryGhIssueViewDetails(repo, issueNumber) {
  * @param {{ maxWaitMs?: number, pollMs?: number }} [opts]
  */
 async function waitForGithubIssueClosed(repo, issueNumber, opts = {}) {
-  const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : ISSUE_CLOSE_MAX_WAIT_MS;
-  const pollMs = Number.isFinite(opts.pollMs) ? opts.pollMs : ISSUE_CLOSE_POLL_MS;
+  const defaults = readIssueCloseWaitSettings();
+  const maxWaitMs = Number.isFinite(opts.maxWaitMs) ? opts.maxWaitMs : defaults.maxWaitMs;
+  const pollMs = Number.isFinite(opts.pollMs) ? opts.pollMs : defaults.pollMs;
   return pollGithubIssueClosedOrTimeout({
     maxWaitMs,
     pollMs,
@@ -1286,7 +1295,7 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  * When the issue is confirmed **CLOSED**, sends a separate **“changes made”** email (DeepInfra
  * `meta-llama/Meta-Llama-3-8B-Instruct` by default) to `CURSOR_REVIEW_EMAIL_TO` via Gmail SMTP (issue #14).
  * Disable auto-merge with `CURSOR_POST_RUN_PR_AUTO_MERGE=0`. Tune wait with `CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS` /
- * `CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS`. Override the post-close model with `CURSOR_POST_CLOSE_CHANGES_MODEL`.
+ * `CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS` (default 30 minutes). Override the post-close model with `CURSOR_POST_CLOSE_CHANGES_MODEL`.
  * Freeform `cursor …` runs do not enter this pipeline.
  * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
  * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null, preAgentHeadSha?: string | null }} opts
@@ -1616,7 +1625,7 @@ export async function maybeCommitReviewEmail(opts) {
           );
         } else if (issueCloseWait?.timedOut) {
           parts.push(
-            `**Merge pending / issue not yet closed:** auto-merge (squash) was requested for the PR, but issue **#${issueNum}** is still **not closed** after waiting (bounded poll). The merge may still complete in the background once checks and branch rules allow.`
+            `**Merge pending / issue not yet closed:** auto-merge (squash) was requested for the PR, but issue **#${issueNum}** is still **not closed** after waiting (bounded poll). The merge may still complete in the background once checks and branch rules allow. **Post-close summary email** was not sent for the same reason (issue never reached CLOSED within \`CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS\`). There is no follow-up send after this run ends; raise the wait time or send the summary manually if CI is slow.`
           );
         }
       } else {
