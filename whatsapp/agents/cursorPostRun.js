@@ -725,45 +725,91 @@ async function getStatusPorcelain(repo) {
   return stdout.trim();
 }
 
+/** @param {string} repo */
+async function getHeadShaFull(repo) {
+  const { stdout } = await execGit(['rev-parse', 'HEAD'], repo);
+  return stdout.trim();
+}
+
+/** @param {string} repo */
+async function getHeadShaShort(repo) {
+  const { stdout } = await execGit(['rev-parse', '--short', 'HEAD'], repo);
+  return stdout.trim();
+}
+
+/** @param {string} repo */
+async function getLastCommitSubjectLine(repo) {
+  const { stdout } = await execGit(['log', '-1', '--format=%s'], repo);
+  const s = stdout.trim();
+  return s || 'Cursor CLI update';
+}
+
 /**
- * Wait until `git status` shows changes or timeout. Avoids racing the agent process exit.
- * @returns {Promise<{ dirty: boolean, porcelain: string, waitedMs: number, polls: number }>}
+ * Full `HEAD` object name (for comparing before/after the agent).
+ * @param {string} repo
+ * @returns {Promise<string>}
  */
-async function waitForDirtyWorkspace(repo) {
+export async function getRepoHeadShaFull(repo) {
+  return getHeadShaFull(repo);
+}
+
+/**
+ * Wait until uncommitted changes appear **or** `HEAD` differs from `preAgentHeadSha` (agent committed).
+ * When `preAgentHeadSha` is omitted, only porcelain (dirty) is considered — legacy behaviour.
+ * @param {string} repo
+ * @param {string | null | undefined} preAgentHeadSha
+ * @returns {Promise<{ dirty: boolean, headMoved: boolean, porcelain: string, waitedMs: number, polls: number }>}
+ */
+async function waitForAgentGitActivity(repo, preAgentHeadSha) {
+  const pre = typeof preAgentHeadSha === 'string' ? preAgentHeadSha.trim() : '';
+  const trackHead = pre.length > 0;
   const start = Date.now();
   let polls = 0;
   while (Date.now() - start < MAX_WAIT_MS) {
     polls++;
     let porcelain;
+    let headNow = '';
     try {
       porcelain = await getStatusPorcelain(repo);
+      if (trackHead) headNow = await getHeadShaFull(repo);
     } catch (e) {
-      logPost('git status --porcelain failed', e.stderr || e.message || String(e));
+      logPost('waitForAgentGitActivity git probe failed', e.stderr || e.message || String(e));
       throw e;
     }
     const dirty = Boolean(porcelain);
+    const headMoved = trackHead && headNow !== pre;
+    const statusBits = `dirty=${dirty} headMoved=${headMoved}`;
     logPost(
-      `poll #${polls} (${Date.now() - start}ms) dirty=${dirty}`,
+      `poll #${polls} (${Date.now() - start}ms) ${statusBits}`,
       dirty ? porcelain.split('\n').slice(0, 8).join('\n') : '(clean)'
     );
-    if (dirty) {
-      return { dirty: true, porcelain, waitedMs: Date.now() - start, polls };
+    if (dirty || headMoved) {
+      return {
+        dirty,
+        headMoved,
+        porcelain,
+        waitedMs: Date.now() - start,
+        polls,
+      };
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
   let porcelain = '';
+  let headNow = '';
   try {
     porcelain = await getStatusPorcelain(repo);
+    if (trackHead) headNow = await getHeadShaFull(repo);
   } catch (e) {
-    logPost('git status (final) failed', e.stderr || e.message || String(e));
+    logPost('waitForAgentGitActivity (final) failed', e.stderr || e.message || String(e));
     throw e;
   }
   const dirty = Boolean(porcelain);
+  const headMoved = trackHead && headNow !== pre;
   logPost(
-    `timeout ${MAX_WAIT_MS}ms after ${polls} polls dirty=${dirty}`,
+    `timeout ${MAX_WAIT_MS}ms after ${polls} polls dirty=${dirty} headMoved=${headMoved}`,
     dirty ? porcelain.split('\n').slice(0, 8).join('\n') : '(still clean)'
   );
-  return { dirty, porcelain, waitedMs: Date.now() - start, polls };
+  return { dirty, headMoved, porcelain, waitedMs: Date.now() - start, polls };
 }
 
 const AUTOFIX_REVIEW_BODY_MAX_CHARS = parseInt(
@@ -815,6 +861,13 @@ async function runSinglePostReviewAutofix({
     prUrl,
   });
 
+  let preAgentHeadSha = '';
+  try {
+    preAgentHeadSha = await getHeadShaFull(repo);
+  } catch (e) {
+    logPost('post-review autofix: could not read HEAD before agent', e.stderr || e.message || String(e));
+  }
+
   let agentResult;
   try {
     agentResult = await runCursorCliAgent(prompt, { runId: autofixRunId, workspaceRoot: repo });
@@ -854,9 +907,9 @@ async function runSinglePostReviewAutofix({
     };
   }
 
-  const wait = await waitForDirtyWorkspace(repo);
-  if (!wait.dirty) {
-    logPost('post-review autofix: working tree still clean after agent', {
+  const wait = await waitForAgentGitActivity(repo, preAgentHeadSha || null);
+  if (!wait.dirty && !wait.headMoved) {
+    logPost('post-review autofix: no dirty tree and HEAD unchanged after agent', {
       waitedMs: wait.waitedMs,
       polls: wait.polls,
     });
@@ -864,7 +917,7 @@ async function runSinglePostReviewAutofix({
       ok: false,
       mergeBlocked: true,
       detail:
-        'Autofix finished but **git detected no file changes** after waiting — treat as failed for merge purposes.',
+        'Autofix finished but **git detected no new commits and no uncommitted changes** after waiting — treat as failed for merge purposes.',
       agentOutcome,
     };
   }
@@ -875,15 +928,24 @@ async function runSinglePostReviewAutofix({
     '**Title:** address automated PR review feedback',
   ].join('\n');
 
-  const commit = await tryCommit(repo, { userPrompt: syntheticPrompt });
-  logPost('post-review autofix: tryCommit', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
-  if (!commit.ok) {
-    return {
-      ok: false,
-      mergeBlocked: true,
-      detail: `Autofix made edits but commit failed (${commit.reason}${commit.error ? `: ${commit.error}` : ''}).`,
-      agentOutcome,
-    };
+  /** @type {{ ok: boolean, sha?: string, message?: string, reason?: string, error?: string }} */
+  let commit;
+  if (wait.dirty) {
+    commit = await tryCommit(repo, { userPrompt: syntheticPrompt });
+    logPost('post-review autofix: tryCommit', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
+    if (!commit.ok) {
+      return {
+        ok: false,
+        mergeBlocked: true,
+        detail: `Autofix made edits but commit failed (${commit.reason}${commit.error ? `: ${commit.error}` : ''}).`,
+        agentOutcome,
+      };
+    }
+  } else {
+    const sha = await getHeadShaShort(repo);
+    const message = await getLastCommitSubjectLine(repo);
+    commit = { ok: true, sha, message };
+    logPost('post-review autofix: agent already committed; skipping tryCommit', { sha, message });
   }
 
   if (!pushAfterCommitEnabled()) {
@@ -1177,15 +1239,16 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  * `CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS`. Override the post-close model with `CURSOR_POST_CLOSE_CHANGES_MODEL`.
  * Freeform `cursor …` runs do not enter this pipeline.
  * Disable push with `CURSOR_POST_RUN_PUSH=0`, or PR only with `CURSOR_POST_RUN_PR=0`.
- * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null }} opts
+ * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null, preAgentHeadSha?: string | null }} opts
  */
 export async function maybeCommitReviewEmail(opts) {
-  const { repo, userPrompt, agentRunOk, issueMode = null } = opts;
+  const { repo, userPrompt, agentRunOk, issueMode = null, preAgentHeadSha = null } = opts;
   logPost('start', {
     repo,
     postRunEnabled: postRunEnabled(),
     agentRunOk,
     issueMode: issueMode?.number ?? null,
+    preAgentHeadSha: preAgentHeadSha ? `${String(preAgentHeadSha).slice(0, 7)}…` : null,
     pollMs: POLL_MS,
     maxWaitMs: MAX_WAIT_MS,
   });
@@ -1205,13 +1268,21 @@ export async function maybeCommitReviewEmail(opts) {
     return { ran: false, note: '', skipReason: 'not_issue_mode' };
   }
 
-  const wait = await waitForDirtyWorkspace(repo);
-  if (!wait.dirty) {
-    logPost('skip: working tree still clean after wait', { waitedMs: wait.waitedMs, polls: wait.polls });
+  const wait = await waitForAgentGitActivity(repo, preAgentHeadSha);
+  if (!wait.dirty && !wait.headMoved) {
+    logPost('skip: no dirty tree and HEAD unchanged after wait', {
+      waitedMs: wait.waitedMs,
+      polls: wait.polls,
+    });
     return { ran: false, note: '', skipReason: 'clean_after_wait' };
   }
 
-  logPost('working tree dirty, committing', { waitedMs: wait.waitedMs, polls: wait.polls });
+  logPost('agent git activity detected', {
+    dirty: wait.dirty,
+    headMoved: wait.headMoved,
+    waitedMs: wait.waitedMs,
+    polls: wait.polls,
+  });
 
   let workBranch;
   try {
@@ -1226,8 +1297,20 @@ export async function maybeCommitReviewEmail(opts) {
     };
   }
 
-  const commit = await tryCommit(repo, { userPrompt });
-  logPost('tryCommit result', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
+  /** @type {{ ok: boolean, sha?: string, message?: string, reason?: string, error?: string }} */
+  let commit;
+  if (wait.dirty) {
+    commit = await tryCommit(repo, { userPrompt });
+    logPost('tryCommit result', { ok: commit.ok, reason: commit.reason, sha: commit.sha });
+  } else {
+    const sha = await getHeadShaShort(repo);
+    const message = await getLastCommitSubjectLine(repo);
+    commit = { ok: true, sha, message };
+    logPost('skip tryCommit: working tree clean but HEAD moved (agent already committed)', {
+      sha,
+      message,
+    });
+  }
   const diffFull = await getDiffText(repo, commit.ok);
   if (!diffFull.trim()) {
     logPost('warning: dirty porcelain but empty diff text after commit attempt');
@@ -1414,7 +1497,13 @@ export async function maybeCommitReviewEmail(opts) {
 
   const parts = [];
   if (commit.ok) {
-    parts.push(`Committed ${commit.sha} on \`${workBranch.branchName}\`: ${commit.message}`);
+    if (!wait.dirty && wait.headMoved) {
+      parts.push(
+        `Agent already committed \`${commit.sha}\` on \`${workBranch.branchName}\`: ${commit.message}`
+      );
+    } else {
+      parts.push(`Committed ${commit.sha} on \`${workBranch.branchName}\`: ${commit.message}`);
+    }
     if (workBranch.didCheckoutNew) {
       parts.push('(Created a new branch so this did not commit directly to the default branch.)');
     }
