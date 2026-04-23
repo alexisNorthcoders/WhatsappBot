@@ -190,22 +190,6 @@ export default async function cursorCommand(sock, sender, text, msg) {
   }
 
   const ws = parseWorkspacePrefix(afterCursor);
-  let workspaceRoot;
-  try {
-    if (ws.kind === 'alias') {
-      workspaceRoot = await resolveWorkspaceFromAlias(ws.alias);
-    } else if (ws.kind === 'path') {
-      workspaceRoot = await resolveWorkspaceFromUserPath(ws.path);
-    } else {
-      workspaceRoot = await getDefaultWorkspaceRoot();
-    }
-  } catch (e) {
-    await sock.sendMessage(sender, {
-      text: `Cursor workspace: ${e.message || String(e)}`,
-    });
-    return;
-  }
-
   const rawPrompt = ws.rest;
   if (!rawPrompt) {
     await sock.sendMessage(sender, {
@@ -217,11 +201,27 @@ export default async function cursorCommand(sock, sender, text, msg) {
   if (!tryAcquireAgentBusyLock()) {
     await sock.sendMessage(sender, {
       text:
-        'The Cursor agent is already running (issue or freeform). Try again when it finishes.',
+        'The Cursor agent is busy (another run is in progress — issue or freeform). Try again later.',
     });
     return;
   }
   try {
+    let workspaceRoot;
+    try {
+      if (ws.kind === 'alias') {
+        workspaceRoot = await resolveWorkspaceFromAlias(ws.alias);
+      } else if (ws.kind === 'path') {
+        workspaceRoot = await resolveWorkspaceFromUserPath(ws.path);
+      } else {
+        workspaceRoot = await getDefaultWorkspaceRoot();
+      }
+    } catch (e) {
+      await sock.sendMessage(sender, {
+        text: `Cursor workspace: ${e.message || String(e)}`,
+      });
+      return;
+    }
+
     let prompt = rawPrompt;
     let joplinSource = null;
     let issueSource = null;
