@@ -40,6 +40,29 @@ describe('pickNextEligibleIssue', () => {
     const r = pickNextEligibleIssue([{ number: 1, title: 'PRD-foo' }]);
     assert.equal(r, null);
   });
+
+  it('treats leading tab as whitespace for the PRD filter', () => {
+    const r = pickNextEligibleIssue([
+      { number: 1, title: '\tPrD:   product' },
+      { number: 2, title: 'bugfix' },
+    ]);
+    assert.deepEqual(r, { number: 2, title: 'bugfix' });
+  });
+
+  it('treats mixed leading whitespace and letter case as PRD-prefixed (case-insensitive prefix)', () => {
+    const r = pickNextEligibleIssue([
+      { number: 1, title: '  \t pRd \t : roadmap item' },
+      { number: 9, title: 'Ship feature' },
+    ]);
+    assert.deepEqual(r, { number: 9, title: 'Ship feature' });
+  });
+
+  it('does not exclude issues whose title merely contains "prd" after other words', () => {
+    const r = pickNextEligibleIssue([
+      { number: 3, title: 'Follow-up from PRD discussion' },
+    ]);
+    assert.deepEqual(r, { number: 3, title: 'Follow-up from PRD discussion' });
+  });
 });
 
 describe('pickNextRunnableIssueForRepo', () => {
@@ -76,6 +99,35 @@ describe('runCronIssueTracerTick', () => {
     if (isCursorAgentBusy()) {
       releaseAgentBusyLock();
     }
+  });
+
+  it('returns without listing issues when the agent is already busy', async () => {
+    assert.equal(isCursorAgentBusy(), false);
+    const sock = makeMockSock();
+    let listCalls = 0;
+    let prepCalls = 0;
+    let agentCalls = 0;
+    await runCronIssueTracerTick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      isCursorAgentBusy: () => true,
+      listOpenGithubIssues: async () => {
+        listCalls++;
+        return [];
+      },
+      runIssueFetchAndGitPrep: async () => {
+        prepCalls++;
+        return null;
+      },
+      runCursorAgentWithPost: async () => {
+        agentCalls++;
+      },
+    });
+    assert.equal(listCalls, 0);
+    assert.equal(prepCalls, 0);
+    assert.equal(agentCalls, 0);
+    assert.equal(sock.sent.length, 0, 'owner should not get cron noise while a manual run holds the lock');
+    assert.equal(isCursorAgentBusy(), false, 'cron early-return must not mutate the real busy lock');
   });
 
   it('releases the agent busy lock when issue fetch / git prep returns null', async () => {
@@ -203,6 +255,60 @@ describe('runCronIssueTracerTick', () => {
       },
     });
     assert.equal(prepCalls, 1);
+
+    await runCronIssueTracerTick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: listBoth,
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: readLast,
+      writeCronPerRepoLastStartedEntry: writeLast,
+      resolveWorkspaceFromAlias: async () => '/plat',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      runIssueFetchAndGitPrep: async () => {
+        prepCalls++;
+        return { prompt: 'p', issueSource: { number: 7, repo: REPO, title: 'Work' } };
+      },
+      runCursorAgentWithPost: async () => {
+        throw new Error('should not run on third tick either');
+      },
+    });
+    assert.equal(prepCalls, 1, 'persisted last-started must block duplicate auto-starts across ticks');
+  });
+
+  it('prefers WhatsappBot over Platformer when both have eligible issues (repo priority)', async () => {
+    const sock = makeMockSock();
+    let platListed = false;
+    await runCronIssueTracerTick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async ({ repo }) => {
+        if (repo === REPO) {
+          return [{ number: 50, title: 'WA task' }];
+        }
+        if (repo === REPO_P) {
+          platListed = true;
+          return [{ number: 1, title: 'Lower number but secondary repo' }];
+        }
+        throw new Error(`unexpected list ${repo}`);
+      },
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      resolveWorkspaceFromAlias: async () => '/plat',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      runIssueFetchAndGitPrep: async (p) => {
+        assert.equal(p.issueNumber, 50);
+        assert.equal(p.workspaceRoot, '/tmp/ws');
+        return {
+          prompt: 'p',
+          issueSource: { number: 50, repo: REPO, title: 'WA task' },
+        };
+      },
+      runCursorAgentWithPost: async () => {},
+    });
+    assert.equal(platListed, false, 'Platformer must not be consulted when WhatsappBot still has runnable work');
   });
 
   it('does not list or resolve Platformer when WhatsappBot has an eligible issue', async () => {
