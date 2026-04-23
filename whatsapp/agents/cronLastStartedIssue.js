@@ -7,6 +7,42 @@ const FILE = 'cron-last-started-issue.json';
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
 /**
+ * @param {unknown} n
+ * @returns {n is number}
+ */
+function isValidIssueNumber(n) {
+  return typeof n === 'number' && Number.isInteger(n) && Number.isFinite(n) && n >= 1;
+}
+
+/**
+ * @param {unknown} repo
+ * @returns {repo is string}
+ */
+function isValidRepoSlug(repo) {
+  return typeof repo === 'string' && REPO_SLUG_RE.test(repo);
+}
+
+/**
+ * Ensures callers cannot persist corrupt `perRepo` keys or issue numbers.
+ * @param {unknown} row
+ * @returns {asserts row is { repo: string, number: number }}
+ */
+function assertValidLastStartedWriteRow(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    throw new TypeError('cron last-started write: row must be a plain object');
+  }
+  const r = /** @type {{ repo?: unknown, number?: unknown }} */ (row);
+  if (!isValidRepoSlug(r.repo)) {
+    throw new TypeError(
+      `cron last-started write: invalid repo slug ${JSON.stringify(r.repo)} (expected owner/name)`
+    );
+  }
+  if (!isValidIssueNumber(r.number)) {
+    throw new TypeError(`cron last-started write: invalid issue number ${String(r.number)}`);
+  }
+}
+
+/**
  * @returns {string} absolute path to the persisted state file
  */
 export function cronLastStartedIssuePath() {
@@ -69,14 +105,18 @@ export async function readCronPerRepoLastStarted() {
 
 /**
  * Merges one repo’s last-started issue into the persisted file (new per-repo format).
+ * Throws if `row.repo` or `row.number` is not a valid persisted shape (bad callers must not rewrite the file).
  * @param {{ repo: string, number: number }} row
  */
 export async function writeCronPerRepoLastStartedEntry(row) {
+  assertValidLastStartedWriteRow(row);
   const path = cronLastStartedIssuePath();
   const map = await readCronPerRepoLastStarted();
   map.set(row.repo, row.number);
   const perRepo = Object.fromEntries(
-    [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    [...map.entries()]
+      .filter(([k, n]) => isValidRepoSlug(k) && isValidIssueNumber(n))
+      .sort((a, b) => a[0].localeCompare(b[0]))
   );
   const payload = {
     perRepo,

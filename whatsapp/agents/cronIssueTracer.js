@@ -43,6 +43,21 @@ export function pickNextEligibleIssue(rows) {
 }
 
 /**
+ * Lowest PRD-filtered eligible issue for `gitRepo` that is not suppressed by per-repo last-started.
+ *
+ * @param {{ number: number, title: string }[]} rows
+ * @param {string} gitRepo
+ * @param {Map<string, number>} lastByRepo
+ * @returns {{ number: number, title: string } | null}
+ */
+export function pickNextRunnableIssueForRepo(rows, gitRepo, lastByRepo) {
+  const next = pickNextEligibleIssue(rows);
+  if (next == null) return null;
+  if (lastByRepo.get(gitRepo) === next.number) return null;
+  return next;
+}
+
+/**
  * @param {string} err
  * @param {number} [max]
  */
@@ -197,61 +212,55 @@ export async function runCronIssueTracerTick(deps = {}) {
     phase = 'listing open GitHub issues (WhatsappBot)';
     const whRepo = resolveRepo();
     const whRows = await listIssues({ repo: whRepo });
-    const nextWh = pickNextEligibleIssue(whRows);
+    const nextWh = pickNextRunnableIssueForRepo(whRows, whRepo, lastByRepo);
+
     if (nextWh != null) {
-      if (lastByRepo.get(whRepo) === nextWh.number) {
-        return;
-      }
-    } else {
-      phase = 'resolving secondary repo (Platformer)';
-      /** @type {string} */
-      let platRoot;
-      /** @type {string} */
-      let platGitRepo;
-      try {
-        platRoot = await resolvePlatRoot(platformerAlias);
-        platGitRepo = await resolveForWs(platRoot, platformerAlias);
-      } catch (e) {
-        const msg = errorMessageFromUnknown(e);
-        logger?.warn({ err: e }, `cron issue tracer: Platformer not available: ${msg}`);
-        return;
-      }
-      phase = 'listing open GitHub issues (Platformer)';
-      const pRows = await listIssues({ repo: platGitRepo });
-      const nextPlat = pickNextEligibleIssue(pRows);
-      if (nextPlat == null) {
-        return;
-      }
-      if (lastByRepo.get(platGitRepo) === nextPlat.number) {
-        return;
-      }
       if (!tryLock()) {
         return;
       }
       acquired = true;
 
-      await runCronIssueJob('Platformer', platGitRepo, nextPlat, platRoot, platformerAlias);
+      let workspaceRoot;
+      phase = 'resolving default workspace';
+      try {
+        workspaceRoot = await getWorkspace();
+      } catch (e) {
+        const msg = errorMessageFromUnknown(e);
+        await sock.sendMessage(ownerJid, {
+          text: `Cron (WhatsappBot): could not resolve default workspace (step: ${phase}): ${truncateErrorSummary(msg, 2000)}`,
+        });
+        return;
+      }
+
+      await runCronIssueJob('WhatsappBot', whRepo, nextWh, workspaceRoot, null);
       return;
     }
 
+    phase = 'resolving secondary repo (Platformer)';
+    /** @type {string} */
+    let platRoot;
+    /** @type {string} */
+    let platGitRepo;
+    try {
+      platRoot = await resolvePlatRoot(platformerAlias);
+      platGitRepo = await resolveForWs(platRoot, platformerAlias);
+    } catch (e) {
+      const msg = errorMessageFromUnknown(e);
+      logger?.warn({ err: e }, `cron issue tracer: Platformer not available: ${msg}`);
+      return;
+    }
+    phase = 'listing open GitHub issues (Platformer)';
+    const pRows = await listIssues({ repo: platGitRepo });
+    const nextPlat = pickNextRunnableIssueForRepo(pRows, platGitRepo, lastByRepo);
+    if (nextPlat == null) {
+      return;
+    }
     if (!tryLock()) {
       return;
     }
     acquired = true;
 
-    let workspaceRoot;
-    phase = 'resolving default workspace';
-    try {
-      workspaceRoot = await getWorkspace();
-    } catch (e) {
-      const msg = errorMessageFromUnknown(e);
-      await sock.sendMessage(ownerJid, {
-        text: `Cron (WhatsappBot): could not resolve default workspace (step: ${phase}): ${truncateErrorSummary(msg, 2000)}`,
-      });
-      return;
-    }
-
-    await runCronIssueJob('WhatsappBot', whRepo, nextWh, workspaceRoot, null);
+    await runCronIssueJob('Platformer', platGitRepo, nextPlat, platRoot, platformerAlias);
   } catch (e) {
     const err = errorMessageFromUnknown(e);
     logger?.warn({ err: e }, `cron issue tracer: ${err}`);

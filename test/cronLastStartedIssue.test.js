@@ -60,4 +60,28 @@ describe('cronLastStartedIssue persistence', () => {
     assert.equal(m.get('a/w'), 7);
     assert.equal(m.get('a/p'), 2);
   });
+
+  it('rejects invalid repo slugs and leaves the file unchanged', async () => {
+    const path = cronLastStartedIssuePath();
+    await writeFile(path, JSON.stringify({ perRepo: { 'ok/r': 1 }, savedAt: 'x' }, null, 2), 'utf8');
+    const before = await readCronPerRepoLastStarted();
+    await assert.rejects(
+      () => writeCronPerRepoLastStartedEntry({ repo: 'not-a-valid-slug', number: 2 }),
+      /invalid repo slug/i
+    );
+    assert.deepEqual(await readCronPerRepoLastStarted(), before);
+  });
+
+  it('rejects invalid issue numbers and leaves the file unchanged', async () => {
+    const path = cronLastStartedIssuePath();
+    await writeFile(path, JSON.stringify({ perRepo: { 'ok/r': 1 }, savedAt: 'x' }, null, 2), 'utf8');
+    const before = await readCronPerRepoLastStarted();
+    for (const number of [0, -1, 1.5, NaN, Number.POSITIVE_INFINITY]) {
+      await assert.rejects(
+        () => writeCronPerRepoLastStartedEntry({ repo: 'ok/r', number }),
+        /invalid issue number/i
+      );
+    }
+    assert.deepEqual(await readCronPerRepoLastStarted(), before);
+  });
 });
