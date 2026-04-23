@@ -1,23 +1,11 @@
 import dotenv from 'dotenv';
-import { join } from 'path';
-import { runCursorCliAgent } from '../agents/cursorCliAgent.js';
+import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias, resolveWorkspaceFromUserPath } from '../cursorWorkspaces.js';
 import {
-  setPendingCursorRun,
-  clearPendingCursorRun,
-} from '../agents/cursorCliPending.js';
-import {
-  getDefaultWorkspaceRoot,
-  resolveWorkspaceFromAlias,
-  resolveWorkspaceFromUserPath,
-} from '../cursorWorkspaces.js';
-import { logAgentInvocation } from '../agents/agentUsageLog.js';
-import {
-  maybeCommitReviewEmail,
-  prepareWorkspaceForGithubIssue,
-} from '../agents/cursorPostRun.js';
+  runIssueFetchAndGitPrep,
+  runCursorAgentWithPost,
+} from '../agents/cursorIssuePipeline.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 import { actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
-import { fetchGhIssuePromptText } from '../agents/ghIssueForCursor.js';
 import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
@@ -25,7 +13,6 @@ import {
 
 dotenv.config();
 
-const WA_TEXT_MAX = 4096;
 const JOPLIN_NOTEBOOK =
   process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
 
@@ -123,53 +110,6 @@ async function fetchJoplinNote(noteQuery) {
   return joplinAPI.getNoteInNotebook(best.id, JOPLIN_NOTEBOOK);
 }
 
-function splitWhatsAppChunks(text, maxLen = WA_TEXT_MAX) {
-  if (!text || text.length <= maxLen) return text ? [text] : ['(no output)'];
-  const parts = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLen) {
-      parts.push(remaining);
-      break;
-    }
-    let chunk = remaining.slice(0, maxLen);
-    const nl = chunk.lastIndexOf('\n');
-    if (nl > Math.floor(maxLen * 0.5)) chunk = chunk.slice(0, nl + 1);
-    parts.push(chunk.replace(/\s+$/, ''));
-    remaining = remaining.slice(chunk.length);
-  }
-  return parts;
-}
-
-function formatAgentResult(result) {
-  const lines = [];
-  if (result.logPath) {
-    lines.push(`Log file: ${result.logPath}`);
-    lines.push('');
-  }
-  if (result.spawnError) {
-    lines.push(`Spawn error: ${result.spawnError}`);
-    return lines.join('\n');
-  }
-  if (result.timedOut) {
-    lines.push(`Timed out (exit ${result.exitCode ?? 'n/a'}, signal ${result.signal ?? 'n/a'}).`);
-  } else {
-    lines.push(`Exit code: ${result.exitCode ?? 'n/a'}`);
-  }
-  if (result.stdout?.trim()) {
-    lines.push('--- stdout ---');
-    lines.push(result.stdout.trimEnd());
-  }
-  if (result.stderr?.trim()) {
-    lines.push('--- stderr ---');
-    lines.push(result.stderr.trimEnd());
-  }
-  if (lines.length === 1 && lines[0].startsWith('Exit code:')) {
-    lines.push('(no stdout/stderr captured)');
-  }
-  return lines.join('\n');
-}
-
 export default async function cursorCommand(sock, sender, text, msg) {
   const actor = actorJid(msg, sender);
   if (!isAllowedActor(actor)) {
@@ -242,45 +182,18 @@ export default async function cursorCommand(sock, sender, text, msg) {
     }
 
     if (issueMatch) {
-      try {
-        await sock.sendMessage(sender, {
-          text: `Fetching GitHub issue #${issueMatch.issueNumber} …`,
-        });
-        const fetched = await fetchGhIssuePromptText(issueMatch.issueNumber, {
-          extraInstructions: issueMatch.extraInstructions,
-          workspaceRoot,
-          workspaceAlias: workspaceAliasForRepo,
-        });
-        prompt = fetched.markdown;
-        issueSource = {
-          number: fetched.number,
-          repo: fetched.repo,
-          title: fetched.title,
-        };
-        try {
-          await sock.sendMessage(sender, {
-            text: `Preparing git in ${workspaceRoot}: checkout latest default branch, pull from origin, create issue branch …`,
-          });
-          const prep = await prepareWorkspaceForGithubIssue(
-            workspaceRoot,
-            issueMatch.issueNumber,
-            issueSource.title
-          );
-          await sock.sendMessage(sender, {
-            text: `Ready on branch \`${prep.branchName}\` (synced from \`${prep.defaultBranch}\`).`,
-          });
-        } catch (prepErr) {
-          await sock.sendMessage(sender, {
-            text: `Git setup for issue #${issueMatch.issueNumber} failed: ${prepErr.message || String(prepErr)}`,
-          });
-          return;
-        }
-      } catch (err) {
-        await sock.sendMessage(sender, {
-          text: `Failed to read GitHub issue: ${err.message || String(err)}`,
-        });
-        return;
-      }
+      const prepped = await runIssueFetchAndGitPrep({
+        sock,
+        recipientJid: sender,
+        issueNumber: issueMatch.issueNumber,
+        extraInstructions: issueMatch.extraInstructions,
+        workspaceRoot,
+        workspaceAlias: workspaceAliasForRepo,
+        sendProgressMessages: true,
+      });
+      if (!prepped) return;
+      prompt = prepped.prompt;
+      issueSource = prepped.issueSource;
     } else {
       const joplinMatch = parseJoplinPrefix(rawPrompt);
       if (joplinMatch) {
@@ -307,100 +220,16 @@ export default async function cursorCommand(sock, sender, text, msg) {
       }
     }
 
-    const repo = workspaceRoot;
-    const runId = new Date().toISOString().replace(/[:.]/g, '-');
-    const logPath = join(repo, 'logs', 'cursor-agent', `${runId}.log`);
-    const logRel = `logs/cursor-agent/${runId}.log`;
-
-    await setPendingCursorRun({
-      sender,
-      logPath,
-      runId,
-      startedAt: new Date().toISOString(),
-      workspaceRoot: repo,
+    await runCursorAgentWithPost({
+      sock,
+      recipientJid: sender,
+      prompt,
+      repo: workspaceRoot,
+      issueMatch,
+      issueSource,
+      joplinSource,
+      sendProgressMessages: true,
     });
-
-    let outcome = 'error';
-    let result;
-    let delivered = false;
-
-    try {
-      const sourceHint = issueSource
-        ? `\nSource: GitHub issue #${issueSource.number} (${issueSource.repo}) — ${issueSource.title || '(no title)'}`
-        : joplinSource
-          ? `\nSource: Joplin note "${joplinSource.title}" (${joplinSource.id})`
-          : '';
-      await sock.sendMessage(sender, {
-        text:
-          `Running Cursor agent in ${repo} …${sourceHint}\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
-      });
-
-      result = await runCursorCliAgent(prompt, { runId, workspaceRoot: repo });
-      if (result.timedOut) outcome = 'timeout';
-      else if (result.spawnError) outcome = 'spawn_error';
-      else if (result.ok) outcome = 'success';
-      else outcome = `exit_${result.exitCode}`;
-    } catch (err) {
-      outcome = 'exception';
-      result = {
-        ok: false,
-        exitCode: null,
-        timedOut: false,
-        stdout: '',
-        stderr: String(err?.message || err),
-        logPath,
-        runId,
-      };
-    }
-
-    await logAgentInvocation({
-      agent: 'cursor-cli',
-      model: 'agent',
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      outcome,
-    });
-
-    try {
-      const body = formatAgentResult(result);
-      const chunks = splitWhatsAppChunks(body);
-      for (const chunk of chunks) {
-        await sock.sendMessage(sender, { text: chunk });
-      }
-
-      const agentRunOk = Boolean(
-        result?.ok && !result?.spawnError && !result?.timedOut
-      );
-      try {
-        const post = await maybeCommitReviewEmail({
-          repo,
-          userPrompt: prompt,
-          agentRunOk,
-          issueMode: issueMatch ? { number: issueMatch.issueNumber } : null,
-        });
-        if (post.note) {
-          await sock.sendMessage(sender, { text: post.note });
-        }
-      } catch (postErr) {
-        await sock.sendMessage(sender, {
-          text: `Post-run commit/PR pipeline failed: ${postErr.message || String(postErr)}`,
-        });
-      }
-
-      delivered = true;
-    } catch (sendErr) {
-      try {
-        await sock.sendMessage(sender, {
-          text: `Could not send full Cursor result (${sendErr.message}). Log: ${result?.logPath ?? logPath}`,
-        });
-        delivered = true;
-      } catch {
-        /* keep pending file for startup notice */
-      }
-    } finally {
-      if (delivered) await clearPendingCursorRun();
-    }
   } finally {
     releaseAgentBusyLock();
   }
