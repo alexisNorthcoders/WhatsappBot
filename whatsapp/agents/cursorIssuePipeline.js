@@ -8,6 +8,26 @@ import { fetchGhIssuePromptText } from './ghIssueForCursor.js';
 const WA_TEXT_MAX = 4096;
 
 /**
+ * @param {unknown} err
+ * @returns {string}
+ */
+export function errorMessageFromUnknown(err) {
+  if (err instanceof Error) {
+    const m = err.message;
+    return typeof m === 'string' && m.trim() !== '' ? m : err.name || 'Error';
+  }
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = /** @type {{ message?: unknown }} */ (err).message;
+    if (typeof m === 'string' && m.trim() !== '') return m;
+  }
+  try {
+    return String(err);
+  } catch {
+    return 'Unknown error';
+  }
+}
+
+/**
  * @param {string} text
  * @param {number} [maxLen]
  * @returns {string[]}
@@ -124,7 +144,7 @@ export async function runIssueFetchAndGitPrep(p) {
       }
     } catch (prepErr) {
       await sock.sendMessage(recipientJid, {
-        text: `Git setup for issue #${issueNumber} failed: ${prepErr.message || String(prepErr)}`,
+        text: `Git setup for issue #${issueNumber} failed: ${errorMessageFromUnknown(prepErr)}`,
       });
       return null;
     }
@@ -132,7 +152,7 @@ export async function runIssueFetchAndGitPrep(p) {
     return { prompt, issueSource };
   } catch (err) {
     await sock.sendMessage(recipientJid, {
-      text: `Failed to read GitHub issue: ${err.message || String(err)}`,
+      text: `Failed to read GitHub issue: ${errorMessageFromUnknown(err)}`,
     });
     return null;
   }
@@ -205,7 +225,7 @@ export async function runCursorAgentWithPost(p) {
       exitCode: null,
       timedOut: false,
       stdout: '',
-      stderr: String(err?.message || err),
+      stderr: errorMessageFromUnknown(err),
       logPath,
       runId,
     };
@@ -242,7 +262,7 @@ export async function runCursorAgentWithPost(p) {
       }
     } catch (postErr) {
       await sock.sendMessage(recipientJid, {
-        text: `Post-run commit/PR pipeline failed: ${postErr.message || String(postErr)}`,
+        text: `Post-run commit/PR pipeline failed: ${errorMessageFromUnknown(postErr)}`,
       });
     }
 
@@ -250,7 +270,7 @@ export async function runCursorAgentWithPost(p) {
   } catch (sendErr) {
     try {
       await sock.sendMessage(recipientJid, {
-        text: `Could not send full Cursor result (${sendErr.message}). Log: ${result?.logPath ?? logPath}`,
+        text: `Could not send full Cursor result (${errorMessageFromUnknown(sendErr)}). Log: ${result?.logPath ?? logPath}`,
       });
       delivered = true;
     } catch {
