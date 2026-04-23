@@ -84,9 +84,7 @@ async function startSock() {
     shouldSyncHistoryMessage: () => false,
     
     // Message retry and cache settings
-    msgRetryCounterCache: {
-      maxRetriesPerMessage: 3,
-    },
+    maxMsgRetryCount: 3,
     getMessage: async () => undefined,
     
     // Link preview and media settings
