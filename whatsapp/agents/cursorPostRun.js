@@ -64,9 +64,15 @@ pre.summary { white-space: pre-wrap; font-size: 0.95rem; margin: 0; }
 </html>`;
 }
 
-/** Poll after the agent process exits — writes may not be visible to git immediately. */
-const POLL_MS = parseInt(process.env.CURSOR_POST_RUN_POLL_MS || '250', 10);
-const MAX_WAIT_MS = parseInt(process.env.CURSOR_POST_RUN_MAX_WAIT_MS || '8000', 10);
+/** Poll after the agent process exits — writes may not be visible to git immediately. Read per wait so tests/env can tune without reloading the module. */
+function readPostRunGitWaitSettings() {
+  const pollMs = parseInt(process.env.CURSOR_POST_RUN_POLL_MS || '250', 10);
+  const maxWaitMs = parseInt(process.env.CURSOR_POST_RUN_MAX_WAIT_MS || '8000', 10);
+  return {
+    pollMs: Number.isFinite(pollMs) && pollMs >= 0 ? pollMs : 250,
+    maxWaitMs: Number.isFinite(maxWaitMs) && maxWaitMs > 0 ? maxWaitMs : 8000,
+  };
+}
 
 function postRunEnabled() {
   // Only set CURSOR_POST_RUN=0 in .env to disable. If unset or commented out, post-run is ON.
@@ -756,16 +762,20 @@ export async function getRepoHeadShaFull(repo) {
 /**
  * Wait until uncommitted changes appear **or** `HEAD` differs from `preAgentHeadSha` (agent committed).
  * When `preAgentHeadSha` is omitted, only porcelain (dirty) is considered — legacy behaviour.
+ * Each poll runs `git status --porcelain` and, when tracking head, `git rev-parse HEAD` — intentional
+ * so we notice a new commit as soon as it lands (cheap for the short bounded wait); do not “optimize”
+ * away the per-poll `HEAD` read without tests.
  * @param {string} repo
  * @param {string | null | undefined} preAgentHeadSha
  * @returns {Promise<{ dirty: boolean, headMoved: boolean, porcelain: string, waitedMs: number, polls: number }>}
  */
 async function waitForAgentGitActivity(repo, preAgentHeadSha) {
+  const { pollMs, maxWaitMs } = readPostRunGitWaitSettings();
   const pre = typeof preAgentHeadSha === 'string' ? preAgentHeadSha.trim() : '';
   const trackHead = pre.length > 0;
   const start = Date.now();
   let polls = 0;
-  while (Date.now() - start < MAX_WAIT_MS) {
+  while (Date.now() - start < maxWaitMs) {
     polls++;
     let porcelain;
     let headNow = '';
@@ -792,7 +802,7 @@ async function waitForAgentGitActivity(repo, preAgentHeadSha) {
         polls,
       };
     }
-    await new Promise((r) => setTimeout(r, POLL_MS));
+    await new Promise((r) => setTimeout(r, pollMs));
   }
   let porcelain = '';
   let headNow = '';
@@ -806,7 +816,7 @@ async function waitForAgentGitActivity(repo, preAgentHeadSha) {
   const dirty = Boolean(porcelain);
   const headMoved = trackHead && headNow !== pre;
   logPost(
-    `timeout ${MAX_WAIT_MS}ms after ${polls} polls dirty=${dirty} headMoved=${headMoved}`,
+    `timeout ${maxWaitMs}ms after ${polls} polls dirty=${dirty} headMoved=${headMoved}`,
     dirty ? porcelain.split('\n').slice(0, 8).join('\n') : '(still clean)'
   );
   return { dirty, headMoved, porcelain, waitedMs: Date.now() - start, polls };
@@ -1021,6 +1031,46 @@ async function getDiffText(repo, commitOk) {
   if (staged.trim()) return staged;
   const { stdout: unstaged } = await execGit(['diff', '--no-color'], repo);
   return unstaged || '';
+}
+
+/**
+ * Diff text for the post-run LLM review (and empty-diff guard).
+ * When the agent left a **clean** tree but **moved `HEAD`** (committed), `git show HEAD` only covers the
+ * tip commit; we prefer the PR-style merge-base range against `prBase`, then the exact agent span
+ * `preAgentHeadSha...HEAD`, then `git show HEAD` as a last resort.
+ * @param {string} repo
+ * @param {{ prBase: string, branchName?: string }} workBranch
+ * @param {{ dirty: boolean, headMoved: boolean }} wait
+ * @param {string | null | undefined} preAgentHeadSha
+ * @param {boolean} commitOk
+ * @returns {Promise<string>}
+ */
+export async function getPostRunReviewDiffText(repo, workBranch, wait, preAgentHeadSha, commitOk) {
+  const cleanCommitted = !wait.dirty && wait.headMoved;
+  if (!cleanCommitted) {
+    return getDiffText(repo, commitOk);
+  }
+  const prBase = String(workBranch?.prBase || 'main').trim() || 'main';
+  const pre =
+    typeof preAgentHeadSha === 'string' && preAgentHeadSha.trim() ? preAgentHeadSha.trim() : '';
+  /** @type {string[]} */
+  const ranges = [];
+  if (prBase) ranges.push(`${prBase}...HEAD`);
+  if (pre) ranges.push(`${pre}...HEAD`);
+  for (const range of ranges) {
+    try {
+      const { stdout } = await execGit(['diff', '--no-color', range], repo);
+      if (stdout && stdout.trim()) return stdout;
+    } catch {
+      /* unknown ref or invalid range — try next */
+    }
+  }
+  try {
+    const { stdout } = await execGit(['show', '--no-color', '--pretty=medium', 'HEAD'], repo);
+    return stdout || '';
+  } catch {
+    return '';
+  }
 }
 
 async function runLlmReview(diffForLlm, userPrompt) {
@@ -1243,14 +1293,15 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  */
 export async function maybeCommitReviewEmail(opts) {
   const { repo, userPrompt, agentRunOk, issueMode = null, preAgentHeadSha = null } = opts;
+  const { pollMs, maxWaitMs } = readPostRunGitWaitSettings();
   logPost('start', {
     repo,
     postRunEnabled: postRunEnabled(),
     agentRunOk,
     issueMode: issueMode?.number ?? null,
     preAgentHeadSha: preAgentHeadSha ? `${String(preAgentHeadSha).slice(0, 7)}…` : null,
-    pollMs: POLL_MS,
-    maxWaitMs: MAX_WAIT_MS,
+    pollMs,
+    maxWaitMs,
   });
 
   if (!postRunEnabled()) {
@@ -1311,12 +1362,12 @@ export async function maybeCommitReviewEmail(opts) {
       message,
     });
   }
-  const diffFull = await getDiffText(repo, commit.ok);
+  const diffFull = await getPostRunReviewDiffText(repo, workBranch, wait, preAgentHeadSha, commit.ok);
   if (!diffFull.trim()) {
-    logPost('warning: dirty porcelain but empty diff text after commit attempt');
+    logPost('warning: empty diff text after commit / range resolution');
     return {
       ran: true,
-      note: 'Working tree was dirty but no diff text could be read after commit attempt.',
+      note: 'Git activity was detected but no diff text could be read for review (try a manual push/PR).',
       skipReason: 'empty_diff',
     };
   }
