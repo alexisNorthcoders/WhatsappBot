@@ -3,6 +3,13 @@
 let busy = false;
 
 /**
+ * @returns {boolean} whether a Cursor issue/freeform run is in progress
+ */
+export function isCursorAgentBusy() {
+  return busy;
+}
+
+/**
  * @returns {boolean} true if this call holds the lock; false if another run is in progress
  */
 export function tryAcquireAgentBusyLock() {
