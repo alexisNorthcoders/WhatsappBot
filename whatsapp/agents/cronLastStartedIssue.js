@@ -4,6 +4,44 @@ import { getCursorCliRepoRoot } from './cursorCliAgent.js';
 
 const FILE = 'cron-last-started-issue.json';
 
+const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+
+/**
+ * @param {unknown} n
+ * @returns {n is number}
+ */
+function isValidIssueNumber(n) {
+  return typeof n === 'number' && Number.isInteger(n) && Number.isFinite(n) && n >= 1;
+}
+
+/**
+ * @param {unknown} repo
+ * @returns {repo is string}
+ */
+function isValidRepoSlug(repo) {
+  return typeof repo === 'string' && REPO_SLUG_RE.test(repo);
+}
+
+/**
+ * Ensures callers cannot persist corrupt `perRepo` keys or issue numbers.
+ * @param {unknown} row
+ * @returns {asserts row is { repo: string, number: number }}
+ */
+function assertValidLastStartedWriteRow(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) {
+    throw new TypeError('cron last-started write: row must be a plain object');
+  }
+  const r = /** @type {{ repo?: unknown, number?: unknown }} */ (row);
+  if (!isValidRepoSlug(r.repo)) {
+    throw new TypeError(
+      `cron last-started write: invalid repo slug ${JSON.stringify(r.repo)} (expected owner/name)`
+    );
+  }
+  if (!isValidIssueNumber(r.number)) {
+    throw new TypeError(`cron last-started write: invalid issue number ${String(r.number)}`);
+  }
+}
+
 /**
  * @returns {string} absolute path to the persisted state file
  */
@@ -19,41 +57,71 @@ export function cronLastStartedIssuePath() {
 }
 
 /**
- * @returns {Promise<{ repo: string, number: number, savedAt: string } | null>}
+ * Migrated from a single { repo, number } record to per-repo entries so the cron runner can
+ * track last-started for WhatsappBot and secondary repos (e.g. Platformer) independently.
+ *
+ * @returns {Promise<Map<string, number>>} repo slug → last started issue number
  */
-export async function readCronLastStartedIssue() {
+export async function readCronPerRepoLastStarted() {
   const path = cronLastStartedIssuePath();
+  /** @type {Map<string, number>} */
+  const map = new Map();
+  let raw;
   try {
-    const raw = await fs.readFile(path, 'utf8');
-    const data = JSON.parse(raw);
-    if (
-      !data ||
-      typeof data.repo !== 'string' ||
-      !Number.isFinite(data.number) ||
-      data.number < 1
-    ) {
-      return null;
-    }
-    return {
-      repo: data.repo,
-      number: data.number,
-      savedAt: typeof data.savedAt === 'string' ? data.savedAt : '',
-    };
+    raw = await fs.readFile(path, 'utf8');
   } catch {
-    return null;
+    return map;
   }
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return map;
+  }
+  if (!data || typeof data !== 'object') {
+    return map;
+  }
+  if (data.perRepo && typeof data.perRepo === 'object' && !Array.isArray(data.perRepo)) {
+    for (const [k, v] of Object.entries(data.perRepo)) {
+      if (typeof k !== 'string' || !REPO_SLUG_RE.test(k)) continue;
+      const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+      if (Number.isFinite(n) && n >= 1) {
+        map.set(k, n);
+      }
+    }
+  }
+  if (
+    typeof data.repo === 'string' &&
+    REPO_SLUG_RE.test(data.repo) &&
+    Number.isFinite(data.number) &&
+    data.number >= 1
+  ) {
+    if (!map.has(data.repo)) {
+      map.set(data.repo, data.number);
+    }
+  }
+  return map;
 }
 
 /**
+ * Merges one repo’s last-started issue into the persisted file (new per-repo format).
+ * Throws if `row.repo` or `row.number` is not a valid persisted shape (bad callers must not rewrite the file).
  * @param {{ repo: string, number: number }} row
  */
-export async function writeCronLastStartedIssue(row) {
+export async function writeCronPerRepoLastStartedEntry(row) {
+  assertValidLastStartedWriteRow(row);
   const path = cronLastStartedIssuePath();
-  await fs.mkdir(dirname(path), { recursive: true });
+  const map = await readCronPerRepoLastStarted();
+  map.set(row.repo, row.number);
+  const perRepo = Object.fromEntries(
+    [...map.entries()]
+      .filter(([k, n]) => isValidRepoSlug(k) && isValidIssueNumber(n))
+      .sort((a, b) => a[0].localeCompare(b[0]))
+  );
   const payload = {
-    repo: row.repo,
-    number: row.number,
+    perRepo,
     savedAt: new Date().toISOString(),
   };
+  await fs.mkdir(dirname(path), { recursive: true });
   await fs.writeFile(path, JSON.stringify(payload, null, 2), 'utf8');
 }
