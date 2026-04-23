@@ -2,7 +2,11 @@ import { join } from 'path';
 import { runCursorCliAgent } from './cursorCliAgent.js';
 import { setPendingCursorRun, clearPendingCursorRun } from './cursorCliPending.js';
 import { logAgentInvocation } from './agentUsageLog.js';
-import { maybeCommitReviewEmail, prepareWorkspaceForGithubIssue } from './cursorPostRun.js';
+import {
+  getRepoHeadShaFull,
+  maybeCommitReviewEmail,
+  prepareWorkspaceForGithubIssue,
+} from './cursorPostRun.js';
 import { fetchGhIssuePromptText } from './ghIssueForCursor.js';
 
 const WA_TEXT_MAX = 4096;
@@ -199,6 +203,8 @@ export async function runCursorAgentWithPost(p) {
   let outcome = 'error';
   let result;
   let delivered = false;
+  /** Snapshot of `git rev-parse HEAD` before the CLI agent (issue runs only); used by post-run when the agent commits. */
+  let preAgentHeadSha = null;
 
   try {
     const sourceHint = issueSource
@@ -211,6 +217,14 @@ export async function runCursorAgentWithPost(p) {
         text:
           `Running Cursor agent in ${repo} …${sourceHint}\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
       });
+    }
+
+    if (issueMatch) {
+      try {
+        preAgentHeadSha = await getRepoHeadShaFull(repo);
+      } catch {
+        preAgentHeadSha = null;
+      }
     }
 
     result = await runCursorCliAgent(prompt, { runId, workspaceRoot: repo });
@@ -256,6 +270,7 @@ export async function runCursorAgentWithPost(p) {
         userPrompt: prompt,
         agentRunOk,
         issueMode: issueMatch ? { number: issueMatch.issueNumber } : null,
+        preAgentHeadSha,
       });
       if (post.note) {
         await sock.sendMessage(recipientJid, { text: post.note });
