@@ -208,3 +208,57 @@ export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
     title,
   };
 }
+
+const GH_ISSUE_LIST_MAX = 500;
+
+/**
+ * Open issues in the given repo (GitHub), via `gh issue list`.
+ * @param {{ repo?: string }} [opts]
+ * @returns {Promise<{ number: number, title: string }[]>}
+ */
+export async function listOpenGithubIssues(opts = {}) {
+  const repo = opts.repo?.trim()
+    ? assertValidRepoSlug(opts.repo, 'repo')
+    : resolveIssueRepoSlug();
+  const bin = resolveGhExecutable();
+  const args = [
+    'issue',
+    'list',
+    '--repo',
+    repo,
+    '--state',
+    'open',
+    '--json',
+    'number,title',
+    '--limit',
+    String(GH_ISSUE_LIST_MAX),
+  ];
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(bin, args, {
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
+      env: { ...process.env, PATH: augmentedPathEnv() },
+    }));
+  } catch (e) {
+    const stderr = typeof e.stderr === 'string' ? e.stderr.trim() : '';
+    const hint =
+      e.code === 'ENOENT'
+        ? `Executable not found (${bin}). Install GitHub CLI or set GH_BIN to the full path to gh.`
+        : stderr || e.message || String(e);
+    throw new Error(hint);
+  }
+  let data;
+  try {
+    data = JSON.parse(stdout);
+  } catch (parseErr) {
+    throw new Error(`gh issue list returned invalid JSON: ${parseErr.message}`);
+  }
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((row) => ({
+      number: typeof row.number === 'number' ? row.number : parseInt(String(row.number), 10),
+      title: String(row.title ?? ''),
+    }))
+    .filter((row) => Number.isFinite(row.number) && row.number > 0);
+}
