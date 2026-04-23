@@ -1,16 +1,17 @@
 import {
   listOpenGithubIssues,
   resolveIssueRepoSlug,
+  resolveIssueRepoSlugForWorkspace,
 } from './ghIssueForCursor.js';
-import { getDefaultWorkspaceRoot } from '../cursorWorkspaces.js';
+import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias } from '../cursorWorkspaces.js';
 import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
   isCursorAgentBusy,
 } from './cursorAgentBusy.js';
 import {
-  readCronLastStartedIssue,
-  writeCronLastStartedIssue,
+  readCronPerRepoLastStarted,
+  writeCronPerRepoLastStartedEntry,
 } from './cronLastStartedIssue.js';
 import {
   runIssueFetchAndGitPrep,
@@ -19,6 +20,12 @@ import {
 } from './cursorIssuePipeline.js';
 
 const DEFAULT_MS = 10 * 60 * 1000;
+
+/** Must match the allowlisted `CURSOR_WORKSPACE_MAP` key for the secondary repo. */
+const CRON_PLATFORMER_WORKSPACE_ALIAS = (() => {
+  const t = (process.env.CRON_PLATFORMER_WORKSPACE_ALIAS || 'platformer').trim();
+  return t || 'platformer';
+})();
 
 let intervalId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 let inFlight = false;
@@ -52,21 +59,25 @@ function truncateErrorSummary(err, max = 1500) {
  *   logger?: { info?: (o: object | string) => void, warn?: (o: object | string) => void },
  *   listOpenGithubIssues?: typeof listOpenGithubIssues,
  *   resolveIssueRepoSlug?: typeof resolveIssueRepoSlug,
+ *   resolveIssueRepoSlugForWorkspace?: typeof resolveIssueRepoSlugForWorkspace,
  *   getDefaultWorkspaceRoot?: typeof getDefaultWorkspaceRoot,
- *   readCronLastStartedIssue?: typeof readCronLastStartedIssue,
- *   writeCronLastStartedIssue?: typeof writeCronLastStartedIssue,
+ *   resolveWorkspaceFromAlias?: typeof resolveWorkspaceFromAlias,
+ *   readCronPerRepoLastStarted?: typeof readCronPerRepoLastStarted,
+ *   writeCronPerRepoLastStartedEntry?: typeof writeCronPerRepoLastStartedEntry,
  *   tryAcquireAgentBusyLock?: typeof tryAcquireAgentBusyLock,
  *   releaseAgentBusyLock?: typeof releaseAgentBusyLock,
  *   isCursorAgentBusy?: typeof isCursorAgentBusy,
  *   runIssueFetchAndGitPrep?: typeof runIssueFetchAndGitPrep,
  *   runCursorAgentWithPost?: typeof runCursorAgentWithPost,
+ *   cronPlatformerAlias?: string,
  * }} CronIssueTracerTickDeps
  */
 
 /**
  * One cron evaluation cycle (exported for tests; production uses `startCronIssueTracer`).
- * Persists last-started only after `runCursorAgentWithPost` completes without throwing, so a crash
- * or unexpected failure before that point does not suppress retries for the same open issue.
+ * Persists last-started per GitHub repo only after `runCursorAgentWithPost` completes without
+ * throwing, so a crash or unexpected failure before that point does not suppress retries for the
+ * same open issue in that repo.
  *
  * @param {CronIssueTracerTickDeps} [deps]
  */
@@ -76,14 +87,17 @@ export async function runCronIssueTracerTick(deps = {}) {
   const logger = deps.logger;
   const listIssues = deps.listOpenGithubIssues ?? listOpenGithubIssues;
   const resolveRepo = deps.resolveIssueRepoSlug ?? resolveIssueRepoSlug;
+  const resolveForWs = deps.resolveIssueRepoSlugForWorkspace ?? resolveIssueRepoSlugForWorkspace;
   const getWorkspace = deps.getDefaultWorkspaceRoot ?? getDefaultWorkspaceRoot;
-  const readLast = deps.readCronLastStartedIssue ?? readCronLastStartedIssue;
-  const writeLast = deps.writeCronLastStartedIssue ?? writeCronLastStartedIssue;
+  const resolvePlatRoot = deps.resolveWorkspaceFromAlias ?? resolveWorkspaceFromAlias;
+  const readPerRepo = deps.readCronPerRepoLastStarted ?? readCronPerRepoLastStarted;
+  const writePerRepo = deps.writeCronPerRepoLastStartedEntry ?? writeCronPerRepoLastStartedEntry;
   const tryLock = deps.tryAcquireAgentBusyLock ?? tryAcquireAgentBusyLock;
   const releaseLock = deps.releaseAgentBusyLock ?? releaseAgentBusyLock;
   const agentBusy = deps.isCursorAgentBusy ?? isCursorAgentBusy;
   const runPrep = deps.runIssueFetchAndGitPrep ?? runIssueFetchAndGitPrep;
   const runAgent = deps.runCursorAgentWithPost ?? runCursorAgentWithPost;
+  const platformerAlias = (deps.cronPlatformerAlias ?? CRON_PLATFORMER_WORKSPACE_ALIAS).trim() || 'platformer';
 
   let phase = 'initial checks';
   /** @type {string | null} */
@@ -102,19 +116,121 @@ export async function runCronIssueTracerTick(deps = {}) {
     const ownerJid = (getOwnerJid() || '').trim();
     if (!ownerJid) return;
 
-    phase = 'listing open GitHub issues';
-    const repo = resolveRepo();
-    repoForMsg = repo;
-    const rows = await listIssues({ repo });
-    const next = pickNextEligibleIssue(rows);
-    if (next == null) {
-      return;
-    }
-    issueNumForMsg = next.number;
+    /**
+     * @param {'WhatsappBot' | 'Platformer'} cronLabel
+     * @param {string} gitRepo
+     * @param {{ number: number, title: string }} next
+     * @param {string} workspaceRoot
+     * @param {string | null} workspaceAlias
+     */
+    const runCronIssueJob = async (cronLabel, gitRepo, next, workspaceRoot, workspaceAlias) => {
+      repoForMsg = gitRepo;
+      issueNumForMsg = next.number;
 
-    phase = 'reading persisted last-started issue';
-    const last = await readLast();
-    if (last && last.repo === repo && last.number === next.number) {
+      const startText = [
+        'Cron: starting the Cursor *issue* workflow (same as `cursor issue:` from WhatsApp).',
+        '',
+        `*Repo:* ${gitRepo}`,
+        `*Issue:* #${next.number}`,
+        `*Title:* ${next.title}`,
+        '',
+        'Fetching issue and preparing the workspace next…',
+      ].join('\n');
+      phase = 'sending start notification to owner';
+      await sock.sendMessage(ownerJid, { text: startText });
+
+      phase = 'issue fetch / git prep';
+      const prepped = await runPrep({
+        sock,
+        recipientJid: ownerJid,
+        issueNumber: next.number,
+        extraInstructions: '',
+        workspaceRoot,
+        workspaceAlias,
+        sendProgressMessages: false,
+      });
+
+      if (!prepped) {
+        await sock.sendMessage(ownerJid, {
+          text: `Cron (${cronLabel}): could not start work on #${next.number} in \`${gitRepo}\` (step: issue fetch or git prep failed; see the message above if one was sent).`,
+        });
+        return;
+      }
+
+      const issueMatch = { issueNumber: next.number, extraInstructions: '' };
+      phase = 'cursor agent run and post-run automation';
+      try {
+        await runAgent({
+          sock,
+          recipientJid: ownerJid,
+          prompt: prepped.prompt,
+          repo: workspaceRoot,
+          issueMatch,
+          issueSource: prepped.issueSource,
+          joplinSource: null,
+          sendProgressMessages: false,
+        });
+        phase = 'persisting last-started issue';
+        await writePerRepo({ repo: gitRepo, number: next.number });
+      } catch (runErr) {
+        const e = errorMessageFromUnknown(runErr);
+        try {
+          await sock.sendMessage(ownerJid, {
+            text: [
+              `Cron (${cronLabel}): the Cursor run for \`${gitRepo}\` issue #${next.number} failed during: ${phase}.`,
+              '',
+              truncateErrorSummary(e),
+            ].join('\n'),
+          });
+        } catch (sendE) {
+          logger?.warn(
+            { err: errorMessageFromUnknown(sendE) },
+            'cron issue tracer: failed to notify owner of run error'
+          );
+        }
+      }
+    };
+
+    phase = 'reading last-started by repo';
+    const lastByRepo = await readPerRepo();
+
+    phase = 'listing open GitHub issues (WhatsappBot)';
+    const whRepo = resolveRepo();
+    const whRows = await listIssues({ repo: whRepo });
+    const nextWh = pickNextEligibleIssue(whRows);
+    if (nextWh != null) {
+      if (lastByRepo.get(whRepo) === nextWh.number) {
+        return;
+      }
+    } else {
+      phase = 'resolving secondary repo (Platformer)';
+      /** @type {string} */
+      let platRoot;
+      /** @type {string} */
+      let platGitRepo;
+      try {
+        platRoot = await resolvePlatRoot(platformerAlias);
+        platGitRepo = await resolveForWs(platRoot, platformerAlias);
+      } catch (e) {
+        const msg = errorMessageFromUnknown(e);
+        logger?.warn({ err: e }, `cron issue tracer: Platformer not available: ${msg}`);
+        return;
+      }
+      phase = 'listing open GitHub issues (Platformer)';
+      const pRows = await listIssues({ repo: platGitRepo });
+      const nextPlat = pickNextEligibleIssue(pRows);
+      if (nextPlat == null) {
+        return;
+      }
+      if (lastByRepo.get(platGitRepo) === nextPlat.number) {
+        return;
+      }
+      if (!tryLock()) {
+        return;
+      }
+      acquired = true;
+
+      await runCronIssueJob('Platformer', platGitRepo, nextPlat, platRoot, platformerAlias);
       return;
     }
 
@@ -135,68 +251,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       return;
     }
 
-    const startText = [
-      'Cron: starting the Cursor *issue* workflow (same as `cursor issue:` from WhatsApp).',
-      '',
-      `*Repo:* ${repo}`,
-      `*Issue:* #${next.number}`,
-      `*Title:* ${next.title}`,
-      '',
-      'Fetching issue and preparing the workspace next…',
-    ].join('\n');
-    phase = 'sending start notification to owner';
-    await sock.sendMessage(ownerJid, { text: startText });
-
-    phase = 'issue fetch / git prep';
-    const prepped = await runPrep({
-      sock,
-      recipientJid: ownerJid,
-      issueNumber: next.number,
-      extraInstructions: '',
-      workspaceRoot,
-      workspaceAlias: null,
-      sendProgressMessages: false,
-    });
-
-    if (!prepped) {
-      await sock.sendMessage(ownerJid, {
-        text: `Cron (WhatsappBot): could not start work on #${next.number} in \`${repo}\` (step: issue fetch or git prep failed; see the message above if one was sent).`,
-      });
-      return;
-    }
-
-    const issueMatch = { issueNumber: next.number, extraInstructions: '' };
-    phase = 'cursor agent run and post-run automation';
-    try {
-      await runAgent({
-        sock,
-        recipientJid: ownerJid,
-        prompt: prepped.prompt,
-        repo: workspaceRoot,
-        issueMatch,
-        issueSource: prepped.issueSource,
-        joplinSource: null,
-        sendProgressMessages: false,
-      });
-      phase = 'persisting last-started issue';
-      await writeLast({ repo, number: next.number });
-    } catch (runErr) {
-      const e = errorMessageFromUnknown(runErr);
-      try {
-        await sock.sendMessage(ownerJid, {
-          text: [
-            `Cron (WhatsappBot): the Cursor run for \`${repo}\` issue #${next.number} failed during: ${phase}.`,
-            '',
-            truncateErrorSummary(e),
-          ].join('\n'),
-        });
-      } catch (sendE) {
-        logger?.warn(
-          { err: errorMessageFromUnknown(sendE) },
-          'cron issue tracer: failed to notify owner of run error'
-        );
-      }
-    }
+    await runCronIssueJob('WhatsappBot', whRepo, nextWh, workspaceRoot, null);
   } catch (e) {
     const err = errorMessageFromUnknown(e);
     logger?.warn({ err: e }, `cron issue tracer: ${err}`);
@@ -209,7 +264,7 @@ export async function runCronIssueTracerTick(deps = {}) {
             ? `issue \`${repoForMsg}#${issueNumForMsg}\` — `
             : '';
         await sock.sendMessage(ownerJid, {
-          text: `Cron (WhatsappBot) tick failed while ${issuePart}step *${phase}*: ${truncateErrorSummary(err)}`,
+          text: `Cron tick failed while ${issuePart}step *${phase}*: ${truncateErrorSummary(err)}`,
         });
       } catch (sendE) {
         logger?.warn(
@@ -226,9 +281,9 @@ export async function runCronIssueTracerTick(deps = {}) {
 }
 
 /**
- * Interval job: if an eligible WhatsappBot issue exists and the Cursor agent is free, run the
- * same pipeline as a manual `cursor issue:<n>` (fetch, git prep, agent, post-run automation).
- * Persists last-started (repo + issue) so the same open issue is not re-dispatched every tick.
+ * Interval job: if the Cursor agent is free, find the next eligible open issue, preferring
+ * this bot’s repo, then a secondary (Platformer) allowlisted workspace with matching issue-repo map.
+ * Runs the same pipeline as manual `cursor issue:…` (fetch, git prep, agent, post-run automation).
  * @param {{
  *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
  *   getOwnerJid: () => string | null | undefined,

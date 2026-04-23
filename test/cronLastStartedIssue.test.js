@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { writeFile } from 'fs/promises';
 import {
   cronLastStartedIssuePath,
-  readCronLastStartedIssue,
-  writeCronLastStartedIssue,
+  readCronPerRepoLastStarted,
+  writeCronPerRepoLastStartedEntry,
 } from '../whatsapp/agents/cronLastStartedIssue.js';
 
 describe('cronLastStartedIssue persistence', () => {
@@ -30,19 +31,33 @@ describe('cronLastStartedIssue persistence', () => {
     }
   });
 
-  it('read returns null when missing or invalid', async () => {
-    assert.equal(await readCronLastStartedIssue(), null);
+  it('read returns empty map when missing or invalid', async () => {
+    assert.equal((await readCronPerRepoLastStarted()).size, 0);
     const path = cronLastStartedIssuePath();
-    const { writeFile } = await import('fs/promises');
     await writeFile(path, '{"foo":1}', 'utf8');
-    assert.equal(await readCronLastStartedIssue(), null);
+    assert.equal((await readCronPerRepoLastStarted()).size, 0);
   });
 
-  it('write then read returns repo, number, savedAt', async () => {
-    await writeCronLastStartedIssue({ repo: 'o/r', number: 26 });
-    const row = await readCronLastStartedIssue();
-    assert.equal(row?.repo, 'o/r');
-    assert.equal(row?.number, 26);
-    assert.ok(String(row?.savedAt || '').length > 0);
+  it('legacy { repo, number } file is kept when merging a new per-repo write', async () => {
+    const path = cronLastStartedIssuePath();
+    await writeFile(
+      path,
+      JSON.stringify({ repo: 'legacy/one', number: 99, savedAt: 'x' }, null, 2),
+      'utf8'
+    );
+    const m0 = await readCronPerRepoLastStarted();
+    assert.equal(m0.get('legacy/one'), 99);
+    await writeCronPerRepoLastStartedEntry({ repo: 'other/m', number: 3 });
+    const m1 = await readCronPerRepoLastStarted();
+    assert.equal(m1.get('legacy/one'), 99);
+    assert.equal(m1.get('other/m'), 3);
+  });
+
+  it('merging writes keeps all repos in one file', async () => {
+    await writeCronPerRepoLastStartedEntry({ repo: 'a/w', number: 7 });
+    await writeCronPerRepoLastStartedEntry({ repo: 'a/p', number: 2 });
+    const m = await readCronPerRepoLastStarted();
+    assert.equal(m.get('a/w'), 7);
+    assert.equal(m.get('a/p'), 2);
   });
 });
