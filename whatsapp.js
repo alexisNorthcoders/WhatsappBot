@@ -7,9 +7,9 @@ import {
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
-import restartCommand from './whatsapp/commands/restart.js';
-import { spriteIterateCommand } from './whatsapp/commands/sprite.js';
-import { actorJid, isAllowedActor, lidExtraJidsHint } from './whatsapp/whatsAppActorAllowlist.js';
+import { isAllowedActor } from './whatsapp/whatsAppActorAllowlist.js';
+import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.js';
+import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
 import pino from 'pino';
 const logger = pino();
 import { promises as fs } from 'fs';
@@ -22,19 +22,7 @@ const BAILEYS_AUTH_DIR = path.join(
   '.auth',
   'baileys'
 );
-import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from './models/models.js';
-import { pickRandomTopic } from './data/helper.js';
-import { topics } from './data/topics.js';
 import { initializeLightCache } from './hue/index.js';
-import { shouldTryLightsAgent, runLightsAgent, LIGHTS_AGENT_SKIP } from './whatsapp/agents/lightsAgent.js';
-import {
-  shouldTryWeatherAgent,
-  runWeatherAgent,
-  WEATHER_AGENT_SKIP,
-} from './whatsapp/agents/weatherAgent.js';
-import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from './whatsapp/agents/joplinAgent.js';
-import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from './whatsapp/agents/emailAgent.js';
-import { getMessages, appendMessage, clearMessages } from './whatsapp/chatMemory.js';
 import {
   readPendingCursorRun,
   clearPendingCursorRun,
@@ -45,7 +33,6 @@ dotenv.config();
 
 const myPhone = process.env.MY_PHONE;
 const secondPhone = process.env.SECOND_PHONE;
-const buttons = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
 
 /** Avoid overlapping reconnect timers when the connection flaps (prevents duplicate sockets → 440 connectionReplaced). */
 let reconnectTimer = null;
@@ -217,242 +204,23 @@ async function startSock() {
     }
   });
 
-  sock.ev.on('messages.upsert', async ({ messages, type }) => {
-    const msg = messages[0];
-    if (!msg.message || msg.key.fromMe) return;
+  const messageHandler = createBaileysMessageHandler({
+    sock,
+    commands,
+    createPorts: () =>
+      createProductionPorts({
+        sock,
+        downloadMediaMessage,
+        fs,
+        logger,
+        commands,
+        secondPhone,
+        isAllowedActor,
+      }),
+  });
 
-    const sender = msg.key.remoteJid;
-    const messageType = Object.keys(msg.message)[0];
-    
-    // Send read receipt
-    try {
-      await sock.readMessages([msg.key]);
-      logger.info(`Sent read receipt for message ${msg.key.id}`);
-    } catch (err) {
-      logger.warn(`Failed to send read receipt: ${err.message}`);
-    }
-
-    // Image/video/document captions live on the media object, not conversation / extendedText.
-    const text = (
-      msg.message.conversation
-      || msg.message.extendedTextMessage?.text
-      || msg.message.imageMessage?.caption
-      || msg.message.videoMessage?.caption
-      || msg.message.documentMessage?.caption
-      || ''
-    ).trim();
-    const button = text.toLowerCase();
-
-    const command = text.split(' ')[0].toLowerCase();
-
-    try {
-      // Log incoming message details for debugging
-      logger.info('Processing message:', {
-        messageId: msg.key.id,
-        type: messageType,
-        command: command,
-        isButton: buttons.includes(button)
-      });
-
-      if (buttons.includes(button)) {
-        try {
-          if (['a', 'b'].includes(button)) {
-            await fs.writeFile('button.txt', button.toUpperCase(), 'utf8');
-          } else {
-            await fs.writeFile('button.txt', button, 'utf8');
-          }
-          logger.info('Button processed:', button);
-        } catch (fsErr) {
-          throw new Error(`Failed to write button: ${fsErr.message}`);
-        }
-      }
-
-      // Media processing (image with caption)
-      if (msg.message.imageMessage) {
-        const buffer = await downloadMediaMessage(msg, "buffer", {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage });
-
-        if (text.startsWith("Text high")) {
-          const res = await visionQuality(buffer.toString('base64'));
-          await sock.sendMessage(sender, { text: res });
-        } else if (text.startsWith("Text")) {
-          const res = await vision(buffer.toString('base64'));
-          await sock.sendMessage(sender, { text: res });
-        } else if (text.startsWith("Help")) {
-          const res = await visionHelp(buffer.toString('base64'));
-          await sock.sendMessage(sender, { text: res });
-        } else if (!text) {
-          await sock.sendMessage(sender, {
-            text:
-              'Add a caption when sending an image:\n' +
-              '• *Text* — extract text\n' +
-              '• *Text high* — higher-quality extraction\n' +
-              '• *Help* — describe / get help with the image',
-          });
-        }
-
-      }
-      else if (/^\s*sprite\+/i.test(text)) {
-        await spriteIterateCommand(sock, sender, text);
-      }
-      else if (commands[command]) {
-        try {
-          logger.info(`Executing command: ${command}`);
-          await commands[command](sock, sender, text, msg);
-          logger.info(`Command completed: ${command}`);
-        } catch (cmdErr) {
-          throw new Error(`Command '${command}' failed: ${cmdErr.message}`);
-        }
-      }
-      else if (text.startsWith('Altweather')) {
-        await sendWeatherMessage(sock, sender);
-
-      }
-      else if (command === '!help') {
-        await commands.help(sock, sender);
-      }
-      else if (command === '!restart') {
-        const actor = actorJid(msg, sender);
-        if (!isAllowedActor(actor)) {
-          await sock.sendMessage(sender, {
-            text:
-              `Not allowed to restart this bot from this identity.${lidExtraJidsHint(actor)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CURSOR_AGENT_EXTRA_JIDS.)`,
-          });
-        } else {
-          await restartCommand(sock, sender);
-        }
-      }
-      else if (command === '!clear') {
-        const count = await clearMessages(sender);
-        await sock.sendMessage(sender, {
-          text: count > 0
-            ? `Chat memory cleared (${count} message${count !== 1 ? 's' : ''} removed).`
-            : 'Chat memory was already empty.',
-        });
-      }
-      else if (text === '!sendpoll') {
-        await sock.sendMessage(sender, {
-          poll: {
-            name: 'Winter or Summer?',
-            values: ['Winter', 'Summer'],
-            selectableCount: 1
-          }
-        });
-
-      }
-      else if (text.startsWith("Send")) {
-        await sendRandomMessage(sock, sender);
-        await sendRandomMessage(sock, secondPhone + '@s.whatsapp.net');
-      }
-      else {
-        let handled = false;
-        if (shouldTryLightsAgent(text)) {
-          try {
-            const lightsReply = await runLightsAgent(text);
-            if (lightsReply.trim().toUpperCase() !== LIGHTS_AGENT_SKIP) {
-              await sock.sendMessage(sender, { text: lightsReply });
-              await appendMessage(sender, 'user', text);
-              await appendMessage(sender, 'assistant', lightsReply);
-              handled = true;
-            }
-          } catch (lightsErr) {
-            logger.error({ err: lightsErr }, 'Lights agent error');
-            await sock.sendMessage(sender, {
-              text: `Lights assistant error: ${lightsErr.message}`,
-            });
-            handled = true;
-          }
-        }
-        if (!handled && shouldTryWeatherAgent(text)) {
-          try {
-            const weatherReply = await runWeatherAgent(text);
-            if (weatherReply.trim().toUpperCase() !== WEATHER_AGENT_SKIP) {
-              await sock.sendMessage(sender, { text: weatherReply });
-              await appendMessage(sender, 'user', text);
-              await appendMessage(sender, 'assistant', weatherReply);
-              handled = true;
-            }
-          } catch (weatherErr) {
-            logger.error({ err: weatherErr }, 'Weather agent error');
-            await sock.sendMessage(sender, {
-              text: `Weather assistant error: ${weatherErr.message}`,
-            });
-            handled = true;
-          }
-        }
-        if (!handled && shouldTryJoplinAgent(text)) {
-          try {
-            const joplinReply = await runJoplinAgent(text);
-            if (joplinReply.trim().toUpperCase() !== JOPLIN_AGENT_SKIP) {
-              await sock.sendMessage(sender, { text: joplinReply });
-              await appendMessage(sender, 'user', text);
-              await appendMessage(sender, 'assistant', joplinReply);
-              handled = true;
-            }
-          } catch (joplinErr) {
-            logger.error({ err: joplinErr }, 'Joplin agent error');
-            await sock.sendMessage(sender, {
-              text: `Notes assistant error: ${joplinErr.message}`,
-            });
-            handled = true;
-          }
-        }
-        if (!handled && shouldTryEmailAgent(text)) {
-          try {
-            const emailReply = await runEmailAgent(text);
-            if (emailReply.trim().toUpperCase() !== EMAIL_AGENT_SKIP) {
-              await sock.sendMessage(sender, { text: emailReply });
-              await appendMessage(sender, 'user', text);
-              await appendMessage(sender, 'assistant', emailReply);
-              handled = true;
-            }
-          } catch (emailErr) {
-            logger.error({ err: emailErr }, 'Email agent error');
-            await sock.sendMessage(sender, {
-              text: `Email assistant error: ${emailErr.message}`,
-            });
-            handled = true;
-          }
-        }
-        if (!handled) {
-          const prior = await getMessages(sender);
-          const response = await assistantgenerateResponse(text, prior);
-          await sock.sendMessage(sender, { text: response });
-          await appendMessage(sender, 'user', text);
-          await appendMessage(sender, 'assistant', response);
-        }
-      }
-    } catch (err) {
-      // Log detailed error information
-      logger.error("❌ Error processing message:", {
-        error: err.message,
-        stack: err.stack,
-        messageId: msg.key.id,
-        sender: sender,
-        type: messageType,
-        text: text,
-        command: command,
-        context: {
-          isButton: buttons.includes(button),
-          isImage: !!msg.message.imageMessage,
-          isCommand: !!commands[command]
-        }
-      });
-      
-      // Try to notify the sender of the error with more specific information
-      try {
-        const errorMessage = err.message.includes('network') 
-          ? "Sorry, there seems to be a connection issue. Please try again in a moment."
-          : "Sorry, there was an error processing your message. Please try again.";
-        
-        await sock.sendMessage(sender, { text: errorMessage });
-      } catch (notifyErr) {
-        logger.error("Failed to send error notification:", {
-          error: notifyErr.message,
-          originalError: err.message,
-          sender: sender
-        });
-      }
-    }
+  sock.ev.on('messages.upsert', async (upsert) => {
+    await messageHandler.handleUpsert(upsert);
   });
 
   // Handle message receipt events
@@ -497,18 +265,6 @@ async function startSock() {
 
   waSocket = sock;
   logger.info("✅ Baileys connected.");
-}
-
-async function sendRandomMessage(sock, recipient = myPhone + "@s.whatsapp.net") {
-  const topic = pickRandomTopic(topics);
-  const response = await deepInfraAPI(`Give me a random fact about ${topic}`);
-  await sock.sendMessage(recipient, { text: response });
-}
-
-async function sendWeatherMessage(sock, recipient = myPhone + "@s.whatsapp.net", city = "Manchester") {
-  const weatherData = await getWeatherData(city);
-  const summary = await deepInfraAPI(`Summarize this weather: ${JSON.stringify(weatherData)}`);
-  await sock.sendMessage(recipient, { text: summary });
 }
 
 // Initialize the application
