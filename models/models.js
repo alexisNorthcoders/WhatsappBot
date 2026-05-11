@@ -36,7 +36,10 @@ async function saveGeneratedImage(response, prompt) {
   }
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// NOTE: OpenAI SDK throws at import-time if apiKey is missing.
+// We still guard at call sites where needed, but keep imports/test runs working by
+// providing a placeholder key when env is unset.
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() || 'missing' });
 
 const DEFAULT_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-5-mini';
 
@@ -58,7 +61,7 @@ export function openaiChatTokenOpts(model, max) {
 /** OpenAI-compatible client for DeepInfra (used by WhatsApp commands and cursor post-close email). */
 export const deepInfra = new OpenAI({
   baseURL: 'https://api.deepinfra.com/v1/openai',
-  apiKey: process.env.DEEPINFRA_API_KEY,
+  apiKey: process.env.DEEPINFRA_API_KEY?.trim() || 'missing',
 });
 
 /** Default chat model for `deepInfraAPI` when `model` is omitted. */
@@ -468,13 +471,100 @@ export async function gptImageGenerateResponse(userMessage) {
       size: "1024x1024",
     });
     await saveGeneratedImage(response, userMessage);
-    imageUrl = response.data[0].url;
-
-    return imageUrl;
+    return response.data[0].url;
   } catch (error) {
     console.error('Error generating Dall-e response:', error);
     throw new Error('Error generating response');
   }
+}
+
+export const DEEPINFRA_IMAGE_GENERATIONS_URL = 'https://api.deepinfra.com/v1/openai/images/generations';
+
+/**
+ * Pure builder for DeepInfra /v1/openai/images/generations body.
+ * @param {{ prompt: string; model: string; size?: string; n?: number }} args
+ */
+export function buildDeepInfraImageGenerationsBody(args) {
+  const { prompt, model, size = '1024x1024', n = 1 } = args || {};
+  return {
+    prompt,
+    model,
+    size,
+    n,
+  };
+}
+
+/**
+ * Call DeepInfra OpenAI-compatible image generations endpoint.
+ * Returns the raw JSON response.
+ *
+ * @param {{ prompt: string; model: string; size?: string; n?: number }} args
+ * @param {{ signal?: AbortSignal; fetchFn?: typeof fetch }} [options]
+ */
+export async function deepInfraImagesGenerate(args, options = {}) {
+  if (!process.env.DEEPINFRA_API_KEY?.trim()) {
+    throw new Error('DEEPINFRA_API_KEY is not set; cannot call DeepInfra image models.');
+  }
+  const { signal, fetchFn = fetch } = options;
+  const body = buildDeepInfraImageGenerationsBody(args);
+
+  const res = await fetchFn(DEEPINFRA_IMAGE_GENERATIONS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.DEEPINFRA_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
+  });
+
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error(`DeepInfra images API returned non-JSON (HTTP ${res.status})`);
+  }
+
+  if (!res.ok) {
+    const msg =
+      (json && (json.error?.message || json.message)) ? String(json.error?.message || json.message) : 'Unknown error';
+    throw new Error(`DeepInfra images API error (HTTP ${res.status}): ${msg}`);
+  }
+  return json;
+}
+
+/**
+ * Generate an image with Stability SDXL Turbo via DeepInfra (OpenAI-compatible images API).
+ * @param {string} prompt
+ * @param {{ size?: string; fetchFn?: typeof fetch }} [options]
+ * @returns {Promise<{ buffer: Buffer; filepath: string|null }>}
+ */
+export async function sdxlTurboGenerateResponse(prompt, options = {}) {
+  const { size = '1024x1024', fetchFn } = options;
+  const json = await deepInfraImagesGenerate(
+    { prompt, model: 'stabilityai/sdxl-turbo', size, n: 1 },
+    { fetchFn },
+  );
+
+  const entry = json?.data?.[0];
+  let buffer;
+  if (entry?.b64_json) {
+    buffer = Buffer.from(entry.b64_json, 'base64');
+  } else if (entry?.url) {
+    const r = await (fetchFn || fetch)(entry.url);
+    if (!r.ok) throw new Error(`Failed to download generated image (HTTP ${r.status})`);
+    buffer = Buffer.from(await r.arrayBuffer());
+  } else {
+    throw new Error('DeepInfra returned no image data (expected b64_json or url).');
+  }
+
+  // Save to assets/generated using the existing naming scheme.
+  const filepath = await saveGeneratedImage(
+    { data: [{ b64_json: buffer.toString('base64') }] },
+    `sdxl_${size}_${prompt}`,
+  );
+
+  return { buffer, filepath };
 }
 export async function recipeGenerateResponse(userMessage) {
   try {

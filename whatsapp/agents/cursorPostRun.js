@@ -48,7 +48,8 @@ function execFileAsync(command, args, options) {
   });
 }
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Keep module importable in tests when OPENAI_API_KEY is unset.
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() || 'missing' });
 
 const REVIEW_MODEL = process.env.CURSOR_REVIEW_MODEL || 'gpt-5.4-mini';
 const DIFF_CAP_LLM = parseInt(process.env.CURSOR_REVIEW_DIFF_MAX_CHARS || '100000', 10);

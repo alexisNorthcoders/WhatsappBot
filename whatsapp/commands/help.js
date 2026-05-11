@@ -10,6 +10,7 @@ export default async function helpCommand(sock, sender) {
 • *wizard* [prompt] — Wizard model
 • *recipe* [prompt] — Generate a recipe
 • *image* [prompt] — Generate an image (DALL·E)
+• *sdxl* [size] [prompt] — Generate an image (SDXL Turbo via DeepInfra; sizes: 256x256, 512x512, 768x768, 1024x1024; default 1024x1024)
 • *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
 • *sprite+* [changes] — Refine the last sprite using the file saved on the server (no re-upload). Or *sprite+* filename.png [changes] (assets/generated)
 

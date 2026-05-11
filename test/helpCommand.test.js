@@ -27,6 +27,11 @@ describe('help command text', () => {
       /Optional focus text after the URL/,
       'help should explain what [extra] means',
     );
+    assert.match(
+      helpText,
+      /\*sdxl\* \[size\] \[prompt\]/,
+      'help should include the SDXL command',
+    );
     assert.equal(
       SUMMARIZE_USAGE,
       'Usage: *summarize*|*summarise* <url> [extra]',

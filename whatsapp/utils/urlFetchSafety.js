@@ -124,7 +124,17 @@ function isBlockedIPAddressLiteral(host) {
     if (addr.isIPv4MappedAddress()) {
       return isBlockedIPAddressLiteral(addr.toIPv4Address().toString());
     }
-    return addr.range() !== 'unicast';
+    // ipaddr.js may classify some special IPv6 ranges as "unicast" even though they
+    // should not be fetchable (e.g. documentation/site-local). Block those explicitly.
+    if (addr.range() !== 'unicast') return true;
+    try {
+      const documentation = ipaddr.parseCIDR('2001:db8::/32');
+      const siteLocal = ipaddr.parseCIDR('fec0::/10');
+      if (addr.match(documentation) || addr.match(siteLocal)) return true;
+    } catch {
+      // ignore CIDR parse failures
+    }
+    return false;
   } catch {
     return true;
   }
