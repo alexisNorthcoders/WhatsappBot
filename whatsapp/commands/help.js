@@ -6,7 +6,7 @@ export default async function helpCommand(sock, sender) {
 ━━━━━━━━━━━━━━━━━━━━━━
 • *gpt4* [prompt] — GPT-4 response
 • *deepinfra* [prompt] — DeepInfra model
-• *summarize*|*summarise* <url> [extra] — Fetch a page, extract article text, short DeepInfra summary
+• *summarize*|*summarise* <url> [extra] — Optional focus text after the URL. Fetch page, extract article text, short DeepInfra summary
 • *wizard* [prompt] — Wizard model
 • *recipe* [prompt] — Generate a recipe
 • *image* [prompt] — Generate an image (DALL·E)

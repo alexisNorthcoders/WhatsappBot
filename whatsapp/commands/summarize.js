@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { deepInfraAPI } from '../../models/models.js';
+import { deepInfraAPI, DEEPINFRA_DEFAULT_CHAT_MODEL } from '../../models/models.js';
 import {
   botFetch,
   buildBotFetchRequestInit,
@@ -13,28 +13,65 @@ import {
   tryAcquireSummarizeLock,
 } from '../utils/summarizeLock.js';
 
-/** Matches `deepInfraAPI` default model in `models/models.js`. */
-const SUMMARIZE_DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V3';
+/** Test-only: marks injected `{ botFetch?, deepInfraAPI?, logger? }` so raw WhatsApp messages are never mistaken for deps. */
+const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDeps');
+
+/**
+ * Wrap test-only `{ botFetch?, deepInfraAPI?, logger? }`. Production passes the raw Baileys
+ * message as the 4th argument; it must not be mistaken for injected deps.
+ * @param {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: { info: Function } }} partial
+ */
+export function summarizeInjectedDeps(partial) {
+  return { [summarizeInjectedDepsBrand]: true, ...partial };
+}
 
 const summarizeRunLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 /**
- * Production invokes commands as `(sock, chatId, text, raw)`; tests inject `{ botFetch, deepInfraAPI, logger }`.
- * @param {unknown} rawOrDeps
+ * @param {unknown} fourthArg raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
  */
-function resolveSummarizeDeps(rawOrDeps) {
+function resolveSummarizeDeps(fourthArg) {
   if (
-    rawOrDeps != null &&
-    typeof rawOrDeps === 'object' &&
-    ('botFetch' in rawOrDeps ||
-      'deepInfraAPI' in rawOrDeps ||
-      'logger' in rawOrDeps)
+    fourthArg != null &&
+    typeof fourthArg === 'object' &&
+    /** @type {Record<symbol, unknown>} */ (fourthArg)[summarizeInjectedDepsBrand] === true
   ) {
+    const { [summarizeInjectedDepsBrand]: _b, ...rest } = /** @type {Record<symbol | string, unknown>} */ (
+      fourthArg
+    );
     return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: { info: Function } }} */ (
-      rawOrDeps
+      rest
     );
   }
   return {};
+}
+
+/**
+ * One JSON log object per summarize run (no page body or prompts).
+ * Every key is always present: use null when a value does not apply (see outcome).
+ *
+ * @param {{ info: (o: object) => void }} log
+ * @param {{
+ *   host: string;
+ *   httpStatus: number | null;
+ *   extractedLength: number | null;
+ *   startedAt: number;
+ *   model: string;
+ *   outcome: string;
+ * }} fields
+ */
+function logSummarizeRun(log, { host, httpStatus, extractedLength, startedAt, model, outcome }) {
+  log.info({
+    event: 'summarize_run',
+    host: host || '',
+    httpStatus: httpStatus === null || httpStatus === undefined ? null : httpStatus,
+    extractedLength:
+      extractedLength === null || extractedLength === undefined ? null : extractedLength,
+    durationMs: Date.now() - startedAt,
+    model,
+    provider: 'deepinfra',
+    outcome,
+  });
 }
 
 export const SUMMARIZE_ACK =
@@ -69,10 +106,10 @@ function buildSummaryPrompt(extractedText, extra) {
  * @param {import('@whiskeysockets/baileys').WASocket} sock
  * @param {string} sender
  * @param {string} text full message
- * @param {unknown} [rawOrDeps] raw Baileys message in production, or test deps `{ botFetch?, deepInfraAPI?, logger? }`
+ * @param {unknown} [fourthArg] raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
  */
-export default async function summarizeCommand(sock, sender, text, rawOrDeps = {}) {
-  const deps = resolveSummarizeDeps(rawOrDeps);
+export default async function summarizeCommand(sock, sender, text, fourthArg) {
+  const deps = resolveSummarizeDeps(fourthArg);
   const fetchPage = deps.botFetch ?? botFetch;
   const runLlm = deps.deepInfraAPI ?? deepInfraAPI;
   const log = deps.logger ?? summarizeRunLogger;
@@ -91,8 +128,11 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
   const { leaseId: summarizeLeaseId, signal: summarizeSignal } = summarizeLease;
 
   const startedAt = Date.now();
+  /** Hostname from URL, or '' if parsing failed. */
   let host = '';
+  /** Set only after a Response exists; null on fetch/network errors before that. */
   let httpStatus = /** @type {number | null} */ (null);
+  /** Character length of extracted article text; null until extraction succeeds. */
   let extractedLength = /** @type {number | null} */ (null);
   let outcome = 'unknown';
 
@@ -118,6 +158,8 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
       );
     } catch (e) {
       outcome = 'fetch_error';
+      httpStatus = null;
+      extractedLength = null;
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, {
         text: `Could not fetch URL: ${msg}`,
@@ -128,6 +170,7 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
     httpStatus = res.status;
     if (!res.ok) {
       outcome = 'http_error';
+      extractedLength = null;
       await sock.sendMessage(sender, {
         text: `Fetch failed: HTTP ${res.status} for ${url}`,
       });
@@ -140,6 +183,7 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
       buf = await readResponseBodyBuffer(res);
     } catch (e) {
       outcome = 'read_body_error';
+      extractedLength = null;
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, {
         text: `Could not read response body: ${msg}`,
@@ -150,6 +194,7 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
     const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     if (!isHtmlLikeResponse(contentType, html)) {
       outcome = 'not_html';
+      extractedLength = null;
       await sock.sendMessage(sender, {
         text:
           'This command only supports HTML web pages. The response was not HTML (check Content-Type or body).',
@@ -162,6 +207,7 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
       extracted = extractArticleTextFromHtml(html, url);
     } catch (e) {
       outcome = 'extract_error';
+      extractedLength = null;
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, { text: msg });
       return;
@@ -177,7 +223,7 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
 
     let summary;
     try {
-      summary = await runLlm(buildSummaryPrompt(forModel, extra), undefined, {
+      summary = await runLlm(buildSummaryPrompt(forModel, extra), DEEPINFRA_DEFAULT_CHAT_MODEL, {
         signal: summarizeSignal,
       });
     } catch (e) {
@@ -196,14 +242,12 @@ export default async function summarizeCommand(sock, sender, text, rawOrDeps = {
         : 'The model returned an empty summary.';
     await sock.sendMessage(sender, { text: out });
   } finally {
-    log.info({
-      event: 'summarize_run',
+    logSummarizeRun(log, {
       host,
       httpStatus,
       extractedLength,
-      durationMs: Date.now() - startedAt,
-      model: SUMMARIZE_DEFAULT_MODEL,
-      provider: 'deepinfra',
+      startedAt,
+      model: DEEPINFRA_DEFAULT_CHAT_MODEL,
       outcome,
     });
     releaseSummarizeLock(summarizeLeaseId);
