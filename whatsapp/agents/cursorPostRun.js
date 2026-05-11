@@ -100,7 +100,7 @@ function postReviewAutofixEnabled() {
   return true;
 }
 
-/** After review + optional autofix, queue `gh pr merge --auto --squash` when guardrails pass (issue #13). Set `CURSOR_POST_RUN_PR_AUTO_MERGE=0` to disable. */
+/** After review + optional autofix, queue `gh pr merge --auto` with a merge method allowed on the repo (squash preferred; issue #47) when guardrails pass (issue #13). Set `CURSOR_POST_RUN_PR_AUTO_MERGE=0` to disable. */
 function prAutoMergeAfterReviewEnabled() {
   if (process.env.CURSOR_POST_RUN_PR_AUTO_MERGE === '0') return false;
   return true;
@@ -425,6 +425,30 @@ export function githubPrUpdateBranchErrorLooksNoOp(combinedMessage) {
 }
 
 /**
+ * Choose a merge strategy for `gh pr merge` from repository merge settings (REST: Repository).
+ * Prefers squash (previous bot default), then merge commit, then rebase.
+ * @param {{ allow_squash_merge?: boolean, allow_merge_commit?: boolean, allow_rebase_merge?: boolean }} caps
+ * @returns {'squash' | 'merge' | 'rebase' | null}
+ */
+export function pickGithubMergeStrategy(caps) {
+  const c = caps || {};
+  if (c.allow_squash_merge) return 'squash';
+  if (c.allow_merge_commit) return 'merge';
+  if (c.allow_rebase_merge) return 'rebase';
+  return null;
+}
+
+/**
+ * @param {'squash' | 'merge' | 'rebase'} strategy
+ * @returns {string}
+ */
+export function githubMergeMethodSummaryLabel(strategy) {
+  if (strategy === 'merge') return 'merge commit';
+  if (strategy === 'squash' || strategy === 'rebase') return strategy;
+  return 'merge';
+}
+
+/**
  * @param {string} prUrl
  * @returns {{ owner: string, repo: string, number: number } | null}
  */
@@ -504,32 +528,111 @@ async function tryGhPrReviewComment(repo, prUrl, body) {
 }
 
 /**
- * Enable GitHub auto-merge with squash for the PR (`gh pr merge --auto --squash`).
+ * Read merge / auto-merge flags for the PR’s base repo (REST GET /repos/{owner}/{repo}).
+ * @param {string} repo — git cwd for `gh`
+ * @param {string} owner
+ * @param {string} repoSlug
+ * @returns {Promise<{ ok: true, allow_squash_merge: boolean, allow_merge_commit: boolean, allow_rebase_merge: boolean, allow_auto_merge: boolean | null } | { ok: false, error: string }>}
+ */
+async function tryGhRepoMergeCapabilities(repo, owner, repoSlug) {
+  const execOpts = {
+    cwd: repo,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024,
+  };
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      [
+        'api',
+        `repos/${owner}/${repoSlug}`,
+        '--jq',
+        '{allow_squash_merge,allow_merge_commit,allow_rebase_merge,allow_auto_merge}',
+      ],
+      execOpts
+    );
+    const j = JSON.parse(stdout || '{}');
+    const auto = j.allow_auto_merge;
+    return {
+      ok: true,
+      allow_squash_merge: Boolean(j.allow_squash_merge),
+      allow_merge_commit: Boolean(j.allow_merge_commit),
+      allow_rebase_merge: Boolean(j.allow_rebase_merge),
+      allow_auto_merge: typeof auto === 'boolean' ? auto : null,
+    };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+function mergeStrategyToGhFlags(strategy) {
+  if (strategy === 'squash') return ['--squash'];
+  if (strategy === 'merge') return ['--merge'];
+  if (strategy === 'rebase') return ['--rebase'];
+  return ['--squash'];
+}
+
+/**
+ * Enable GitHub auto-merge for the PR using a merge method allowed by the repository (`gh pr merge --auto …`).
+ * Chooses squash, merge commit, or rebase from repo settings (issue #47 — do not assume squash is enabled).
  * If GitHub reports the head branch is out of date, merges base into head via the REST update-branch endpoint (once), then retries.
  * @param {string} repo
  * @param {string} prUrl
- * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean }>}
+ * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergeMethod?: 'squash'|'merge'|'rebase' }>}
  */
 async function tryGhPrMergeAutoSquash(repo, prUrl) {
   const url = String(prUrl || '').trim();
   if (!/^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) {
     return { ok: false, error: 'Invalid PR URL for gh pr merge' };
   }
+  const parsed = ownerRepoPullNumberFromGithubPullUrl(url);
+  if (!parsed) {
+    return { ok: false, error: 'Invalid PR URL for gh pr merge' };
+  }
+
+  const caps = await tryGhRepoMergeCapabilities(repo, parsed.owner, parsed.repo);
+  if (!caps.ok) {
+    return {
+      ok: false,
+      error:
+        `Could not read repository merge settings (GitHub API): ${caps.error}. Fix \`gh auth\` or network, then retry.`,
+    };
+  }
+  if (caps.allow_auto_merge === false) {
+    return {
+      ok: false,
+      error:
+        'GitHub **Allow auto-merge** is disabled for this repository. Enable it under **Settings → General → Pull requests** (separate from choosing squash vs merge commit). Then `gh pr merge --auto` can queue the merge.',
+    };
+  }
+
+  const strategy = pickGithubMergeStrategy(caps);
+  if (!strategy) {
+    return {
+      ok: false,
+      error:
+        'No merge method is allowed on this repository (squash, merge commit, and rebase are all disabled). Enable at least one under **Settings → General → Pull requests**.',
+    };
+  }
+
   const execOpts = {
     cwd: repo,
     encoding: 'utf8',
     maxBuffer: 10 * 1024 * 1024,
   };
-  async function mergeAutoSquash() {
-    await execFileAsync('gh', ['pr', 'merge', url, '--auto', '--squash'], execOpts);
+
+  async function mergeAuto() {
+    const flags = mergeStrategyToGhFlags(strategy);
+    await execFileAsync('gh', ['pr', 'merge', url, '--auto', ...flags], execOpts);
   }
+
   try {
-    await mergeAutoSquash();
-    return { ok: true };
+    await mergeAuto();
+    return { ok: true, mergeMethod: strategy };
   } catch (e) {
     const errFirst = e.stderr || e.message || String(e);
     if (!prStaleHeadSyncBeforeAutoMergeEnabled() || !githubPrMergeErrorLooksStaleHead(errFirst)) {
-      return { ok: false, error: errFirst };
+      return { ok: false, error: errFirst, mergeMethod: strategy };
     }
     if (postRunLogEnabled()) {
       console.log('[cursorPostRun]', 'auto-merge blocked (stale head); GitHub API update-branch then retry', url);
@@ -539,16 +642,18 @@ async function tryGhPrMergeAutoSquash(repo, prUrl) {
       return {
         ok: false,
         error: `${errFirst.trim()}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`,
+        mergeMethod: strategy,
       };
     }
     try {
-      await mergeAutoSquash();
-      return { ok: true, staleHeadSynced: !sync.noOp };
+      await mergeAuto();
+      return { ok: true, staleHeadSynced: !sync.noOp, mergeMethod: strategy };
     } catch (e2) {
       const errSecond = e2.stderr || e2.message || String(e2);
       return {
         ok: false,
         error: `${errFirst.trim()}\n\nAfter update-branch: ${errSecond.trim()}`,
+        mergeMethod: strategy,
       };
     }
   }
@@ -1393,7 +1498,7 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  * on the same branch (no new PR), then commit and push when there are changes. On autofix failure, the WhatsApp note
  * and an extra PR comment warn not to merge. Disable with `CURSOR_POST_RUN_AUTOFIX=0`.
  * When guardrails pass (`VERDICT: APPROVE`, or `REQUEST_CHANGES` with a successful autofix push), runs
- * `gh pr merge --auto --squash` and polls the linked issue until `CLOSED` or a bounded timeout (issue #13).
+ * `gh pr merge --auto` using a merge method allowed on the repo (squash preferred; issue #47) and polls the linked issue until `CLOSED` or a bounded timeout (issue #13).
  * If GitHub reports the PR head is out of date, syncs it via `gh api PUT …/update-branch` once (Debian `gh` often lacks `pr update-branch`), then retries auto-merge; disable with `CURSOR_POST_RUN_PR_STALE_HEAD_SYNC=0`.
  * When the issue is confirmed **CLOSED**, sends a separate **“changes made”** email (DeepInfra
  * `meta-llama/Meta-Llama-3-8B-Instruct` by default) to `CURSOR_REVIEW_EMAIL_TO` via Gmail SMTP (issue #14).
@@ -1721,19 +1826,23 @@ export async function maybeCommitReviewEmail(opts) {
 
   if (prAutoMergeAfterReviewEnabled() && prAfterPushEnabled() && prResult?.ok) {
     if (prAutoMergeResult) {
+      const mergeBracket =
+        prAutoMergeResult.mergeMethod != null
+          ? ` (${githubMergeMethodSummaryLabel(prAutoMergeResult.mergeMethod)})`
+          : '';
       if (prAutoMergeResult.ok) {
         if (issueCloseWait?.closed) {
           parts.push(
-            `GitHub **auto-merge (squash)** was enabled for the PR; linked issue **#${issueNum}** is **closed**.`
+            `GitHub **auto-merge${mergeBracket}** was enabled for the PR; linked issue **#${issueNum}** is **closed**.`
           );
         } else if (issueCloseWait?.timedOut) {
           parts.push(
-            `**Merge pending / issue not yet closed:** auto-merge (squash) was requested for the PR, but issue **#${issueNum}** is still **not closed** after waiting (bounded poll). The merge may still complete in the background once checks and branch rules allow. **Post-close summary email** was not sent for the same reason (issue never reached CLOSED within \`CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS\`). There is no follow-up send after this run ends; raise the wait time or send the summary manually if CI is slow.`
+            `**Merge pending / issue not yet closed:** auto-merge${mergeBracket} was requested for the PR, but issue **#${issueNum}** is still **not closed** after waiting (bounded poll). The merge may still complete in the background once checks and branch rules allow. **Post-close summary email** was not sent for the same reason (issue never reached CLOSED within \`CURSOR_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS\`). There is no follow-up send after this run ends; raise the wait time or send the summary manually if CI is slow.`
           );
         }
       } else {
         parts.push(
-          `GitHub auto-merge (squash) was **not** enabled: ${prAutoMergeResult.error || 'unknown error'}.`
+          `GitHub auto-merge${mergeBracket} was **not** enabled: ${prAutoMergeResult.error || 'unknown error'}.`
         );
       }
     } else if (reviewOutcome === 'success' && !autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })) {

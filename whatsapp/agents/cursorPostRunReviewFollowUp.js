@@ -70,7 +70,7 @@ export async function runPostReviewAutofixMergeFlow({
     autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })
   ) {
     prAutoMergeResult = await tryGhPrMergeAutoSquash(repo, prResult.url);
-    logPost('gh pr merge --auto --squash', prAutoMergeResult);
+    logPost('gh pr merge --auto (repo merge method)', prAutoMergeResult);
     if (prAutoMergeResult.ok) {
       issueCloseWait = await waitForGithubIssueClosed(repo, issueNum);
       logPost('wait for issue closed', issueCloseWait);
