@@ -1,6 +1,6 @@
-/** Usage line sent when parsing fails (0 or multiple URLs, missing args). */
+/** Usage line sent when parsing fails (0 or multiple URLs, missing args). Align with `help.js` bullet. */
 export const SUMMARIZE_USAGE =
-  'Usage: *summarize* <https://…> [optional extra instructions]\n(Same with *summarise*.)';
+  'Usage: *summarize*|*summarise* <url> [extra]';
 
 const CMD_RE = /^summari(ze|se)\b\s*(.*)$/is;
 

@@ -61,9 +61,12 @@ export const deepInfra = new OpenAI({
   apiKey: process.env.DEEPINFRA_API_KEY,
 });
 
+/** Default chat model for `deepInfraAPI` when `model` is omitted. */
+export const DEEPINFRA_DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V3';
+
 export async function deepInfraAPI(
   content,
-  model = 'deepseek-ai/DeepSeek-V3',
+  model = DEEPINFRA_DEFAULT_CHAT_MODEL,
   options = {},
 ) {
   const { signal } = options;
