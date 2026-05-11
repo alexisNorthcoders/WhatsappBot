@@ -1,9 +1,8 @@
 import dotenv from 'dotenv';
-import { execFile } from 'child_process';
+import * as childProcess from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
-import { promisify } from 'util';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
@@ -22,7 +21,32 @@ import { runPostReviewAutofixMergeFlow } from './cursorPostRunReviewFollowUp.js'
 
 dotenv.config();
 
-const execFileAsync = promisify(execFile);
+/**
+ * Indirection for `execFile` so unit tests can replace `execFile` without mocking `child_process` (non-configurable in Node).
+ * @type {{ execFile: typeof childProcess.execFile }}
+ */
+export const cursorPostRunExec = {
+  execFile: (command, args, options, callback) =>
+    childProcess.execFile(command, args, options, callback),
+};
+
+/**
+ * Same contract as `promisify(child_process.execFile)`: resolves to `{ stdout, stderr }`.
+ * Do not `promisify` a wrapper around `execFile` — that drops the custom promisify implementation and breaks callers that destructure `{ stdout }`.
+ */
+function execFileAsync(command, args, options) {
+  return new Promise((resolve, reject) => {
+    cursorPostRunExec.execFile(command, args, options, (err, stdout, stderr) => {
+      if (err) {
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -532,9 +556,9 @@ async function tryGhPrReviewComment(repo, prUrl, body) {
  * @param {string} repo — git cwd for `gh`
  * @param {string} owner
  * @param {string} repoSlug
- * @returns {Promise<{ ok: true, allow_squash_merge: boolean, allow_merge_commit: boolean, allow_rebase_merge: boolean, allow_auto_merge: boolean | null } | { ok: false, error: string }>}
+ * @returns {Promise<{ ok: true, allow_squash_merge: boolean, allow_merge_commit: boolean, allow_rebase_merge: boolean, allow_auto_merge: boolean } | { ok: false, error: string }>}
  */
-async function tryGhRepoMergeCapabilities(repo, owner, repoSlug) {
+export async function tryGhRepoMergeCapabilities(repo, owner, repoSlug) {
   const execOpts = {
     cwd: repo,
     encoding: 'utf8',
@@ -551,14 +575,46 @@ async function tryGhRepoMergeCapabilities(repo, owner, repoSlug) {
       ],
       execOpts
     );
-    const j = JSON.parse(stdout || '{}');
-    const auto = j.allow_auto_merge;
+    const raw = String(stdout ?? '').trim();
+    let j;
+    try {
+      j = JSON.parse(raw);
+    } catch (parseErr) {
+      const bit = raw.length > 240 ? `${raw.slice(0, 240)}…` : raw || '(empty stdout)';
+      return {
+        ok: false,
+        error: `Could not parse gh api --jq JSON for merge settings: ${parseErr.message || String(parseErr)}. Output: ${bit}`,
+      };
+    }
+    if (!j || typeof j !== 'object' || Array.isArray(j)) {
+      return { ok: false, error: 'gh api --jq returned a non-object for merge settings.' };
+    }
+    const required = [
+      'allow_squash_merge',
+      'allow_merge_commit',
+      'allow_rebase_merge',
+      'allow_auto_merge',
+    ];
+    for (const k of required) {
+      if (!Object.prototype.hasOwnProperty.call(j, k)) {
+        return {
+          ok: false,
+          error: `GitHub repo API jq output missing "${k}"; cannot read merge settings reliably.`,
+        };
+      }
+    }
+    if (typeof j.allow_auto_merge !== 'boolean') {
+      return {
+        ok: false,
+        error: `GitHub repo API returned non-boolean allow_auto_merge (${JSON.stringify(j.allow_auto_merge)}). Refusing to guess; check gh/API version and repo access.`,
+      };
+    }
     return {
       ok: true,
       allow_squash_merge: Boolean(j.allow_squash_merge),
       allow_merge_commit: Boolean(j.allow_merge_commit),
       allow_rebase_merge: Boolean(j.allow_rebase_merge),
-      allow_auto_merge: typeof auto === 'boolean' ? auto : null,
+      allow_auto_merge: j.allow_auto_merge,
     };
   } catch (e) {
     return { ok: false, error: e.stderr || e.message || String(e) };
@@ -573,14 +629,14 @@ function mergeStrategyToGhFlags(strategy) {
 }
 
 /**
- * Enable GitHub auto-merge for the PR using a merge method allowed by the repository (`gh pr merge --auto …`).
- * Chooses squash, merge commit, or rebase from repo settings (issue #47 — do not assume squash is enabled).
+ * Queue auto-merge for the PR via `gh pr merge --auto`, using a merge method the repo allows (squash, merge commit, or rebase).
+ * Issue #47: never assume squash is enabled; read repo flags first.
  * If GitHub reports the head branch is out of date, merges base into head via the REST update-branch endpoint (once), then retries.
  * @param {string} repo
  * @param {string} prUrl
  * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergeMethod?: 'squash'|'merge'|'rebase' }>}
  */
-async function tryGhPrMergeAutoSquash(repo, prUrl) {
+export async function tryGhPrQueueAutoMerge(repo, prUrl) {
   const url = String(prUrl || '').trim();
   if (!/^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) {
     return { ok: false, error: 'Invalid PR URL for gh pr merge' };
@@ -598,6 +654,7 @@ async function tryGhPrMergeAutoSquash(repo, prUrl) {
         `Could not read repository merge settings (GitHub API): ${caps.error}. Fix \`gh auth\` or network, then retry.`,
     };
   }
+  /* `gh pr merge --auto` only queues auto-merge when the repo allows it; otherwise GitHub rejects. Fail fast with setup guidance (issue #47 review). */
   if (caps.allow_auto_merge === false) {
     return {
       ok: false,
@@ -635,7 +692,11 @@ async function tryGhPrMergeAutoSquash(repo, prUrl) {
       return { ok: false, error: errFirst, mergeMethod: strategy };
     }
     if (postRunLogEnabled()) {
-      console.log('[cursorPostRun]', 'auto-merge blocked (stale head); GitHub API update-branch then retry', url);
+      console.log(
+        '[cursorPostRun]',
+        'tryGhPrQueueAutoMerge: stale head blocked auto-merge; GitHub API update-branch then retry',
+        url
+      );
     }
     const sync = await tryGhPrUpdateBranchViaApi(repo, url);
     if (!sync.ok) {
@@ -1697,7 +1758,7 @@ export async function maybeCommitReviewEmail(opts) {
     pushResultOk: Boolean(pushResult?.ok),
     runSinglePostReviewAutofix,
     tryGhPrReviewComment,
-    tryGhPrMergeAutoSquash,
+    tryGhPrQueueAutoMerge,
     waitForGithubIssueClosed,
     logPost,
   });
