@@ -9,6 +9,69 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_GH_ISSUE_REPO = 'alexisNorthcoders/WhatsappBot';
 
+/** Max `--limit` for `gh issue list` (GitHub caps at 500). Lower via env if GraphQL calls time out (504). */
+const GH_ISSUE_LIST_MAX_CAP = 500;
+
+/**
+ * @param {string} combinedMessage stderr + message from a failed `gh` invocation
+ * @returns {boolean}
+ */
+export function githubCliErrorLooksTransient(combinedMessage) {
+  const m = String(combinedMessage || '').toLowerCase();
+  return (
+    /\b504\b/.test(m) ||
+    /\b502\b/.test(m) ||
+    /\b503\b/.test(m) ||
+    /\b429\b/.test(m) ||
+    m.includes('gateway timeout') ||
+    m.includes('bad gateway') ||
+    m.includes('service unavailable') ||
+    m.includes('econnreset') ||
+    m.includes('socket hang up') ||
+    m.includes('etimedout') ||
+    m.includes('network error') ||
+    (m.includes('timeout') && m.includes('http'))
+  );
+}
+
+function resolveGhIssueListLimit() {
+  const raw = process.env.GH_ISSUE_LIST_LIMIT;
+  if (raw == null || String(raw).trim() === '') return GH_ISSUE_LIST_MAX_CAP;
+  const n = parseInt(String(raw), 10);
+  if (!Number.isFinite(n) || n < 1) return GH_ISSUE_LIST_MAX_CAP;
+  return Math.min(GH_ISSUE_LIST_MAX_CAP, n);
+}
+
+/**
+ * Run `gh` with a few retries when GitHub returns transient gateway / rate-limit errors.
+ * @param {string} bin
+ * @param {string[]} args
+ * @param {import('child_process').ExecFileOptionsWithStringEncoding} execOpts
+ */
+async function execGhWithRetry(bin, args, execOpts) {
+  const backoffMs = [0, 2500, 8000];
+  let /** @type {unknown} */ lastErr;
+  for (let attempt = 0; attempt < backoffMs.length; attempt++) {
+    if (backoffMs[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+    }
+    try {
+      return await execFileAsync(bin, args, execOpts);
+    } catch (e) {
+      lastErr = e;
+      if (e && typeof e === 'object' && /** @type {{ code?: string }} */ (e).code === 'ENOENT') {
+        break;
+      }
+      const stderr = typeof e === 'object' && e && 'stderr' in e && typeof e.stderr === 'string' ? e.stderr : '';
+      const msg = `${stderr} ${e instanceof Error ? e.message : String(e)}`;
+      if (!githubCliErrorLooksTransient(msg) || attempt === backoffMs.length - 1) {
+        break;
+      }
+    }
+  }
+  throw lastErr;
+}
+
 const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 
 function parseIssueRepoMap() {
@@ -155,7 +218,7 @@ export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
 
   let stdout;
   try {
-    ({ stdout } = await execFileAsync(bin, args, {
+    ({ stdout } = await execGhWithRetry(bin, args, {
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
       env: { ...process.env, PATH: augmentedPathEnv() },
@@ -209,8 +272,6 @@ export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
   };
 }
 
-const GH_ISSUE_LIST_MAX = 500;
-
 /**
  * Open issues in the given repo (GitHub), via `gh issue list`.
  * @param {{ repo?: string }} [opts]
@@ -221,6 +282,7 @@ export async function listOpenGithubIssues(opts = {}) {
     ? assertValidRepoSlug(opts.repo, 'repo')
     : resolveIssueRepoSlug();
   const bin = resolveGhExecutable();
+  const limit = resolveGhIssueListLimit();
   const args = [
     'issue',
     'list',
@@ -231,11 +293,11 @@ export async function listOpenGithubIssues(opts = {}) {
     '--json',
     'number,title',
     '--limit',
-    String(GH_ISSUE_LIST_MAX),
+    String(limit),
   ];
   let stdout;
   try {
-    ({ stdout } = await execFileAsync(bin, args, {
+    ({ stdout } = await execGhWithRetry(bin, args, {
       encoding: 'utf8',
       maxBuffer: 4 * 1024 * 1024,
       env: { ...process.env, PATH: augmentedPathEnv() },

@@ -107,6 +107,15 @@ function prAutoMergeAfterReviewEnabled() {
 }
 
 /**
+ * When auto-merge fails with “head out of date”, sync the PR head via GitHub’s update-branch API, then retry once.
+ * Old `gh` builds (e.g. Debian 2.23) lack `gh pr update-branch`; `gh api` works. Set `CURSOR_POST_RUN_PR_STALE_HEAD_SYNC=0` to disable.
+ */
+function prStaleHeadSyncBeforeAutoMergeEnabled() {
+  if (process.env.CURSOR_POST_RUN_PR_STALE_HEAD_SYNC === '0') return false;
+  return true;
+}
+
+/**
  * Issue-close poll tuning (read per wait so tests/env can tune without reloading the module).
  * Default max wait is 30 minutes — short CI windows (formerly 3 min) caused post-close emails to be skipped when merges lagged (GitHub #36).
  */
@@ -391,6 +400,71 @@ async function tryGhFirstOpenPrUrlForHead(repo, head) {
 /** GitHub caps issue/PR comments well below 64 KiB; stay under with margin. */
 const GITHUB_PR_COMMENT_MAX_CHARS = 62000;
 
+const GITHUB_PULL_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
+
+/**
+ * True when GitHub rejected enabling auto-merge because the PR head is behind its base
+ * (“head branch is out of date” / similar).
+ * @param {string} combinedMessage
+ * @returns {boolean}
+ */
+export function githubPrMergeErrorLooksStaleHead(combinedMessage) {
+  const m = String(combinedMessage || '').toLowerCase();
+  if (!m) return false;
+  return m.includes('out of date') || m.includes('head branch is behind') || m.includes('head branch must be');
+}
+
+/**
+ * `PUT .../pulls/{n}/update-branch` returns 422 when there is nothing to merge from base (branch already up to date).
+ * @param {string} combinedMessage
+ * @returns {boolean}
+ */
+export function githubPrUpdateBranchErrorLooksNoOp(combinedMessage) {
+  const m = String(combinedMessage || '').toLowerCase();
+  return m.includes('no new commits on the base branch') || m.includes('already up to date');
+}
+
+/**
+ * @param {string} prUrl
+ * @returns {{ owner: string, repo: string, number: number } | null}
+ */
+function ownerRepoPullNumberFromGithubPullUrl(prUrl) {
+  const u = String(prUrl || '').trim();
+  const m = u.match(GITHUB_PULL_URL_RE);
+  if (!m) return null;
+  const n = parseInt(m[3], 10);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return { owner: m[1], repo: m[2], number: n };
+}
+
+/**
+ * Merge latest base into the PR head via GitHub API (same as “Update branch” in the UI).
+ * @param {string} repo
+ * @param {string} prUrl
+ * @returns {Promise<{ ok: boolean, error?: string, noOp?: boolean }>}
+ */
+async function tryGhPrUpdateBranchViaApi(repo, prUrl) {
+  const parsed = ownerRepoPullNumberFromGithubPullUrl(prUrl);
+  if (!parsed) {
+    return { ok: false, error: 'Invalid PR URL for GitHub update-branch API' };
+  }
+  const path = `repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.number}/update-branch`;
+  try {
+    await execFileAsync('gh', ['api', '-X', 'PUT', path], {
+      cwd: repo,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return { ok: true };
+  } catch (e) {
+    const err = e.stderr || e.message || String(e);
+    if (githubPrUpdateBranchErrorLooksNoOp(err)) {
+      return { ok: true, noOp: true };
+    }
+    return { ok: false, error: err };
+  }
+}
+
 /**
  * Post one top-level PR comment (not inline review).
  * @param {string} repo
@@ -431,24 +505,52 @@ async function tryGhPrReviewComment(repo, prUrl, body) {
 
 /**
  * Enable GitHub auto-merge with squash for the PR (`gh pr merge --auto --squash`).
+ * If GitHub reports the head branch is out of date, merges base into head via the REST update-branch endpoint (once), then retries.
  * @param {string} repo
  * @param {string} prUrl
- * @returns {Promise<{ ok: boolean, error?: string }>}
+ * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean }>}
  */
 async function tryGhPrMergeAutoSquash(repo, prUrl) {
   const url = String(prUrl || '').trim();
   if (!/^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) {
     return { ok: false, error: 'Invalid PR URL for gh pr merge' };
   }
+  const execOpts = {
+    cwd: repo,
+    encoding: 'utf8',
+    maxBuffer: 10 * 1024 * 1024,
+  };
+  async function mergeAutoSquash() {
+    await execFileAsync('gh', ['pr', 'merge', url, '--auto', '--squash'], execOpts);
+  }
   try {
-    await execFileAsync('gh', ['pr', 'merge', url, '--auto', '--squash'], {
-      cwd: repo,
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-    });
+    await mergeAutoSquash();
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: e.stderr || e.message || String(e) };
+    const errFirst = e.stderr || e.message || String(e);
+    if (!prStaleHeadSyncBeforeAutoMergeEnabled() || !githubPrMergeErrorLooksStaleHead(errFirst)) {
+      return { ok: false, error: errFirst };
+    }
+    if (postRunLogEnabled()) {
+      console.log('[cursorPostRun]', 'auto-merge blocked (stale head); GitHub API update-branch then retry', url);
+    }
+    const sync = await tryGhPrUpdateBranchViaApi(repo, url);
+    if (!sync.ok) {
+      return {
+        ok: false,
+        error: `${errFirst.trim()}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`,
+      };
+    }
+    try {
+      await mergeAutoSquash();
+      return { ok: true, staleHeadSynced: !sync.noOp };
+    } catch (e2) {
+      const errSecond = e2.stderr || e2.message || String(e2);
+      return {
+        ok: false,
+        error: `${errFirst.trim()}\n\nAfter update-branch: ${errSecond.trim()}`,
+      };
+    }
   }
 }
 
@@ -1292,6 +1394,7 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  * and an extra PR comment warn not to merge. Disable with `CURSOR_POST_RUN_AUTOFIX=0`.
  * When guardrails pass (`VERDICT: APPROVE`, or `REQUEST_CHANGES` with a successful autofix push), runs
  * `gh pr merge --auto --squash` and polls the linked issue until `CLOSED` or a bounded timeout (issue #13).
+ * If GitHub reports the PR head is out of date, syncs it via `gh api PUT …/update-branch` once (Debian `gh` often lacks `pr update-branch`), then retries auto-merge; disable with `CURSOR_POST_RUN_PR_STALE_HEAD_SYNC=0`.
  * When the issue is confirmed **CLOSED**, sends a separate **“changes made”** email (DeepInfra
  * `meta-llama/Meta-Llama-3-8B-Instruct` by default) to `CURSOR_REVIEW_EMAIL_TO` via Gmail SMTP (issue #14).
  * Disable auto-merge with `CURSOR_POST_RUN_PR_AUTO_MERGE=0`. Tune wait with `CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS` /
