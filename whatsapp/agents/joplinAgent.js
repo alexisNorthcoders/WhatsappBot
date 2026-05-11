@@ -2,6 +2,12 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 import { openaiChatTokenOpts } from '../../models/models.js';
+import {
+  botFetch,
+  buildBotFetchRequestInit,
+  isUrlAllowedForFetch,
+  readResponseBodyBuffer,
+} from '../utils/urlFetchSafety.js';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();
@@ -57,32 +63,6 @@ function maxFetchChars() {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 2_000_000) : DEFAULT_MAX_FETCH_CHARS;
 }
 
-/** Block obvious SSRF targets (private/local); http(s) only. */
-function isUrlAllowedForFetch(urlStr) {
-  let u;
-  try {
-    u = new URL(urlStr.trim());
-  } catch {
-    return false;
-  }
-  if (u.username || u.password) return false;
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-  const host = u.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
-  if (host === '::1') return false;
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (ipv4) {
-    const a = Number(ipv4[1]);
-    const b = Number(ipv4[2]);
-    if (a === 10) return false;
-    if (a === 127 || a === 0) return false;
-    if (a === 192 && b === 168) return false;
-    if (a === 169 && b === 254) return false;
-    if (a === 172 && b >= 16 && b <= 31) return false;
-  }
-  return true;
-}
-
 function markdownFence(lang, content) {
   const inner = String(content);
   let longest = 0;
@@ -95,13 +75,14 @@ function markdownFence(lang, content) {
 
 async function fetchUrlBodyForNote(url) {
   const maxChars = maxFetchChars();
-  const res = await fetch(url, {
-    headers: { Accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8', 'User-Agent': FETCH_USER_AGENT },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(45_000),
-  });
+  const res = await botFetch(
+    url,
+    buildBotFetchRequestInit({
+      userAgent: FETCH_USER_AGENT,
+    }),
+  );
   const ct = res.headers.get('content-type') || '';
-  const buf = await res.arrayBuffer();
+  const buf = await readResponseBodyBuffer(res);
   const dec = new TextDecoder('utf-8');
   let text = dec.decode(buf);
   const fullLen = text.length;
