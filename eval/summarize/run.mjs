@@ -8,7 +8,8 @@
  *
  *   node eval/summarize/run.mjs --all --model deepseek-ai/DeepSeek-V3
  *
- * Requires DEEPINFRA_API_KEY for live runs. Tests mock the API and do not need network.
+ * DEEPINFRA_API_KEY is required only when this script calls the live DeepInfra API (pairing and
+ * directory checks run without it). Tests mock the API and do not need network or a key.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,12 +77,6 @@ async function main() {
   if (typeof args.temperature === 'string') {
     const t = parseFloat(args.temperature);
     if (Number.isFinite(t)) tempOpt = t;
-  }
-
-  if (!process.env.DEEPINFRA_API_KEY) {
-    console.error('DEEPINFRA_API_KEY is not set; cannot call the model.');
-    process.exitCode = 1;
-    return;
   }
 
   if (all) {

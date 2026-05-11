@@ -64,18 +64,33 @@ export const deepInfra = new OpenAI({
 /** Default chat model for `deepInfraAPI` when `model` is omitted. */
 export const DEEPINFRA_DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V3';
 
+/**
+ * Build the body passed to `deepInfra.chat.completions.create` (pure; used by tests for option plumbing).
+ * @param {string} content
+ * @param {string} model
+ * @param {{ signal?: AbortSignal; temperature?: number | null }} [options]
+ */
+export function buildDeepInfraCompletionCreateArgs(content, model, options = {}) {
+  const { signal, temperature } = options;
+  return {
+    messages: [{ role: 'user', content }],
+    model,
+    ...(temperature !== undefined && temperature !== null ? { temperature } : {}),
+    ...(signal !== undefined ? { signal } : {}),
+  };
+}
+
 export async function deepInfraAPI(
   content,
   model = DEEPINFRA_DEFAULT_CHAT_MODEL,
   options = {},
 ) {
-  const { signal, temperature } = options;
-  const completion = await deepInfra.chat.completions.create({
-    messages: [{ role: 'user', content }],
-    model,
-    ...(temperature !== undefined && temperature !== null ? { temperature } : {}),
-    ...(signal !== undefined ? { signal } : {}),
-  });
+  if (!process.env.DEEPINFRA_API_KEY?.trim()) {
+    throw new Error('DEEPINFRA_API_KEY is not set; cannot call the DeepInfra chat model.');
+  }
+  const completion = await deepInfra.chat.completions.create(
+    buildDeepInfraCompletionCreateArgs(content, model, options),
+  );
 
   console.log(completion.usage.prompt_tokens, completion.usage.completion_tokens);
 

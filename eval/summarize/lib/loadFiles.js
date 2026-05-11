@@ -36,20 +36,74 @@ export function loadGold(absPath) {
 
 /**
  * Pair `stem.fixture.json` with `stem.gold.json` under the given roots.
+ * Every `*.fixture.json` must have a same-stem `*.gold.json`, and vice versa.
  * @param {string} fixturesDir
  * @param {string} goldsDir
+ * @throws {Error} when directories are unreadable or the fixture/gold sets disagree
  */
 export function listFixtureGoldPairs(fixturesDir, goldsDir) {
-  const names = readdirSync(fixturesDir);
-  /** @type {Array<{ stem: string; fixturePath: string; goldPath: string }>} */
-  const out = [];
-  for (const name of names) {
+  let fixtureNames;
+  let goldNames;
+  try {
+    fixtureNames = readdirSync(fixturesDir);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Cannot read fixtures directory ${fixturesDir}: ${msg}`);
+  }
+  try {
+    goldNames = readdirSync(goldsDir);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Cannot read gold directory ${goldsDir}: ${msg}`);
+  }
+
+  /** @type {Map<string, string>} stem -> fixture filename */
+  const fixtureByStem = new Map();
+  for (const name of fixtureNames) {
     const m = /^(.+)\.fixture\.json$/.exec(name);
     if (!m) continue;
-    const stem = m[1];
+    fixtureByStem.set(m[1], name);
+  }
+
+  /** @type {Set<string>} */
+  const goldStems = new Set();
+  for (const name of goldNames) {
+    const m = /^(.+)\.gold\.json$/.exec(name);
+    if (!m) continue;
+    goldStems.add(m[1]);
+  }
+
+  /** @type {string[]} */
+  const problems = [];
+  for (const stem of fixtureByStem.keys()) {
+    if (!goldStems.has(stem)) {
+      problems.push(
+        `missing gold: "${stem}.fixture.json" in ${fixturesDir} has no matching "${stem}.gold.json" in ${goldsDir}`,
+      );
+    }
+  }
+  for (const stem of goldStems) {
+    if (!fixtureByStem.has(stem)) {
+      problems.push(
+        `orphan gold: "${stem}.gold.json" in ${goldsDir} has no matching "${stem}.fixture.json" in ${fixturesDir}`,
+      );
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `Fixture/gold pairing is inconsistent (${problems.length} issue(s)):\n- ${problems.join('\n- ')}`,
+    );
+  }
+
+  /** @type {Array<{ stem: string; fixturePath: string; goldPath: string }>} */
+  const out = [];
+  for (const [stem, name] of fixtureByStem) {
     const fixturePath = path.join(fixturesDir, name);
     const goldPath = path.join(goldsDir, `${stem}.gold.json`);
     out.push({ stem, fixturePath, goldPath });
   }
+
+  out.sort((a, b) => a.stem.localeCompare(b.stem));
   return out;
 }

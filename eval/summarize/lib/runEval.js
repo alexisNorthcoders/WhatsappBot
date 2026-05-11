@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { buildSummarizeEvalPrompt } from './buildEvalPrompt.js';
 import { truncateExtractedText } from './maxInputChars.js';
 import { validateSummarizeEvalJson } from './validateModelOutput.js';
@@ -78,22 +77,6 @@ export async function runSummarizeEvalAll(opts) {
   let coveredFacts = 0;
 
   for (const p of opts.pairs) {
-    if (!existsSync(p.goldPath)) {
-      runs.push({
-        fixtureId: p.stem,
-        stem: p.stem,
-        model: opts.model,
-        temperature: opts.temperature ?? null,
-        rawModelOutput: '',
-        validation: {
-          ok: false,
-          errors: [`Missing gold file for stem "${p.stem}": ${p.goldPath}`],
-        },
-        coverage: null,
-      });
-      continue;
-    }
-
     const one = await runSummarizeEvalOnce({
       fixturePath: p.fixturePath,
       goldPath: p.goldPath,
