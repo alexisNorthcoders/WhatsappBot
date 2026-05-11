@@ -5,7 +5,7 @@ import {
 
 /**
  * Post-LLM-review steps: optional single autofix pass, merge-gate PR comment, auto-merge + issue poll.
- * Dependencies are injected so `node:test` can mock `gh`, git-backed helpers, and Cursor CLI.
+ * Inject `tryGhPrQueueAutoMerge` (from cursorPostRun) so `node:test` can mock `gh` and related helpers.
  */
 export async function runPostReviewAutofixMergeFlow({
   repo,
@@ -22,7 +22,7 @@ export async function runPostReviewAutofixMergeFlow({
   pushResultOk,
   runSinglePostReviewAutofix,
   tryGhPrReviewComment,
-  tryGhPrMergeAutoSquash,
+  tryGhPrQueueAutoMerge,
   waitForGithubIssueClosed,
   logPost = () => {},
 }) {
@@ -69,8 +69,8 @@ export async function runPostReviewAutofixMergeFlow({
     prResult?.ok &&
     autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })
   ) {
-    prAutoMergeResult = await tryGhPrMergeAutoSquash(repo, prResult.url);
-    logPost('gh pr merge --auto --squash', prAutoMergeResult);
+    prAutoMergeResult = await tryGhPrQueueAutoMerge(repo, prResult.url);
+    logPost('tryGhPrQueueAutoMerge', prAutoMergeResult);
     if (prAutoMergeResult.ok) {
       issueCloseWait = await waitForGithubIssueClosed(repo, issueNum);
       logPost('wait for issue closed', issueCloseWait);

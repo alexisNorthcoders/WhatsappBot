@@ -125,7 +125,7 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       autofixCalls++;
       return { ok: true, mergeBlocked: false, detail: 'ok' };
     };
-    const tryGhPrMergeAutoSquash = mock.fn(async () => ({ ok: true }));
+    const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
     const tryGhPrReviewComment = mock.fn(async () => ({ ok: true }));
     const waitForGithubIssueClosed = mock.fn(async () => ({
       closed: false,
@@ -149,13 +149,13 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       pushResultOk: true,
       runSinglePostReviewAutofix,
       tryGhPrReviewComment,
-      tryGhPrMergeAutoSquash,
+      tryGhPrQueueAutoMerge,
       waitForGithubIssueClosed,
       logPost: () => {},
     });
 
     assert.equal(autofixCalls, 1);
-    assert.equal(tryGhPrMergeAutoSquash.mock.callCount(), 1);
+    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 1);
   });
 
   it('REQUEST_CHANGES with autofix mergeBlocked skips auto-merge', async () => {
@@ -164,7 +164,7 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       mergeBlocked: true,
       detail: 'Autofix finished but **git detected no file changes**',
     });
-    const tryGhPrMergeAutoSquash = mock.fn(async () => ({ ok: true }));
+    const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
     const tryGhPrReviewComment = mock.fn(async () => ({ ok: true }));
     const waitForGithubIssueClosed = mock.fn(async () => ({}));
 
@@ -183,18 +183,18 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       pushResultOk: true,
       runSinglePostReviewAutofix,
       tryGhPrReviewComment,
-      tryGhPrMergeAutoSquash,
+      tryGhPrQueueAutoMerge,
       waitForGithubIssueClosed,
       logPost: () => {},
     });
 
-    assert.equal(tryGhPrMergeAutoSquash.mock.callCount(), 0);
+    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 0);
     assert.ok(tryGhPrReviewComment.mock.callCount() >= 1);
   });
 
   it('APPROVE runs auto-merge without calling autofix', async () => {
     const runSinglePostReviewAutofix = mock.fn(async () => ({ ok: true, mergeBlocked: false, detail: '' }));
-    const tryGhPrMergeAutoSquash = mock.fn(async () => ({ ok: true }));
+    const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
     const tryGhPrReviewComment = mock.fn(async () => ({ ok: true }));
     const waitForGithubIssueClosed = mock.fn(async () => ({
       closed: false,
@@ -218,12 +218,12 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       pushResultOk: true,
       runSinglePostReviewAutofix,
       tryGhPrReviewComment,
-      tryGhPrMergeAutoSquash,
+      tryGhPrQueueAutoMerge,
       waitForGithubIssueClosed,
       logPost: () => {},
     });
 
     assert.equal(runSinglePostReviewAutofix.mock.callCount(), 0);
-    assert.equal(tryGhPrMergeAutoSquash.mock.callCount(), 1);
+    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 1);
   });
 });
