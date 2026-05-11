@@ -2,12 +2,20 @@
  * Shared guardrails for accepting user-provided URLs and fetching them in-process (SSRF reduction).
  */
 
+import net from 'node:net';
+import ipaddr from 'ipaddr.js';
+
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+const kBotFetchTimeoutMs = Symbol('botFetchTimeoutMs');
+const kBotFetchUserSignal = Symbol('botFetchUserSignal');
 
 export const DEFAULT_BOT_FETCH_TIMEOUT_MS = 45_000;
 export const DEFAULT_BOT_FETCH_MAX_REDIRECTS = 10;
 /** Hard cap on response body bytes after redirects (separate from character truncation of decoded text). */
 export const DEFAULT_BOT_FETCH_MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
+/** Default cap on UTF-8 decoded characters passed to callers (e.g. Joplin note body). */
+export const DEFAULT_BOT_FETCH_MAX_HTML_CHARS = 500_000;
 
 function parsePositiveInt(value, fallback) {
   const n = parseInt(String(value), 10);
@@ -33,6 +41,20 @@ export function getBotFetchMaxResponseBytes() {
     parsePositiveInt(process.env.BOT_FETCH_MAX_RESPONSE_BYTES, DEFAULT_BOT_FETCH_MAX_RESPONSE_BYTES),
     64 * 1024 * 1024,
   );
+}
+
+/**
+ * Max characters after UTF-8 decoding for HTML/text bodies (Joplin fetch and similar).
+ * Env: `JOPLIN_FETCH_MAX_HTML_CHARS` — same variable name as historically used by the agent.
+ */
+export function getBotFetchMaxHtmlChars() {
+  const n = parseInt(
+    process.env.JOPLIN_FETCH_MAX_HTML_CHARS || String(DEFAULT_BOT_FETCH_MAX_HTML_CHARS),
+    10,
+  );
+  return Number.isFinite(n) && n > 0
+    ? Math.min(n, 2_000_000)
+    : DEFAULT_BOT_FETCH_MAX_HTML_CHARS;
 }
 
 /**
@@ -83,68 +105,49 @@ export function buildBotFetchRequestInit(opts = {}) {
     redirect: 'manual',
     signal: buildBotFetchSignal(timeoutMs, opts.signal),
     headers,
+    [kBotFetchTimeoutMs]: timeoutMs,
+    [kBotFetchUserSignal]: opts.signal,
   };
 }
 
-function isBlockedIPv4Octets(a, b) {
-  if (a === 10) return true;
-  if (a === 127 || a === 0) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  return false;
-}
-
-/** @param {string} host lowercased, dotted IPv4 or null */
-function isBlockedIPv4Literal(host) {
-  if (!host) return false;
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!ipv4) return false;
-  const nums = [Number(ipv4[1]), Number(ipv4[2]), Number(ipv4[3]), Number(ipv4[4])];
-  if (nums.some((n) => n > 255 || !Number.isFinite(n))) return false;
-  return isBlockedIPv4Octets(nums[0], nums[1]);
-}
-
-/** @param {string} tail IPv4-mapped tail after the `::ffff:` prefix */
-function ipv4MappedTailToOctets(tail) {
-  const t = tail.toLowerCase();
-  if (t.includes('.')) {
-    const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(t);
-    if (!m) return null;
-    const nums = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
-    return nums.every((n) => n <= 255 && Number.isFinite(n)) ? nums : null;
-  }
-  const parts = t.split(':').filter(Boolean);
-  if (parts.length === 2) {
-    const hi = parseInt(parts[0], 16);
-    const lo = parseInt(parts[1], 16);
-    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
-    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
-  }
-  if (parts.length === 1) {
-    const v = parseInt(parts[0], 16);
-    if (!Number.isFinite(v) || v > 0xffffffff) return null;
-    return [(v >> 24) & 0xff, (v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
-  }
-  return null;
-}
-
 /**
- * @param {string} host from URL.hostname (may include brackets for IPv6)
+ * @param {string} host from URL.hostname (brackets already stripped by URL parser for IPv6)
  */
-function isBlockedIPv6Literal(host) {
-  const raw = host.toLowerCase().replace(/^\[|\]$/g, '');
-  if (raw === '::1' || raw === '0:0:0:0:0:0:0:1') return true;
-  if (raw.startsWith('fe80:')) return true;
-  if (/^f[cd][0-9a-f]{0,3}:/i.test(raw)) return true;
-  const v4m = /^::ffff:(.+)$/i.exec(raw);
-  if (v4m) {
-    const octets = ipv4MappedTailToOctets(v4m[1]);
-    if (octets) {
-      return isBlockedIPv4Octets(octets[0], octets[1]);
+function isBlockedIPAddressLiteral(host) {
+  const raw = (host || '').replace(/^\[|\]$/g, '');
+  if (net.isIP(raw) === 0) return false;
+  try {
+    const addr = ipaddr.parse(raw);
+    if (addr.kind() === 'ipv4') {
+      return addr.range() !== 'unicast';
     }
+    if (addr.isIPv4MappedAddress()) {
+      return isBlockedIPAddressLiteral(addr.toIPv4Address().toString());
+    }
+    return addr.range() !== 'unicast';
+  } catch {
+    return true;
   }
-  return false;
+}
+
+function cloneRequestInitForHop(baseInit) {
+  const limits = getBotFetchLimits();
+  const timeoutMs = baseInit[kBotFetchTimeoutMs] ?? limits.timeoutMs;
+  const userSignal = Object.hasOwn(baseInit, kBotFetchUserSignal)
+    ? baseInit[kBotFetchUserSignal]
+    : baseInit.signal;
+  const {
+    signal: _s,
+    redirect: _r,
+    [kBotFetchTimeoutMs]: _t,
+    [kBotFetchUserSignal]: _u,
+    ...rest
+  } = baseInit;
+  return {
+    ...rest,
+    redirect: 'manual',
+    signal: buildBotFetchSignal(timeoutMs, userSignal),
+  };
 }
 
 /**
@@ -162,8 +165,7 @@ export function isUrlAllowedForFetch(urlStr) {
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
   const host = u.hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return false;
-  if (host === '::1' || isBlockedIPv6Literal(host)) return false;
-  if (isBlockedIPv4Literal(host)) return false;
+  if (host === '::1' || isBlockedIPAddressLiteral(host)) return false;
   return true;
 }
 
@@ -177,12 +179,13 @@ export async function botFetch(url, baseInit) {
   if (!isUrlAllowedForFetch(url)) {
     throw new Error('URL is not allowed for fetch (only public http(s); blocked: localhost, private ranges, credentials in URL)');
   }
-  const init = baseInit ? { ...baseInit, redirect: 'manual' } : buildBotFetchRequestInit();
+  const template = baseInit ? { ...baseInit, redirect: 'manual' } : buildBotFetchRequestInit();
 
   let current = url;
   let redirects = 0;
 
   for (;;) {
+    const init = cloneRequestInitForHop(template);
     const res = await fetch(current, init);
     if (REDIRECT_STATUSES.has(res.status)) {
       if (redirects >= limits.maxRedirects) {
@@ -210,7 +213,7 @@ export async function botFetch(url, baseInit) {
 }
 
 /**
- * Enforce Content-Length and post-read byte cap, then return ArrayBuffer.
+ * Enforce Content-Length and streamed byte cap, then return ArrayBuffer.
  * @param {Response} res
  */
 export async function readResponseBodyBuffer(res, maxBytes = getBotFetchMaxResponseBytes()) {
@@ -221,9 +224,32 @@ export async function readResponseBodyBuffer(res, maxBytes = getBotFetchMaxRespo
       throw new Error(`Response body too large (${n} bytes, limit ${maxBytes})`);
     }
   }
-  const buf = await res.arrayBuffer();
-  if (buf.byteLength > maxBytes) {
-    throw new Error(`Response body too large (${buf.byteLength} bytes, limit ${maxBytes})`);
+  if (!res.body) {
+    return new ArrayBuffer(0);
   }
-  return buf;
+  const reader = res.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Response body too large (${total} bytes, limit ${maxBytes})`);
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    await reader.cancel().catch(() => {});
+    throw e;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out.buffer;
 }

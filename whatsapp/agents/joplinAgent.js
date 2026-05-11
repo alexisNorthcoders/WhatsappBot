@@ -5,6 +5,7 @@ import { openaiChatTokenOpts } from '../../models/models.js';
 import {
   botFetch,
   buildBotFetchRequestInit,
+  getBotFetchMaxHtmlChars,
   isUrlAllowedForFetch,
   readResponseBodyBuffer,
 } from '../utils/urlFetchSafety.js';
@@ -56,12 +57,6 @@ const KEYWORD_PATTERN =
   /\b(note|notes|notepad|joplin|notebook|notebooks)\b|\b(save|add|write)\s+(a\s+)?note\b|\b(list|show|search|find|get|open|delete|remove|update|edit)\b.*\bnote|\b(fetch|save|archive|capture|store)\s+(the\s+)?(page|url|web|html|site|webpage)\b|\bhttps?:\/\/\S+.*\b(joplin|note|save|archive|page|html)\b|\b(joplin|note|save)\b.*\bhttps?:\/\//i;
 
 const FETCH_USER_AGENT = 'WhatsappBot-JoplinAgent/1.0';
-const DEFAULT_MAX_FETCH_CHARS = 500_000;
-
-function maxFetchChars() {
-  const n = parseInt(process.env.JOPLIN_FETCH_MAX_HTML_CHARS || String(DEFAULT_MAX_FETCH_CHARS), 10);
-  return Number.isFinite(n) && n > 0 ? Math.min(n, 2_000_000) : DEFAULT_MAX_FETCH_CHARS;
-}
 
 function markdownFence(lang, content) {
   const inner = String(content);
@@ -74,7 +69,7 @@ function markdownFence(lang, content) {
 }
 
 async function fetchUrlBodyForNote(url) {
-  const maxChars = maxFetchChars();
+  const maxChars = getBotFetchMaxHtmlChars();
   const res = await botFetch(
     url,
     buildBotFetchRequestInit({
