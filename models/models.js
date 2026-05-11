@@ -494,6 +494,50 @@ export function buildDeepInfraImageGenerationsBody(args) {
   };
 }
 
+export const DEEPINFRA_IMAGE_EDITS_URL = 'https://api.deepinfra.com/v1/openai/images/edits';
+
+/** Default model for OpenAI-compatible image edits on DeepInfra (Qwen Image Edit). */
+export const DEEPINFRA_QWEN_IMAGE_EDIT_MODEL = 'Qwen/Qwen-Image-Edit';
+
+/**
+ * Decode the first OpenAI-style image object (`b64_json` or download `url`).
+ * Used by DeepInfra image helpers so decode/download behavior stays consistent.
+ *
+ * @param {{ b64_json?: string; url?: string } | null | undefined} entry
+ * @param {{ fetchFn?: typeof fetch; downloadFailureMessage?: string }} [options]
+ * @returns {Promise<Buffer>}
+ */
+export async function bufferFromOpenAIImageDataEntry(entry, options = {}) {
+  const { fetchFn = fetch, downloadFailureMessage = 'Failed to download image' } = options;
+  if (entry?.b64_json) {
+    return Buffer.from(entry.b64_json, 'base64');
+  }
+  if (entry?.url) {
+    const r = await fetchFn(entry.url);
+    if (!r.ok) throw new Error(`${downloadFailureMessage} (HTTP ${r.status})`);
+    return Buffer.from(await r.arrayBuffer());
+  }
+  throw new Error('DeepInfra returned no image data (expected b64_json or url).');
+}
+
+/**
+ * Scalar fields for DeepInfra `POST /v1/openai/images/edits` multipart body (the `image` file is appended separately).
+ * @param {{ model?: string; size?: string; n?: number; prompt?: string }} [args]
+ */
+export function buildDeepInfraImageEditsFormFields(args = {}) {
+  const {
+    model = DEEPINFRA_QWEN_IMAGE_EDIT_MODEL,
+    size = '1024x1024',
+    n = 1,
+    prompt,
+  } = args;
+  const out = { model, size, n };
+  if (prompt != null && String(prompt).trim() !== '') {
+    out.prompt = String(prompt).trim();
+  }
+  return out;
+}
+
 /**
  * Call DeepInfra OpenAI-compatible image generations endpoint.
  * Returns the raw JSON response.
@@ -534,6 +578,77 @@ export async function deepInfraImagesGenerate(args, options = {}) {
 }
 
 /**
+ * Call DeepInfra OpenAI-compatible image edits endpoint (multipart form-data).
+ *
+ * @param {{
+ *   image: Buffer | Uint8Array;
+ *   imageFilename?: string;
+ *   imageMimeType?: string;
+ *   prompt?: string;
+ *   model?: string;
+ *   size?: string;
+ *   n?: number;
+ * }} args
+ * @param {{ signal?: AbortSignal; fetchFn?: typeof fetch }} [options]
+ */
+export async function deepInfraImagesEdit(args, options = {}) {
+  if (!process.env.DEEPINFRA_API_KEY?.trim()) {
+    throw new Error('DEEPINFRA_API_KEY is not set; cannot call DeepInfra image edits.');
+  }
+  const { signal, fetchFn = fetch } = options;
+  const {
+    image,
+    imageFilename = 'image.png',
+    imageMimeType = 'image/png',
+    prompt,
+    model,
+    size,
+    n,
+  } = args || {};
+
+  if (image == null) {
+    throw new Error('Image buffer is required for DeepInfra image edits.');
+  }
+  // Blob in Node accepts Buffer and Uint8Array (Buffer subclasses Uint8Array).
+  if (!Buffer.isBuffer(image) && !(image instanceof Uint8Array)) {
+    throw new Error('Image must be a Buffer or Uint8Array for DeepInfra image edits.');
+  }
+
+  const fields = buildDeepInfraImageEditsFormFields({ model, size, n, prompt });
+  const form = new FormData();
+  const blob = new Blob([image], { type: imageMimeType });
+  form.append('image', blob, imageFilename);
+  for (const [key, value] of Object.entries(fields)) {
+    form.append(key, typeof value === 'number' ? String(value) : value);
+  }
+
+  const res = await fetchFn(DEEPINFRA_IMAGE_EDITS_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.DEEPINFRA_API_KEY}`,
+    },
+    body: form,
+    ...(signal ? { signal } : {}),
+  });
+
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error(`DeepInfra image edits API returned non-JSON (HTTP ${res.status})`);
+  }
+
+  if (!res.ok) {
+    const msg =
+      json && (json.error?.message || json.message)
+        ? String(json.error?.message || json.message)
+        : 'Unknown error';
+    throw new Error(`DeepInfra image edits API error (HTTP ${res.status}): ${msg}`);
+  }
+  return json;
+}
+
+/**
  * Generate an image with Stability SDXL Turbo via DeepInfra (OpenAI-compatible images API).
  * @param {string} prompt
  * @param {{ size?: string; fetchFn?: typeof fetch }} [options]
@@ -547,16 +662,10 @@ export async function sdxlTurboGenerateResponse(prompt, options = {}) {
   );
 
   const entry = json?.data?.[0];
-  let buffer;
-  if (entry?.b64_json) {
-    buffer = Buffer.from(entry.b64_json, 'base64');
-  } else if (entry?.url) {
-    const r = await (fetchFn || fetch)(entry.url);
-    if (!r.ok) throw new Error(`Failed to download generated image (HTTP ${r.status})`);
-    buffer = Buffer.from(await r.arrayBuffer());
-  } else {
-    throw new Error('DeepInfra returned no image data (expected b64_json or url).');
-  }
+  const buffer = await bufferFromOpenAIImageDataEntry(entry, {
+    fetchFn: fetchFn || fetch,
+    downloadFailureMessage: 'Failed to download generated image',
+  });
 
   // Save to assets/generated using the existing naming scheme.
   const filepath = await saveGeneratedImage(
@@ -566,6 +675,50 @@ export async function sdxlTurboGenerateResponse(prompt, options = {}) {
 
   return { buffer, filepath };
 }
+
+/**
+ * Edit an image with Qwen Image Edit via DeepInfra (`/v1/openai/images/edits`).
+ *
+ * @param {{
+ *   image: Buffer | Uint8Array;
+ *   prompt?: string;
+ *   imageFilename?: string;
+ *   imageMimeType?: string;
+ *   model?: string;
+ *   size?: string;
+ *   n?: number;
+ * }} args
+ * @param {{ fetchFn?: typeof fetch }} [options]
+ * @returns {Promise<{ buffer: Buffer; filepath: string|null }>}
+ * Persisted beside other bot images via {@link saveGeneratedImage}: each run gets a distinct
+ * `{ISO timestamp}_{sanitizedSlug}.png` under `assets/generated/` (prompt-based slug or `qwen_edit` fallback).
+ */
+export async function qwenImageEditGenerateResponse(args, options = {}) {
+  const resolvedArgs = args ?? {};
+  const { fetchFn } = options;
+  const json = await deepInfraImagesEdit(
+    {
+      ...resolvedArgs,
+      model: resolvedArgs.model ?? DEEPINFRA_QWEN_IMAGE_EDIT_MODEL,
+    },
+    { fetchFn },
+  );
+
+  const entry = json?.data?.[0];
+  const buffer = await bufferFromOpenAIImageDataEntry(entry, {
+    fetchFn: fetchFn || fetch,
+    downloadFailureMessage: 'Failed to download edited image',
+  });
+
+  const slugBase = resolvedArgs.prompt?.trim() ? resolvedArgs.prompt : 'qwen_edit';
+  const filepath = await saveGeneratedImage(
+    { data: [{ b64_json: buffer.toString('base64') }] },
+    `qwen_edit_${slugBase}`,
+  );
+
+  return { buffer, filepath };
+}
+
 export async function recipeGenerateResponse(userMessage) {
   try {
     const completion = await openai.completions.create({
