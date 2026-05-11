@@ -231,6 +231,72 @@ describe('createMessageOrchestrator', () => {
     assert.deepEqual(log, ['cmd']);
   });
 
+  it('dispatches summarise before agents chain (registry ordering)', async () => {
+    const log = [];
+    const ports = basePorts({
+      __log: log,
+      routes: {
+        async runSpritePlus() {
+          return { handled: false };
+        },
+        async runCommandByFirstToken(m) {
+          const cmd = m.text.split(' ')[0].toLowerCase();
+          if (cmd !== 'summarise') return { handled: false };
+          log.push('summarize-cmd-handled');
+          return { handled: true };
+        },
+        async runLegacyRoutes() {
+          return { handled: false };
+        },
+      },
+      agents: {
+        tryHandle: async () => {
+          log.push('agents');
+          return { handled: false };
+        },
+      },
+    });
+    const { handleInbound } = createMessageOrchestrator(ports);
+    await handleInbound(fakeInbound({ text: 'summarise https://example.com/article' }));
+    assert.ok(log.includes('summarize-cmd-handled'));
+    assert.ok(!log.includes('agents'));
+  });
+
+  it('does not treat mid-message summarize text as the command', async () => {
+    const log = [];
+    const ports = basePorts({
+      __log: log,
+      routes: {
+        async runSpritePlus() {
+          return { handled: false };
+        },
+        async runCommandByFirstToken(m) {
+          const cmd = m.text.split(' ')[0].toLowerCase();
+          if (cmd === 'summarize') {
+            log.push('summarize-cmd');
+            return { handled: true };
+          }
+          return { handled: false };
+        },
+        async runLegacyRoutes() {
+          return { handled: false };
+        },
+      },
+      agents: {
+        tryHandle: async () => {
+          log.push('agents');
+          return { handled: true };
+        },
+      },
+    });
+    const { handleInbound } = createMessageOrchestrator(ports);
+    await handleInbound(
+      fakeInbound({ text: 'please summarize https://example.com/about' }),
+    );
+    assert.ok(log.includes('agents'));
+    assert.ok(!log.includes('summarize-cmd'));
+  });
+
   it('fallback assistant appends user then assistant', async () => {
     const log = [];
     const ports = basePorts({ __log: log });

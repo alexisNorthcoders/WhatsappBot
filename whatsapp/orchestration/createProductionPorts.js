@@ -14,6 +14,7 @@ import {
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.js';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
+import { messageStartsWithSummarizeCommand } from '../utils/summarizeArgs.js';
 
 /**
  * @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage
@@ -122,6 +123,12 @@ export function createProductionPorts(deps) {
       async runCommandByFirstToken(m) {
         const command = m.text.split(' ')[0].toLowerCase();
         const raw = /** @type {import('@whiskeysockets/baileys').proto.WebMessageInfo} */ (m.raw);
+        if (
+          (command === 'summarize' || command === 'summarise') &&
+          !messageStartsWithSummarizeCommand(m.text)
+        ) {
+          return { handled: false };
+        }
         if (!commands[command]) {
           return { handled: false };
         }
