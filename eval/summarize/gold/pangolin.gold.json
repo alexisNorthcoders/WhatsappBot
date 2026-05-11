@@ -1,0 +1,17 @@
+{
+  "fixtureId": "pangolin-2026",
+  "facts": [
+    {
+      "id": "range",
+      "acceptableEvidenceSubstrings": ["Asia and Africa"]
+    },
+    {
+      "id": "diet",
+      "acceptableEvidenceSubstrings": ["ants and termites"]
+    },
+    {
+      "id": "trafficking_pressure",
+      "acceptableEvidenceSubstrings": ["illegal trafficking"]
+    }
+  ]
+}

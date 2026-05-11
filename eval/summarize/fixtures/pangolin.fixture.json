@@ -1,0 +1,9 @@
+{
+  "id": "pangolin-2026",
+  "metadata": {
+    "title": "The secret life of pangolins",
+    "sourceUrl": "https://example.com/news/pangolins",
+    "note": "Offline copy of text produced by extractArticleTextFromHtml on test/fixtures/summarize/article.html"
+  },
+  "extractedText": "The secret life of pangolins Pangolins are scaly mammals found in Asia and Africa. They eat ants and termites using long sticky tongues. Despite international protection, they remain under heavy pressure from illegal trafficking. Conservation groups track populations and run shipments interdiction programs across many borders. Researchers also study their role in forest soil health because their burrowing mixes organic matter into the ground. This article walks through field surveys, genetic sampling, and community education efforts that aim to reduce demand for scales and meat. None of this is medical advice; it is only background for curious readers who want a plain-language overview before deeper reading. In the second half we outline a simple mental model for why enforcement alone is not enough without reducing consumer myths. Volunteers document sightings with phones and shared maps, which helps biologists understand movement corridors. Meanwhile, rescue centers rehabilitate injured animals when possible and release them where habitat remains. The text continues with enough sentences to exceed heuristic length thresholds used by extractors so automated tests have realistic material that resembles a news article body."
+}
