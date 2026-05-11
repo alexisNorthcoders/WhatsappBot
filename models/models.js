@@ -69,10 +69,11 @@ export async function deepInfraAPI(
   model = DEEPINFRA_DEFAULT_CHAT_MODEL,
   options = {},
 ) {
-  const { signal } = options;
+  const { signal, temperature } = options;
   const completion = await deepInfra.chat.completions.create({
     messages: [{ role: 'user', content }],
     model,
+    ...(temperature !== undefined && temperature !== null ? { temperature } : {}),
     ...(signal !== undefined ? { signal } : {}),
   });
 

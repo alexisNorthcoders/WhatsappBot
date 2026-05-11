@@ -24,6 +24,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test ./test/**/*.test.js",
+    "eval:summarize": "node eval/summarize/run.mjs",
     "start": "node --no-deprecation whatsapp.js",
     "start:joplin": "node --no-deprecation test-joplin.js"
   },
