@@ -1,5 +1,5 @@
 import { Readability } from '@mozilla/readability';
-import { JSDOM } from 'jsdom';
+import { parseHTML } from 'linkedom';
 
 /** Enough characters for Readability output to count as usable article text. */
 const MIN_READABILITY_CHARS = 120;
@@ -13,7 +13,7 @@ function normalizeWhitespace(text) {
 }
 
 /**
- * @param {import('jsdom').DOMWindow['document']} document
+ * @param {import('linkedom').Document} document
  */
 function fallbackPlainText(document) {
   const body = document.body;
@@ -31,8 +31,8 @@ function fallbackPlainText(document) {
  * @param {string} documentUrl resolved URL for relative links (Readability)
  */
 export function extractArticleTextFromHtml(html, documentUrl) {
-  const dom = new JSDOM(html, { url: documentUrl });
-  const doc = dom.window.document;
+  const globals = { location: { href: documentUrl } };
+  const doc = parseHTML(html, globals).document;
   const reader = new Readability(doc);
   const article = reader.parse();
   let fromReader = '';
@@ -43,8 +43,9 @@ export function extractArticleTextFromHtml(html, documentUrl) {
     return fromReader;
   }
 
-  const dom2 = new JSDOM(html, { url: documentUrl });
-  const fallback = normalizeWhitespace(fallbackPlainText(dom2.window.document));
+  const fallback = normalizeWhitespace(
+    fallbackPlainText(parseHTML(html, globals).document),
+  );
   if (fallback.length >= MIN_FALLBACK_CHARS) {
     return fallback;
   }
