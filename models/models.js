@@ -61,10 +61,16 @@ export const deepInfra = new OpenAI({
   apiKey: process.env.DEEPINFRA_API_KEY,
 });
 
-export async function deepInfraAPI(content, model = "deepseek-ai/DeepSeek-V3") {
+export async function deepInfraAPI(
+  content,
+  model = 'deepseek-ai/DeepSeek-V3',
+  options = {},
+) {
+  const { signal } = options;
   const completion = await deepInfra.chat.completions.create({
-    messages: [{ role: "user", content }],
+    messages: [{ role: 'user', content }],
     model,
+    ...(signal !== undefined ? { signal } : {}),
   });
 
   console.log(completion.usage.prompt_tokens, completion.usage.completion_tokens);

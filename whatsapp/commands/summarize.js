@@ -12,9 +12,9 @@ import {
   tryAcquireSummarizeLock,
 } from '../utils/summarizeLock.js';
 
-const SUMMARIZE_ACK =
+export const SUMMARIZE_ACK =
   'On it — fetching the page and drafting your summary.';
-const SUMMARIZE_BUSY =
+export const SUMMARIZE_BUSY =
   'Summarize is busy (another run is in progress). Try again shortly.';
 
 const SUMMARIZE_USER_AGENT = 'WhatsappBot-Summarize/1.0';
@@ -44,18 +44,24 @@ function buildSummaryPrompt(extractedText, extra) {
  * @param {import('@whiskeysockets/baileys').WASocket} sock
  * @param {string} sender
  * @param {string} text full message
+ * @param {{ botFetch?: typeof botFetch, deepInfraAPI?: typeof deepInfraAPI }} [deps] tests may inject fetch/LLM stubs
  */
-export default async function summarizeCommand(sock, sender, text) {
+export default async function summarizeCommand(sock, sender, text, deps = {}) {
+  const fetchPage = deps.botFetch ?? botFetch;
+  const runLlm = deps.deepInfraAPI ?? deepInfraAPI;
+
   const parsed = parseSummarizeMessage(text);
   if (!parsed.ok) {
     await sock.sendMessage(sender, { text: parsed.error });
     return;
   }
 
-  if (!tryAcquireSummarizeLock()) {
+  const summarizeLease = tryAcquireSummarizeLock();
+  if (summarizeLease == null) {
     await sock.sendMessage(sender, { text: SUMMARIZE_BUSY });
     return;
   }
+  const { leaseId: summarizeLeaseId, signal: summarizeSignal } = summarizeLease;
 
   try {
     await sock.sendMessage(sender, { text: SUMMARIZE_ACK });
@@ -64,9 +70,12 @@ export default async function summarizeCommand(sock, sender, text) {
 
     let res;
     try {
-      res = await botFetch(
+      res = await fetchPage(
         url,
-        buildBotFetchRequestInit({ userAgent: SUMMARIZE_USER_AGENT }),
+        buildBotFetchRequestInit({
+          userAgent: SUMMARIZE_USER_AGENT,
+          signal: summarizeSignal,
+        }),
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -121,7 +130,9 @@ export default async function summarizeCommand(sock, sender, text) {
 
     let summary;
     try {
-      summary = await deepInfraAPI(buildSummaryPrompt(forModel, extra));
+      summary = await runLlm(buildSummaryPrompt(forModel, extra), undefined, {
+        signal: summarizeSignal,
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, {
@@ -136,6 +147,6 @@ export default async function summarizeCommand(sock, sender, text) {
         : 'The model returned an empty summary.';
     await sock.sendMessage(sender, { text: out });
   } finally {
-    releaseSummarizeLock();
+    releaseSummarizeLock(summarizeLeaseId);
   }
 }
