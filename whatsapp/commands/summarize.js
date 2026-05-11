@@ -1,3 +1,4 @@
+import pino from 'pino';
 import { deepInfraAPI } from '../../models/models.js';
 import {
   botFetch,
@@ -11,6 +12,30 @@ import {
   releaseSummarizeLock,
   tryAcquireSummarizeLock,
 } from '../utils/summarizeLock.js';
+
+/** Matches `deepInfraAPI` default model in `models/models.js`. */
+const SUMMARIZE_DEFAULT_MODEL = 'deepseek-ai/DeepSeek-V3';
+
+const summarizeRunLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+/**
+ * Production invokes commands as `(sock, chatId, text, raw)`; tests inject `{ botFetch, deepInfraAPI, logger }`.
+ * @param {unknown} rawOrDeps
+ */
+function resolveSummarizeDeps(rawOrDeps) {
+  if (
+    rawOrDeps != null &&
+    typeof rawOrDeps === 'object' &&
+    ('botFetch' in rawOrDeps ||
+      'deepInfraAPI' in rawOrDeps ||
+      'logger' in rawOrDeps)
+  ) {
+    return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: { info: Function } }} */ (
+      rawOrDeps
+    );
+  }
+  return {};
+}
 
 export const SUMMARIZE_ACK =
   'On it — fetching the page and drafting your summary.';
@@ -44,11 +69,13 @@ function buildSummaryPrompt(extractedText, extra) {
  * @param {import('@whiskeysockets/baileys').WASocket} sock
  * @param {string} sender
  * @param {string} text full message
- * @param {{ botFetch?: typeof botFetch, deepInfraAPI?: typeof deepInfraAPI }} [deps] tests may inject fetch/LLM stubs
+ * @param {unknown} [rawOrDeps] raw Baileys message in production, or test deps `{ botFetch?, deepInfraAPI?, logger? }`
  */
-export default async function summarizeCommand(sock, sender, text, deps = {}) {
+export default async function summarizeCommand(sock, sender, text, rawOrDeps = {}) {
+  const deps = resolveSummarizeDeps(rawOrDeps);
   const fetchPage = deps.botFetch ?? botFetch;
   const runLlm = deps.deepInfraAPI ?? deepInfraAPI;
+  const log = deps.logger ?? summarizeRunLogger;
 
   const parsed = parseSummarizeMessage(text);
   if (!parsed.ok) {
@@ -63,10 +90,22 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
   }
   const { leaseId: summarizeLeaseId, signal: summarizeSignal } = summarizeLease;
 
+  const startedAt = Date.now();
+  let host = '';
+  let httpStatus = /** @type {number | null} */ (null);
+  let extractedLength = /** @type {number | null} */ (null);
+  let outcome = 'unknown';
+
   try {
     await sock.sendMessage(sender, { text: SUMMARIZE_ACK });
 
     const { url, extra } = parsed;
+
+    try {
+      host = new URL(url).hostname;
+    } catch {
+      host = '';
+    }
 
     let res;
     try {
@@ -78,6 +117,7 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
         }),
       );
     } catch (e) {
+      outcome = 'fetch_error';
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, {
         text: `Could not fetch URL: ${msg}`,
@@ -85,7 +125,9 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
       return;
     }
 
+    httpStatus = res.status;
     if (!res.ok) {
+      outcome = 'http_error';
       await sock.sendMessage(sender, {
         text: `Fetch failed: HTTP ${res.status} for ${url}`,
       });
@@ -97,6 +139,7 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
     try {
       buf = await readResponseBodyBuffer(res);
     } catch (e) {
+      outcome = 'read_body_error';
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, {
         text: `Could not read response body: ${msg}`,
@@ -106,6 +149,7 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
 
     const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     if (!isHtmlLikeResponse(contentType, html)) {
+      outcome = 'not_html';
       await sock.sendMessage(sender, {
         text:
           'This command only supports HTML web pages. The response was not HTML (check Content-Type or body).',
@@ -117,10 +161,13 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
     try {
       extracted = extractArticleTextFromHtml(html, url);
     } catch (e) {
+      outcome = 'extract_error';
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, { text: msg });
       return;
     }
+
+    extractedLength = extracted.length;
 
     const cap = maxLlmInputChars();
     let forModel = extracted;
@@ -134,6 +181,7 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
         signal: summarizeSignal,
       });
     } catch (e) {
+      outcome = 'llm_error';
       const msg = e instanceof Error ? e.message : String(e);
       await sock.sendMessage(sender, {
         text: `Summary request failed: ${msg}`,
@@ -141,12 +189,23 @@ export default async function summarizeCommand(sock, sender, text, deps = {}) {
       return;
     }
 
+    outcome = 'success';
     const out =
       typeof summary === 'string' && summary.trim()
         ? summary.trim()
         : 'The model returned an empty summary.';
     await sock.sendMessage(sender, { text: out });
   } finally {
+    log.info({
+      event: 'summarize_run',
+      host,
+      httpStatus,
+      extractedLength,
+      durationMs: Date.now() - startedAt,
+      model: SUMMARIZE_DEFAULT_MODEL,
+      provider: 'deepinfra',
+      outcome,
+    });
     releaseSummarizeLock(summarizeLeaseId);
   }
 }

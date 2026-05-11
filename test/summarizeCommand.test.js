@@ -184,6 +184,14 @@ describe('summarize command (WhatsApp lock UX)', () => {
       return 'Mocked summary bullets.';
     }
 
+    /** @type {unknown[]} */
+    const logPayloads = [];
+    const logger = {
+      info(/** @type {Record<string, unknown>} */ o) {
+        logPayloads.push(o);
+      },
+    };
+
     const sent = [];
     const sock = {
       sendMessage: async (jid, content) => {
@@ -194,11 +202,67 @@ describe('summarize command (WhatsApp lock UX)', () => {
     await summarizeCommand(sock, SENDER, 'summarize https://example.com/news/1 brief', {
       botFetch: fakeBotFetch,
       deepInfraAPI: fakeDeepInfra,
+      logger,
     });
 
     assert.deepEqual(
       sent.map((m) => m.text),
       [SUMMARIZE_ACK, 'Mocked summary bullets.'],
     );
+
+    assert.equal(logPayloads.length, 1);
+    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    assert.equal(line.event, 'summarize_run');
+    assert.equal(line.host, 'example.com');
+    assert.equal(line.httpStatus, 200);
+    assert.equal(typeof line.extractedLength, 'number');
+    assert.ok((/** @type {number} */ (line.extractedLength)) >= 80);
+    assert.equal(line.outcome, 'success');
+    assert.equal(line.model, 'deepseek-ai/DeepSeek-V3');
+    assert.equal(line.provider, 'deepinfra');
+    assert.equal(typeof line.durationMs, 'number');
+    assert.ok((/** @type {number} */ (line.durationMs)) >= 0);
+  });
+
+  it('emits summarize_run with http_error when the fetch returns non-OK', async () => {
+    async function fakeBotFetch404() {
+      return new Response('', {
+        status: 404,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    /** @type {unknown[]} */
+    const logPayloads = [];
+    const logger = {
+      info(/** @type {Record<string, unknown>} */ o) {
+        logPayloads.push(o);
+      },
+    };
+
+    const sent = [];
+    const sock = {
+      sendMessage: async (jid, content) => {
+        sent.push({ jid, text: String(content?.text ?? '') });
+      },
+    };
+
+    await summarizeCommand(sock, SENDER, 'summarize https://example.com/missing', {
+      botFetch: fakeBotFetch404,
+      logger,
+    });
+
+    assert.ok(sent.length >= 2);
+    assert.equal(sent[0].text, SUMMARIZE_ACK);
+    assert.match(sent[sent.length - 1].text, /HTTP 404/);
+
+    assert.equal(logPayloads.length, 1);
+    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    assert.equal(line.event, 'summarize_run');
+    assert.equal(line.host, 'example.com');
+    assert.equal(line.httpStatus, 404);
+    assert.equal(line.extractedLength, null);
+    assert.equal(line.outcome, 'http_error');
+    assert.ok(!/article\.html|Pangolin/i.test(JSON.stringify(line)));
   });
 });
