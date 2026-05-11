@@ -7,6 +7,7 @@ import imageCommand from './image.js';
 import spriteCommand from './sprite.js';
 import danielCommand from './daniel.js';
 import cursorCommand from './cursor.js';
+import summarizeCommand from './summarize.js';
 import * as lightsCommands from './lights.js';
 
 export {
@@ -19,6 +20,8 @@ export {
     spriteCommand as sprite,
     danielCommand as daniel,
     cursorCommand as cursor,
+    summarizeCommand as summarize,
+    summarizeCommand as summarise,
 };
 
 export const hue = {
