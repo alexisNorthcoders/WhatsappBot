@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   findHttpUrlsInString,
@@ -7,6 +7,15 @@ import {
 } from '../whatsapp/utils/summarizeArgs.js';
 import { isHtmlLikeResponse } from '../whatsapp/utils/htmlResponse.js';
 import { extractArticleTextFromHtml } from '../whatsapp/utils/articleExtract.js';
+import summarizeCommand, {
+  SUMMARIZE_ACK,
+  SUMMARIZE_BUSY,
+} from '../whatsapp/commands/summarize.js';
+import {
+  resetSummarizeLockState,
+  tryAcquireSummarizeLock,
+  releaseSummarizeLock,
+} from '../whatsapp/utils/summarizeLock.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -121,5 +130,75 @@ describe('extractArticleTextFromHtml (fixtures, no network)', () => {
     const text = extractArticleTextFromHtml(html, 'https://example.com/news/1');
     assert.ok(text.length >= 80);
     assert.match(text, /Pangolin/i);
+  });
+});
+
+const SENDER = '15551234567@s.whatsapp.net';
+
+describe('summarize command (WhatsApp lock UX)', () => {
+  beforeEach(() => {
+    resetSummarizeLockState();
+  });
+
+  afterEach(() => {
+    resetSummarizeLockState();
+  });
+
+  it('responds busy when the summarize lock is already held', async () => {
+    const lease = tryAcquireSummarizeLock();
+    assert.ok(lease);
+
+    const sent = [];
+    const sock = {
+      sendMessage: async (/** @type {string} */ jid, /** @type {{ text?: string }} */ content) => {
+        sent.push({ jid, text: String(content?.text ?? '') });
+      },
+    };
+
+    await summarizeCommand(sock, SENDER, 'summarize https://example.com/news/1');
+
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].jid, SENDER);
+    assert.equal(sent[0].text, SUMMARIZE_BUSY);
+
+    releaseSummarizeLock(lease.leaseId);
+  });
+
+  it('sends acknowledgement then the model reply on the happy path', async () => {
+    const articleHtml = readFileSync(path.join(fixturesDir, 'article.html'), 'utf8');
+
+    /**
+     * @type {typeof import('../whatsapp/utils/urlFetchSafety.js').botFetch}
+     */
+    async function fakeBotFetch(_url, _init) {
+      return new Response(articleHtml, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    /**
+     * @type {typeof import('../models/models.js').deepInfraAPI}
+     */
+    async function fakeDeepInfra(_content, _model, _opts) {
+      return 'Mocked summary bullets.';
+    }
+
+    const sent = [];
+    const sock = {
+      sendMessage: async (jid, content) => {
+        sent.push({ jid, text: String(content?.text ?? '') });
+      },
+    };
+
+    await summarizeCommand(sock, SENDER, 'summarize https://example.com/news/1 brief', {
+      botFetch: fakeBotFetch,
+      deepInfraAPI: fakeDeepInfra,
+    });
+
+    assert.deepEqual(
+      sent.map((m) => m.text),
+      [SUMMARIZE_ACK, 'Mocked summary bullets.'],
+    );
   });
 });
