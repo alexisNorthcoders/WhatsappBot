@@ -29,8 +29,8 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
-      /\*sdxl\* \[size\] \[prompt\]/,
-      'help should include the SDXL command',
+      /\*sdxl\+\*/,
+      'help should include the SDXL refine command',
     );
     assert.equal(
       SUMMARIZE_USAGE,
