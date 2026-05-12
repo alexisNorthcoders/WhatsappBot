@@ -81,6 +81,7 @@ function basePorts(overrides = {}) {
     },
     routes: {
       runSpritePlus: async () => ({ handled: false }),
+      runSdxlPlus: async () => ({ handled: false }),
       runCommandByFirstToken: async () => ({ handled: false }),
       runLegacyRoutes: async () => ({ handled: false }),
     },
@@ -105,6 +106,9 @@ describe('createMessageOrchestrator', () => {
           assert.match(m.text, /sprite\+/i);
           return { handled: true };
         },
+        async runSdxlPlus() {
+          return { handled: false };
+        },
         async runCommandByFirstToken() {
           log.push('cmd');
           return { handled: true };
@@ -120,6 +124,34 @@ describe('createMessageOrchestrator', () => {
     assert.deepEqual(log, ['sprite']);
   });
 
+  it('routes sdxl+ before command registry (sdxl+ wins)', async () => {
+    const log = [];
+    const ports = basePorts({
+      __log: log,
+      routes: {
+        async runSpritePlus() {
+          return { handled: false };
+        },
+        async runSdxlPlus(m) {
+          log.push('sdxl');
+          assert.match(m.text, /sdxl\+/i);
+          return { handled: true };
+        },
+        async runCommandByFirstToken() {
+          log.push('cmd');
+          return { handled: true };
+        },
+        async runLegacyRoutes() {
+          log.push('legacy');
+          return { handled: false };
+        },
+      },
+    });
+    const { handleInbound } = createMessageOrchestrator(ports);
+    await handleInbound(fakeInbound({ text: 'sdxl+ brighten' }));
+    assert.deepEqual(log, ['sdxl']);
+  });
+
   it('image branch is exclusive: command registry is not run for image messages', async () => {
     const log = [];
     const ports = basePorts({
@@ -127,6 +159,9 @@ describe('createMessageOrchestrator', () => {
       routes: {
         async runSpritePlus() {
           log.push('sprite');
+          return { handled: false };
+        },
+        async runSdxlPlus() {
           return { handled: false };
         },
         async runCommandByFirstToken() {
@@ -209,6 +244,9 @@ describe('createMessageOrchestrator', () => {
       __log: log,
       routes: {
         async runSpritePlus() {
+          return { handled: false };
+        },
+        async runSdxlPlus() {
           return { handled: false };
         },
         async runCommandByFirstToken() {

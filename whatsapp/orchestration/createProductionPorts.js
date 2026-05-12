@@ -1,5 +1,6 @@
 import restartCommand from '../commands/restart.js';
 import { spriteIterateCommand } from '../commands/sprite.js';
+import { sdxlIterateCommand } from '../commands/sdxl.js';
 import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.js';
 import { pickRandomTopic } from '../../data/helper.js';
@@ -117,6 +118,10 @@ export function createProductionPorts(deps) {
     routes: {
       async runSpritePlus(m) {
         await spriteIterateCommand(sock, m.chatId, m.text);
+        return { handled: true };
+      },
+      async runSdxlPlus(m) {
+        await sdxlIterateCommand(sock, m.chatId, m.text);
         return { handled: true };
       },
       async runCommandByFirstToken(m) {

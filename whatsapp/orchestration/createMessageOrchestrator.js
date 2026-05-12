@@ -10,7 +10,7 @@ const DEFAULT_BUTTONS = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'sele
  * @param {{ writeButton(button: string): Promise<void> }} ports.buttonSink
  * @param {{ get(chatId: string): Promise<Array<{ role: 'user'|'assistant'; content: string }>>; append(chatId: string, role: 'user'|'assistant', content: string): Promise<void>; clear(chatId: string): Promise<number> }} ports.chatMemory
  * @param {{ visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user'|'assistant'; content: string }>): Promise<string> }} ports.ai
- * @param {{ runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }} ports.routes
+ * @param {{ runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }} ports.routes
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
  * @param {{ info: Function; warn: Function; error: Function }} ports.logger
  * @param {{ labels: string[] }} [ports.buttons]
@@ -68,6 +68,11 @@ export function createMessageOrchestrator(ports) {
 
     if (/^\s*sprite\+/i.test(m.text)) {
       const r = await ports.routes.runSpritePlus(m);
+      if (r.handled) return;
+    }
+
+    if (/^\s*sdxl\+/i.test(m.text)) {
+      const r = await ports.routes.runSdxlPlus(m);
       if (r.handled) return;
     }
 
