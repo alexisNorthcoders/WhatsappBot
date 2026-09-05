@@ -58,6 +58,40 @@ export function isStatusFileFresh(
 }
 
 /**
+ * Parse digest header day from reddit-bot `cron_digest` output.
+ * @param {string} text
+ * @returns {string | null} YYYY-MM-DD
+ */
+export function parseDigestHeaderDay(text) {
+  const m = String(text || '').match(
+    /^reddit-bot cron\s+[—–-]\s+(\d{4}-\d{2}-\d{2})\b/m
+  );
+  return m ? m[1] : null;
+}
+
+/**
+ * True when status file is fresh, non-empty, and stamped for the expected UTC digest day.
+ * @param {{
+ *   text: string,
+ *   mtimeMs: number,
+ *   nowMs?: number,
+ *   maxAgeMs?: number,
+ *   expectedDay: string,
+ * }} opts
+ */
+export function isDigestReadyForDay(opts) {
+  const nowMs = opts.nowMs ?? Date.now();
+  const maxAgeMs = Number.isFinite(opts.maxAgeMs)
+    ? opts.maxAgeMs
+    : DEFAULT_MAX_AGE_MS;
+  const body = String(opts.text || '').trim();
+  if (!body) return false;
+  if (!isStatusFileFresh(opts.mtimeMs, nowMs, maxAgeMs)) return false;
+  const headerDay = parseDigestHeaderDay(body);
+  return headerDay === opts.expectedDay;
+}
+
+/**
  * @param {string} text
  * @param {number} [maxChars]
  */
@@ -68,11 +102,13 @@ export function truncateDigestMessage(text, maxChars = DEFAULT_MSG_MAX) {
 }
 
 /**
+ * Schedule gate only (UTC clock). Idempotency is handled via digest/alert state.
  * @param {{
  *   nowMs?: number,
  *   hourUtc?: number,
  *   minuteUtc?: number,
  *   lastSentYmd?: string | null,
+ *   digestSentToday?: boolean,
  * }} opts
  * @returns {boolean}
  */
@@ -83,6 +119,8 @@ export function shouldAttemptDigestSend(opts = {}) {
     ? opts.minuteUtc
     : DEFAULT_MINUTE_UTC;
   const today = utcCalendarDay(nowMs);
+  if (opts.digestSentToday === true) return false;
+  // Legacy: callers that only pass lastSentYmd treat it as "digest already sent".
   if (opts.lastSentYmd && opts.lastSentYmd === today) return false;
   const d = new Date(nowMs);
   const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
@@ -91,40 +129,94 @@ export function shouldAttemptDigestSend(opts = {}) {
 }
 
 /**
- * @returns {Promise<string | null>}
+ * @typedef {{ day: string | null, digestSent: boolean, alertSent: boolean }} RedditCronDigestState
  */
-export async function readRedditCronDigestLastSentDay() {
+
+/**
+ * @returns {Promise<RedditCronDigestState>}
+ */
+export async function readRedditCronDigestState() {
   const path = redditCronDigestLastSentPath();
   let raw;
   try {
     raw = await fs.readFile(path, 'utf8');
   } catch {
-    return null;
+    return { day: null, digestSent: false, alertSent: false };
   }
   try {
     const data = JSON.parse(raw);
     const day = data?.day;
-    if (typeof day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(day)) return day;
+    if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      return { day: null, digestSent: false, alertSent: false };
+    }
+    if (typeof data.digestSent === 'boolean' || typeof data.alertSent === 'boolean') {
+      return {
+        day,
+        digestSent: data.digestSent === true,
+        alertSent: data.alertSent === true,
+      };
+    }
+    // Legacy `{ day }` meant any successful send (including alerts).
+    return { day, digestSent: true, alertSent: false };
   } catch {
-    /* ignore */
+    return { day: null, digestSent: false, alertSent: false };
   }
-  return null;
+}
+
+/**
+ * @returns {Promise<string | null>} UTC day of last successful *digest* send
+ */
+export async function readRedditCronDigestLastSentDay() {
+  const state = await readRedditCronDigestState();
+  return state.digestSent ? state.day : null;
 }
 
 /**
  * @param {string} day YYYY-MM-DD UTC
+ * @param {{ digestSent?: boolean, alertSent?: boolean }} [flags]
  */
-export async function writeRedditCronDigestLastSentDay(day) {
+export async function writeRedditCronDigestState(day, flags = {}) {
   if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     throw new TypeError(`invalid digest last-sent day: ${JSON.stringify(day)}`);
   }
   const path = redditCronDigestLastSentPath();
+  const prev = await readRedditCronDigestState();
+  const sameDay = prev.day === day;
+  const digestSent =
+    flags.digestSent !== undefined
+      ? flags.digestSent
+      : sameDay
+        ? prev.digestSent
+        : false;
+  const alertSent =
+    flags.alertSent !== undefined
+      ? flags.alertSent
+      : sameDay
+        ? prev.alertSent
+        : false;
   await fs.mkdir(dirname(path), { recursive: true });
   await fs.writeFile(
     path,
-    JSON.stringify({ day, savedAt: new Date().toISOString() }, null, 2),
+    JSON.stringify(
+      {
+        day,
+        digestSent,
+        alertSent,
+        savedAt: new Date().toISOString(),
+      },
+      null,
+      2
+    ),
     'utf8'
   );
+}
+
+/**
+ * @param {string} day YYYY-MM-DD UTC
+ * @deprecated Prefer writeRedditCronDigestState(day, { digestSent: true })
+ */
+export async function writeRedditCronDigestLastSentDay(day) {
+  await writeRedditCronDigestState(day, { digestSent: true });
 }
 
 /**
@@ -150,6 +242,9 @@ function errMsg(err) {
 /**
  * One evaluation cycle (exported for tests).
  *
+ * Missing/stale alerts do **not** lock the day: when a fresh, day-matching
+ * status file appears later, the real digest is still sent once.
+ *
  * @param {{
  *   getSocket?: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
  *   getOwnerJid?: () => string | null | undefined,
@@ -161,6 +256,8 @@ function errMsg(err) {
  *   hourUtc?: number,
  *   minuteUtc?: number,
  *   alsoSecondPhone?: boolean,
+ *   readState?: typeof readRedditCronDigestState,
+ *   writeState?: typeof writeRedditCronDigestState,
  *   readLastSentDay?: typeof readRedditCronDigestLastSentDay,
  *   writeLastSentDay?: typeof writeRedditCronDigestLastSentDay,
  *   readFile?: (path: string) => Promise<{ text: string, mtimeMs: number }>,
@@ -184,8 +281,8 @@ export async function runRedditCronDigestTick(deps = {}) {
   const alsoSecond =
     deps.alsoSecondPhone ??
     truthyEnv(process.env.REDDIT_CRON_DIGEST_ALSO_SECOND_PHONE);
-  const readLast = deps.readLastSentDay ?? readRedditCronDigestLastSentDay;
-  const writeLast = deps.writeLastSentDay ?? writeRedditCronDigestLastSentDay;
+  const readState = deps.readState ?? readRedditCronDigestState;
+  const writeState = deps.writeState ?? writeRedditCronDigestState;
   const readFile =
     deps.readFile ??
     (async (p) => {
@@ -199,31 +296,65 @@ export async function runRedditCronDigestTick(deps = {}) {
   const ownerJid = (getOwnerJid() || '').trim();
   if (!ownerJid) return { sent: false, reason: 'no owner jid' };
 
-  const lastSent = await readLast();
+  const today = utcCalendarDay(nowMs);
+  const state = await readState();
+  const digestSentToday = state.day === today && state.digestSent;
+  const alertSentToday = state.day === today && state.alertSent;
+
   if (
     !shouldAttemptDigestSend({
       nowMs,
       hourUtc,
       minuteUtc,
-      lastSentYmd: lastSent,
+      digestSentToday,
     })
   ) {
-    return { sent: false, reason: 'skipped schedule or already sent' };
+    return {
+      sent: false,
+      reason: digestSentToday
+        ? 'already sent digest today'
+        : 'skipped schedule or already sent',
+    };
   }
 
-  const today = utcCalendarDay(nowMs);
+  /** @type {'digest' | 'alert' | 'wait'} */
+  let kind = 'wait';
   /** @type {string} */
-  let message;
+  let message = '';
+
   try {
     const { text, mtimeMs } = await readFile(statusPath);
-    if (!isStatusFileFresh(mtimeMs, nowMs, maxAgeMs)) {
-      message = `reddit-bot digest missing/stale\nFile: ${statusPath}\nAge exceeds ${Math.round(maxAgeMs / 3600000)}h (or clock skew).`;
+    if (
+      isDigestReadyForDay({
+        text,
+        mtimeMs,
+        nowMs,
+        maxAgeMs,
+        expectedDay: today,
+      })
+    ) {
+      kind = 'digest';
+      message = truncateDigestMessage(String(text).trim());
     } else {
-      const body = truncateDigestMessage(String(text || '').trim());
-      message = body || `reddit-bot digest empty\nFile: ${statusPath}`;
+      kind = 'alert';
+      const headerDay = parseDigestHeaderDay(text);
+      const detail =
+        !String(text || '').trim()
+          ? 'status file empty'
+          : !isStatusFileFresh(mtimeMs, nowMs, maxAgeMs)
+            ? `Age exceeds ${Math.round(maxAgeMs / 3600000)}h (or clock skew)`
+            : headerDay && headerDay !== today
+              ? `header day ${headerDay} != ${today} (waiting for today's digest)`
+              : 'status file not ready for today';
+      message = `reddit-bot digest missing/stale\nFile: ${statusPath}\n${detail}.`;
     }
   } catch {
+    kind = 'alert';
     message = `reddit-bot digest missing/stale\nFile: ${statusPath}\n(status file not found)`;
+  }
+
+  if (kind === 'alert' && alertSentToday) {
+    return { sent: false, reason: 'waiting for fresh digest (alert already sent)' };
   }
 
   const recipients = [ownerJid];
@@ -244,9 +375,21 @@ export async function runRedditCronDigestTick(deps = {}) {
     }
   }
 
-  await writeLast(today);
-  logger?.info?.(`reddit cron digest: sent for ${today}`);
-  return { sent: true, reason: 'sent' };
+  if (kind === 'digest') {
+    await writeState(today, {
+      digestSent: true,
+      alertSent: alertSentToday,
+    });
+    logger?.info?.(`reddit cron digest: sent digest for ${today}`);
+    return { sent: true, reason: 'sent digest' };
+  }
+
+  await writeState(today, {
+    digestSent: false,
+    alertSent: true,
+  });
+  logger?.info?.(`reddit cron digest: sent missing/stale alert for ${today}`);
+  return { sent: true, reason: 'sent alert' };
 }
 
 /**
@@ -269,6 +412,8 @@ function truthyEnv(raw) {
 
 /**
  * Daily sender after reddit-bot `cron_digest` writes the status file (~03:00 UTC).
+ * Polls until a fresh, day-matching digest arrives; missing/stale alerts do not
+ * suppress a later digest the same UTC day.
  * @param {{
  *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
  *   getOwnerJid: () => string | null | undefined,
