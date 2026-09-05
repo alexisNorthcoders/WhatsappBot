@@ -89,7 +89,7 @@ export async function sdxlIterateCommand(sock, sender, text) {
     return;
   }
 
-  await sock.sendMessage(sender, { text: 'Refining SDXL image…' });
+  await sock.sendMessage(sender, { text: 'Editing…' });
 
   try {
     const { buffer, filepath } = await qwenImageEditGenerateResponse({
