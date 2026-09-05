@@ -123,6 +123,7 @@ function usageText() {
     '• sdxl 1024x1024 A photo of an astronaut riding a horse on Mars',
     '',
     'After an image is sent, use *sdxl+* to refine using the saved file on the server.',
+    'Each *sdxl+* updates the latest image, so you can chain: sdxl+ add sunset lighting',
   ].join('\n');
 }
 
