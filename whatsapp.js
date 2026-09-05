@@ -28,11 +28,21 @@ import {
   clearPendingCursorRun,
 } from './whatsapp/agents/cursorCliPending.js';
 import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
+import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const myPhone = process.env.MY_PHONE;
 const secondPhone = process.env.SECOND_PHONE;
+
+/** @returns {string | null} */
+function ownerJidFromMyPhone() {
+  const raw = String(myPhone || '').trim();
+  if (!raw) return null;
+  if (raw.includes('@')) return raw;
+  const d = raw.replace(/\D/g, '');
+  return d ? `${d}@s.whatsapp.net` : null;
+}
 
 /** Avoid overlapping reconnect timers when the connection flaps (prevents duplicate sockets → 440 connectionReplaced). */
 let reconnectTimer = null;
@@ -119,14 +129,15 @@ async function startSock() {
       reconnectAttempt = 0;
       logger.info('✅ WhatsApp connected.');
       if (myPhone) {
+        const getOwnerJid = () => ownerJidFromMyPhone();
         startCronIssueTracer({
           getSocket: () => waSocket,
-          getOwnerJid: () => {
-            const raw = String(myPhone).trim();
-            if (raw.includes('@')) return raw;
-            const d = raw.replace(/\D/g, '');
-            return d ? `${d}@s.whatsapp.net` : null;
-          },
+          getOwnerJid,
+          logger,
+        });
+        startRedditCronDigest({
+          getSocket: () => waSocket,
+          getOwnerJid,
           logger,
         });
       }
