@@ -6,7 +6,7 @@
  *
  * Intent precedence for {@link classifyReminderIntent} (first match wins):
  * 1. create — "remind/nudge me …" (wins even when task text embeds "list"/"cancel"/"help")
- * 2. help — "reminder help", "help reminders", "!reminders", …
+ * 2. help — whole-message only: "reminder help", "help reminders", "!reminders", …
  * 3. cancel — cancel / delete / remove + optional "reminder" + id (see CANCEL_RE)
  * 4. list — "list/show reminders", "what are my reminders", bare "reminders", …
  *
@@ -27,14 +27,15 @@
 const INTENT_RE = /\b(?:please\s+)?(?:remind|nudge)\s+me\b/i;
 
 /**
- * Help / examples (intentional aliases; keep !help in sync):
+ * Help / examples — whole message only so near-misses like
+ * "list reminders help" / "cancel reminder help" do not steal list/cancel intent.
+ * Aliases (keep {@link REMINDER_COMMAND_HELP_SNIPPET} in sync):
  * - "reminder help" / "reminders help"
  * - "help reminders" / "help with reminders"
- * - "how do I set a reminder" / "how to use reminders"
  * - "!reminders" / "!reminder"
  */
 const HELP_RE =
-  /\b(?:reminder|reminders)\s+help\b|\bhelp\s+(?:with\s+)?(?:a\s+)?(?:reminder|reminders)\b|\bhow\s+(?:do\s+i|to)\s+(?:set\s+|use\s+)?(?:a\s+)?reminders?\b|^(?:please\s+)?!reminders?\s*[.!?]?\s*$/i;
+  /^(?:please\s+)?(?:(?:reminder|reminders)\s+help|help\s+(?:with\s+)?(?:a\s+)?(?:reminder|reminders)|!reminders?)\s*[.!?]?\s*$/i;
 
 /** List upcoming: "list reminders", "show my reminders", "what are my reminders", … */
 const LIST_RE =
@@ -101,8 +102,22 @@ export const REMINDER_HELP_TEXT = `*Reminders help*
 • "cancel reminder 3" / "delete reminder 3" / "remove reminder 3"
 • "cancel #3"
 
-Allowlisted actors only. Times use this bot's local timezone.
-Say *reminder help* anytime for these examples.`;
+*Access*
+• This help — anyone
+• Set / list / cancel — allowlisted actors only
+
+Times use this bot's local timezone.
+Say *reminder help* (or *!reminders*) anytime for these examples.`;
+
+/**
+ * One-line Smart Agents blurb for !help — sourced next to {@link REMINDER_HELP_TEXT}
+ * so triggers/examples stay aligned with HELP_RE / parser phrasing.
+ */
+export const REMINDER_COMMAND_HELP_SNIPPET =
+  'Say *reminder help* (or *help reminders* / *!reminders*) for examples. ' +
+  'Set: "nudge/remind me in 20 minutes to …", "remind me at 6 to …" (bare 1–7 → PM), "tomorrow at 9 to …". ' +
+  'List: "list reminders". Cancel by ID: "cancel/delete/remove reminder 3" or "cancel #3". ' +
+  'Help is public; create/list/cancel require an allowlisted actor.';
 
 /**
  * @param {string} text

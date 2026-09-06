@@ -2,6 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import helpCommand from '../whatsapp/commands/help.js';
 import { SUMMARIZE_USAGE } from '../whatsapp/utils/summarizeArgs.js';
+import {
+  REMINDER_COMMAND_HELP_SNIPPET,
+  REMINDER_HELP_TEXT,
+} from '../whatsapp/reminders/reminderParser.js';
 
 describe('help command text', () => {
   it('includes the summarize usage aligned with SUMMARIZE_USAGE ([extra])', async () => {
@@ -76,6 +80,20 @@ describe('help command text', () => {
       helpText,
       /cancel #3/,
       'help should mention cancel #id shorthand',
+    );
+    assert.match(
+      helpText,
+      /Help is public/,
+      'help should clarify help is public vs manage restricted',
+    );
+    assert.ok(
+      helpText.includes(REMINDER_COMMAND_HELP_SNIPPET),
+      'Smart Agents reminders line should come from REMINDER_COMMAND_HELP_SNIPPET',
+    );
+    assert.match(
+      REMINDER_HELP_TEXT,
+      /This help — anyone/,
+      'full reminder help should say help is public',
     );
     assert.equal(
       SUMMARIZE_USAGE,

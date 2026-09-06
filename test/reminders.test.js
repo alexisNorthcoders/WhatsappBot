@@ -97,12 +97,21 @@ describe('reminderParser', () => {
     assert.equal(looksLikeReminderHelp('reminders help'), true);
     assert.equal(looksLikeReminderHelp('help reminders'), true);
     assert.equal(looksLikeReminderHelp('help with reminders'), true);
-    assert.equal(looksLikeReminderHelp('how do I set a reminder'), true);
-    assert.equal(looksLikeReminderHelp('how to use reminders'), true);
     assert.equal(looksLikeReminderHelp('!reminders'), true);
     assert.equal(looksLikeReminderHelp('!reminder'), true);
+    assert.equal(looksLikeReminderHelp('Please !reminders.'), true);
+
+    // Fuzzy / embedded phrases must not steal intent
+    assert.equal(looksLikeReminderHelp('how do I set a reminder'), false);
+    assert.equal(looksLikeReminderHelp('how to use reminders'), false);
     assert.equal(looksLikeReminderHelp('list reminders'), false);
     assert.equal(looksLikeReminderHelp('reminders'), false);
+    assert.equal(looksLikeReminderHelp('list reminders help'), false);
+    assert.equal(looksLikeReminderHelp('cancel reminder help'), false);
+    assert.equal(
+      looksLikeReminderHelp('remind me in 5 minutes to ask for reminder help'),
+      false
+    );
 
     assert.equal(classifyReminderIntent('reminder help'), 'help');
     assert.equal(classifyReminderIntent('help reminders'), 'help');
@@ -111,11 +120,18 @@ describe('reminderParser', () => {
       classifyReminderIntent('remind me in 5 minutes to ask for reminder help'),
       'create'
     );
+    assert.equal(classifyReminderIntent('list reminders help'), 'list');
+    assert.equal(classifyReminderIntent('cancel reminder help'), null);
+    assert.equal(looksLikeReminderCancel('cancel reminder help'), false);
+
     assert.match(REMINDER_HELP_TEXT, /list reminders/i);
     assert.match(REMINDER_HELP_TEXT, /cancel reminder 3/i);
     assert.match(REMINDER_HELP_TEXT, /cancel #3/i);
     assert.match(REMINDER_HELP_TEXT, /remind me in 20 minutes/i);
     assert.match(REMINDER_HELP_TEXT, /remind me at 6/i);
+    assert.match(REMINDER_HELP_TEXT, /This help — anyone/);
+    assert.match(REMINDER_HELP_TEXT, /allowlisted actors only/i);
+    assert.match(REMINDER_HELP_TEXT, /Set \/ list \/ cancel/);
   });
 
   it('parses cancel-by-id', () => {
@@ -2187,5 +2203,41 @@ describe('production ports reminder list/cancel (e2e path)', () => {
     );
     assert.equal(cancel.handled, true);
     assert.match(sent[0].text, /Not allowed to manage reminders/);
+  });
+
+  it('routes reminder help through agents.tryHandle without allowlist', async () => {
+    const { ports, sent } = stubPorts(() => false);
+    const r = await ports.agents.tryHandle(
+      inbound('reminder help', 'stranger@s.whatsapp.net')
+    );
+    assert.equal(r.handled, true);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].text, REMINDER_HELP_TEXT);
+    assert.match(sent[0].text, /list reminders/i);
+    assert.match(sent[0].text, /cancel reminder 3/i);
+  });
+
+  it('near-miss list/cancel+help phrases do not become help on the e2e path', async () => {
+    const now = Date.parse('2026-09-06T15:00:00+01:00');
+    await addReminder({
+      chatId: 'c@s.whatsapp.net',
+      dueAt: now + 20 * 60_000,
+      text: 'check the oven',
+      createdAt: now,
+      filePath,
+    });
+
+    const { ports, sent } = stubPorts(() => true);
+    const list = await ports.agents.tryHandle(inbound('list reminders help'));
+    assert.equal(list.handled, true);
+    assert.match(sent[0].text, /^Upcoming reminders:/);
+    assert.notEqual(sent[0].text, REMINDER_HELP_TEXT);
+
+    sent.length = 0;
+    const cancelNearMiss = await ports.agents.tryHandle(
+      inbound('cancel reminder help')
+    );
+    assert.equal(cancelNearMiss.handled, false);
+    assert.equal(sent.length, 0);
   });
 });
