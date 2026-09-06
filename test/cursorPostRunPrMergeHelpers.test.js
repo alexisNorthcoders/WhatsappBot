@@ -27,6 +27,12 @@ describe('PR merge / update-branch error heuristics', () => {
       ),
       true
     );
+    assert.equal(
+      githubPrMergeErrorLooksStaleHead(
+        'Message: Base branch was modified. Review and try the merge again., Locations: [{Line:1 Column:58}]'
+      ),
+      true
+    );
     assert.equal(githubPrMergeErrorLooksStaleHead('unrelated failure'), false);
   });
 
@@ -238,6 +244,60 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     const mergeCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
     assert.equal(mergeCalls.length, 1);
     assert.ok(!mergeCalls[0].args.includes('--auto'));
+  });
+
+  it('retries direct merge after update-branch when base was modified (private repo path)', async () => {
+    /** @type {{ cmd: string, args: string[] }[]} */
+    const calls = [];
+    let mergeAttempts = 0;
+    cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+      calls.push({ cmd, args: [...args] });
+      if (args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X')) {
+        cb(
+          null,
+          JSON.stringify({
+            allow_squash_merge: true,
+            allow_merge_commit: true,
+            allow_rebase_merge: true,
+            allow_auto_merge: false,
+          }),
+          ''
+        );
+        return;
+      }
+      if (args[0] === 'api' && args.includes('-X') && args.includes('PUT')) {
+        assert.match(String(args[args.length - 1] || args[3] || ''), /update-branch/);
+        cb(null, '', '');
+        return;
+      }
+      if (args[0] === 'pr' && args[1] === 'merge') {
+        mergeAttempts += 1;
+        assert.ok(!args.includes('--auto'));
+        if (mergeAttempts === 1) {
+          const err = new Error('gh failed');
+          err.stderr =
+            'Message: Base branch was modified. Review and try the merge again., Locations: [{Line:1 Column:58}]';
+          cb(err, '', err.stderr);
+          return;
+        }
+        cb(null, '', '');
+        return;
+      }
+      cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+    };
+
+    const r = await tryGhPrQueueAutoMerge(
+      '/tmp/r',
+      'https://github.com/alexisNorthcoders/chess-trainer/pull/12'
+    );
+    assert.equal(r.ok, true);
+    assert.equal(r.mergedDirectly, true);
+    assert.equal(r.staleHeadSynced, true);
+    assert.equal(mergeAttempts, 2);
+    const updateCalls = calls.filter(
+      (c) => c.args[0] === 'api' && c.args.includes('PUT')
+    );
+    assert.equal(updateCalls.length, 1);
   });
 
   it('falls back to direct merge when --auto fails with unprotected-branch gate error', async () => {

@@ -428,15 +428,20 @@ const GITHUB_PR_COMMENT_MAX_CHARS = 62000;
 const GITHUB_PULL_URL_RE = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i;
 
 /**
- * True when GitHub rejected enabling auto-merge because the PR head is behind its base
- * (“head branch is out of date” / similar).
+ * True when GitHub rejected a merge because the PR head / base race left the head stale
+ * (“head branch is out of date”, “Base branch was modified”, etc.).
  * @param {string} combinedMessage
  * @returns {boolean}
  */
 export function githubPrMergeErrorLooksStaleHead(combinedMessage) {
   const m = String(combinedMessage || '').toLowerCase();
   if (!m) return false;
-  return m.includes('out of date') || m.includes('head branch is behind') || m.includes('head branch must be');
+  return (
+    m.includes('out of date') ||
+    m.includes('head branch is behind') ||
+    m.includes('head branch must be') ||
+    m.includes('base branch was modified')
+  );
 }
 
 /**
@@ -705,6 +710,8 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
 
   /**
    * When auto-merge cannot be enabled because there is nothing to wait for, merge immediately.
+   * If the direct merge fails because the base moved (common race on busy repos), sync head once
+   * via update-branch and retry the direct merge.
    * @param {string} errFromAuto
    * @param {{ staleHeadSynced?: boolean }} [extra]
    */
@@ -721,12 +728,50 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
       return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...extra };
     } catch (eDirect) {
       const errDirect = eDirect.stderr || eDirect.message || String(eDirect);
-      return {
-        ok: false,
-        error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}`,
-        mergeMethod: strategy,
-        ...extra,
-      };
+      if (
+        !prStaleHeadSyncBeforeAutoMergeEnabled() ||
+        !githubPrMergeErrorLooksStaleHead(errDirect)
+      ) {
+        return {
+          ok: false,
+          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}`,
+          mergeMethod: strategy,
+          ...extra,
+        };
+      }
+      if (postRunLogEnabled()) {
+        console.log(
+          '[cursorPostRun]',
+          'tryGhPrQueueAutoMerge: direct merge hit stale base; GitHub API update-branch then retry',
+          url
+        );
+      }
+      const sync = await tryGhPrUpdateBranchViaApi(repo, url);
+      if (!sync.ok) {
+        return {
+          ok: false,
+          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`,
+          mergeMethod: strategy,
+          ...extra,
+        };
+      }
+      try {
+        await mergeDirect();
+        return {
+          ok: true,
+          mergedDirectly: true,
+          mergeMethod: strategy,
+          staleHeadSynced: !sync.noOp || Boolean(extra.staleHeadSynced),
+        };
+      } catch (eRetry) {
+        const errRetry = eRetry.stderr || eRetry.message || String(eRetry);
+        return {
+          ok: false,
+          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nAfter update-branch: ${String(errRetry).trim()}`,
+          mergeMethod: strategy,
+          staleHeadSynced: !sync.noOp || Boolean(extra.staleHeadSynced),
+        };
+      }
     }
   }
 
