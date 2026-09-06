@@ -22,13 +22,20 @@ export function shouldTryReminderAgent(text) {
 /**
  * @param {{ id: number, dueAt: number, text: string }[]} reminders
  * @param {number} nowMs
+ * @param {{ total?: number, limit?: number }} [meta]
  * @returns {string}
  */
-function formatUpcomingList(reminders, nowMs) {
+function formatUpcomingList(reminders, nowMs, meta = {}) {
   if (!reminders.length) return 'No upcoming reminders.';
   const lines = reminders.map(
     (r) => `#${r.id} — ${formatReminderDue(r.dueAt, nowMs)}: ${r.text}`
   );
+  const total = meta.total ?? reminders.length;
+  const limit = meta.limit ?? reminders.length;
+  if (total > reminders.length) {
+    const more = total - reminders.length;
+    lines.push(`…and ${more} more (showing soonest ${limit}).`);
+  }
   return `Upcoming reminders:\n${lines.join('\n')}`;
 }
 
@@ -69,8 +76,14 @@ export async function runReminderAgent(m, deps) {
   const filePath = deps.filePath;
 
   if (intent === 'list') {
-    const upcoming = await listPendingReminders({ chatId: m.chatId, filePath });
-    return { handled: true, replyText: formatUpcomingList(upcoming, nowMs) };
+    const { reminders, total, limit } = await listPendingReminders({
+      chatId: m.chatId,
+      filePath,
+    });
+    return {
+      handled: true,
+      replyText: formatUpcomingList(reminders, nowMs, { total, limit }),
+    };
   }
 
   if (intent === 'cancel') {

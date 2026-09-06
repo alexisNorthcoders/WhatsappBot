@@ -8,6 +8,9 @@ const LOCK_MAX_ATTEMPTS = 80;
 const LOCK_RETRY_MS_MIN = 15;
 const LOCK_RETRY_MS_MAX = 40;
 
+/** Default cap for list replies (WhatsApp-friendly). */
+export const REMINDER_LIST_LIMIT = 20;
+
 /**
  * @typedef {'pending' | 'fired' | 'cancelled'} ReminderStatus
  * @typedef {{
@@ -211,27 +214,42 @@ export async function listDuePendingReminders(nowMs = Date.now(), filePath = rem
 /**
  * Upcoming pending reminders (any dueAt), soonest first.
  * When chatId is set, only that chat’s reminders are returned (no cross-chat leak).
+ * Results are capped (default {@link REMINDER_LIST_LIMIT}) so WhatsApp replies stay readable.
  * @param {{
  *   chatId?: string,
  *   filePath?: string,
+ *   limit?: number,
  * }} [opts]
- * @returns {Promise<Reminder[]>}
+ * @returns {Promise<{ reminders: Reminder[], total: number, limit: number }>}
  */
 export async function listPendingReminders(opts = {}) {
   const filePath = opts.filePath ?? remindersStorePath();
+  const limit =
+    typeof opts.limit === 'number' && Number.isInteger(opts.limit) && opts.limit > 0
+      ? opts.limit
+      : REMINDER_LIST_LIMIT;
   const store = await readReminderStore(filePath);
-  return store.reminders
+  const all = store.reminders
     .filter(
       (r) =>
         r.status === 'pending' && (opts.chatId == null || r.chatId === opts.chatId)
     )
     .sort((a, b) => a.dueAt - b.dueAt || a.id - b.id);
+  return {
+    reminders: all.slice(0, limit),
+    total: all.length,
+    limit,
+  };
 }
 
 /**
  * Atomically cancel a pending reminder (pending → cancelled).
  * When chatId is set, only cancels if the reminder belongs to that chat.
  * Returns the cancelled reminder, or null if missing / wrong chat / not pending.
+ *
+ * Safe vs delivery: cancel and {@link claimReminderFired} both re-read under the same
+ * store lock and only transition from `pending`. A due row already loaded by
+ * {@link listDuePendingReminders} cannot fire after cancel — claim returns null.
  * @param {number} id
  * @param {{
  *   chatId?: string,
@@ -254,7 +272,8 @@ export async function cancelReminder(id, opts = {}) {
 
 /**
  * Atomically claim a pending reminder for delivery (pending → fired).
- * Uses an exclusive lock + re-read so only one claimant wins under concurrency.
+ * Uses an exclusive lock + re-read so only one claimant wins under concurrency,
+ * and so a reminder cancelled after listDue still cannot fire.
  * Returns the claimed reminder, or null if it was already claimed/cancelled.
  * @param {number} id
  * @param {number} [firedAtMs]

@@ -2,6 +2,11 @@
  * Relative reminder parsing for MVP (minutes / hours).
  * Absolute times ("at 6", "tomorrow …") are out of scope for #64.
  * List / cancel management phrases are covered by #65.
+ *
+ * Intent precedence for {@link classifyReminderIntent} (first match wins):
+ * 1. create — "remind/nudge me …" (wins even when task text embeds "list"/"cancel")
+ * 2. cancel — cancel / delete / remove + optional "reminder" + id (see CANCEL_RE)
+ * 3. list — "list/show reminders", "what are my reminders", bare "reminders", …
  */
 
 const INTENT_RE = /\b(?:please\s+)?(?:remind|nudge)\s+me\b/i;
@@ -10,7 +15,12 @@ const INTENT_RE = /\b(?:please\s+)?(?:remind|nudge)\s+me\b/i;
 const LIST_RE =
   /\b(?:list|show)\s+(?:my\s+)?(?:upcoming\s+)?reminders?\b|\b(?:what(?:'s|s)?|whats)\s+(?:are\s+|is\s+)?(?:my\s+)?(?:upcoming\s+)?reminders?\b|\bmy\s+(?:upcoming\s+)?reminders?\b|^(?:please\s+)?(?:upcoming\s+)?reminders?\s*[.!?]?\s*$/i;
 
-/** Cancel by ID: "cancel reminder 3", "cancel #3", "delete reminder #12" */
+/**
+ * Cancel by ID (intentional aliases; keep help in sync):
+ * - "cancel reminder 3" / "cancel my reminder 3" / "cancel upcoming reminder 3"
+ * - "delete reminder #12" / "remove reminder 2"
+ * - "cancel #7" / "delete #7" / "remove #7"
+ */
 const CANCEL_RE =
   /\b(?:cancel|delete|remove)\s+(?:(?:my\s+)?(?:upcoming\s+)?reminder\s+)?#?\s*(\d+)\b/i;
 
@@ -65,7 +75,7 @@ export function looksLikeReminderCancel(text) {
 
 /**
  * Create / list / cancel intent for the reminder agent.
- * Create ("remind/nudge me …") wins over list/cancel when both could match.
+ * Precedence: create → cancel → list (see module doc).
  * @param {string} text
  * @returns {'create' | 'list' | 'cancel' | null}
  */
@@ -73,9 +83,11 @@ export function classifyReminderIntent(text) {
   if (!text || typeof text !== 'string') return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
-  // Scheduling phrases take priority over embedded "list/cancel" wording.
+  // 1) create wins when scheduling text embeds list/cancel wording.
   if (looksLikeReminderRequest(trimmed)) return 'create';
+  // 2) cancel before list (e.g. "cancel reminder 3" must not become list).
   if (looksLikeReminderCancel(trimmed)) return 'cancel';
+  // 3) list
   if (looksLikeReminderList(trimmed)) return 'list';
   return null;
 }

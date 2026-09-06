@@ -32,6 +32,8 @@ export function formatDeliveryMessage(opts) {
 
 /**
  * Deliver all due pending reminders (exactly-once claim before send).
+ * listDue is a snapshot; {@link claimReminderFired} re-reads under lock so a
+ * concurrent cancel (pending → cancelled) cannot still deliver.
  * @param {{
  *   sendText: (chatId: string, text: string) => Promise<void>,
  *   logger?: { info?: Function, warn?: Function, error?: Function },
@@ -48,6 +50,7 @@ export async function runReminderDeliveryTick(deps) {
   let failed = 0;
 
   for (const rem of due) {
+    // Authoritative gate: skip if cancelled/already fired since listDue.
     const claimed = await claimReminderFired(rem.id, nowMs, filePath);
     if (!claimed) continue;
     const body = formatDeliveryMessage({

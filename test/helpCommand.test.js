@@ -59,8 +59,13 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
-      /cancel reminder 3/,
-      'help should mention cancel by id',
+      /cancel\/delete\/remove reminder 3/,
+      'help should document cancel/delete/remove aliases',
+    );
+    assert.match(
+      helpText,
+      /cancel #3/,
+      'help should mention cancel #id shorthand',
     );
     assert.equal(
       SUMMARIZE_USAGE,
