@@ -24,14 +24,21 @@ import {
   claimReminderFired,
   clearAllReminderDeliveryInFlightForTests,
   completeReminderDelivery,
+  DEFAULT_REMINDER_MAX_PENDING_PER_CHAT,
+  DEFAULT_REMINDER_MAX_TEXT_CHARS,
+  getReminderSafetyCaps,
   isReminderDeliveryInFlightLocally,
+  isReminderLimitError,
   listDuePendingReminders,
   listPendingReminders,
+  pruneTerminalReminders,
   readReminderStore,
   releaseReminderDelivery,
+  ReminderLimitError,
   REMINDER_LIST_LIMIT,
   settleStaleDeliveries,
   STALE_DELIVERING_MS,
+  truncateReminderText,
 } from '../whatsapp/reminders/reminderStore.js';
 import {
   formatDeliveryMessage,
@@ -1058,6 +1065,422 @@ describe('reminderStore + delivery', () => {
     assert.equal(await claimReminderFired(1, now, filePath), null);
     assert.equal(await claimReminderDelivery(1, now, filePath), null);
   });
+
+  it('truncateReminderText caps length with ellipsis', () => {
+    assert.equal(truncateReminderText('short', 10), 'short');
+    assert.equal(truncateReminderText('abcdefghij', 10), 'abcdefghij');
+    assert.equal(truncateReminderText('abcdefghijk', 10), 'abcdefghi…');
+    // Does not trim — only truncates
+    assert.equal(truncateReminderText('  hi  ', 10), '  hi  ');
+    assert.equal(truncateReminderText('  abcdefghijk', 10), '  abcdefg…');
+    assert.equal(DEFAULT_REMINDER_MAX_TEXT_CHARS, 500);
+  });
+
+  it('addReminder truncates long text to the configured max', async () => {
+    const long = 'x'.repeat(600);
+    const rem = await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: Date.now() + 60_000,
+      text: long,
+      filePath,
+      caps: { ...getReminderSafetyCaps(), maxTextChars: 40 },
+    });
+    assert.equal(rem.text.length, 40);
+    assert.equal(rem.text.endsWith('…'), true);
+    assert.equal(rem.text, truncateReminderText(long, 40));
+  });
+
+  it('rejects when pending reminders per chat are at the cap', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const caps = {
+      ...getReminderSafetyCaps(),
+      maxPendingPerChat: 2,
+      maxHorizonMs: null,
+      maxHorizonDays: null,
+    };
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 60_000,
+      text: 'one',
+      createdAt: now,
+      filePath,
+      caps,
+    });
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 120_000,
+      text: 'two',
+      createdAt: now,
+      filePath,
+      caps,
+    });
+    // Other chat is independent
+    await addReminder({
+      chatId: 'c2@s.whatsapp.net',
+      dueAt: now + 60_000,
+      text: 'other',
+      createdAt: now,
+      filePath,
+      caps,
+    });
+
+    await assert.rejects(
+      () =>
+        addReminder({
+          chatId: 'c1@s.whatsapp.net',
+          dueAt: now + 180_000,
+          text: 'three',
+          createdAt: now,
+          filePath,
+          caps,
+        }),
+      (err) => {
+        assert.equal(isReminderLimitError(err), true);
+        assert.equal(/** @type {ReminderLimitError} */ (err).reason, 'pending_cap');
+        assert.match(err.message, /already has 2 pending reminders/i);
+        assert.match(err.message, /cancel reminder #ID/i);
+        return true;
+      }
+    );
+
+    const listed = await listPendingReminders({ chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(listed.total, 2);
+    assert.equal(DEFAULT_REMINDER_MAX_PENDING_PER_CHAT, 25);
+  });
+
+  it('rejects reminders beyond the configured horizon', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const dayMs = 24 * 60 * 60 * 1000;
+    const caps = {
+      ...getReminderSafetyCaps(),
+      maxHorizonMs: 2 * dayMs,
+      maxHorizonDays: 2,
+    };
+    await assert.rejects(
+      () =>
+        addReminder({
+          chatId: 'c1@s.whatsapp.net',
+          dueAt: now + 3 * dayMs,
+          text: 'too far',
+          createdAt: now,
+          filePath,
+          caps,
+        }),
+      (err) => {
+        assert.equal(isReminderLimitError(err), true);
+        assert.equal(/** @type {ReminderLimitError} */ (err).reason, 'horizon');
+        assert.match(err.message, /too far ahead/i);
+        assert.match(err.message, /max 2 days/i);
+        return true;
+      }
+    );
+    // Within horizon is fine
+    const ok = await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + dayMs,
+      text: 'soon enough',
+      createdAt: now,
+      filePath,
+      caps,
+    });
+    assert.equal(ok.text, 'soon enough');
+  });
+
+  it('horizon error message uses configured fractional days (not Math.round)', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const dayMs = 24 * 60 * 60 * 1000;
+    const caps = getReminderSafetyCaps({ REMINDERS_MAX_HORIZON_DAYS: '1.5' });
+    assert.equal(caps.maxHorizonDays, 1.5);
+    assert.equal(caps.maxHorizonMs, Math.floor(1.5 * dayMs));
+    await assert.rejects(
+      () =>
+        addReminder({
+          chatId: 'c1@s.whatsapp.net',
+          dueAt: now + 2 * dayMs,
+          text: 'too far',
+          createdAt: now,
+          filePath,
+          caps,
+        }),
+      (err) => {
+        assert.equal(/** @type {ReminderLimitError} */ (err).reason, 'horizon');
+        // Must not round 1.5 up to "2 days"
+        assert.match(err.message, /max 1\.5 days/i);
+        assert.doesNotMatch(err.message, /max 2 days/i);
+        return true;
+      }
+    );
+  });
+
+  it('getReminderSafetyCaps reads optional horizon from env days', () => {
+    const capped = getReminderSafetyCaps({
+      REMINDERS_MAX_HORIZON_DAYS: '365',
+      REMINDERS_MAX_TEXT_CHARS: '100',
+      REMINDERS_MAX_PENDING_PER_CHAT: '10',
+    });
+    assert.equal(capped.maxHorizonMs, 365 * 24 * 60 * 60 * 1000);
+    assert.equal(capped.maxHorizonDays, 365);
+    assert.equal(capped.maxTextChars, 100);
+    assert.equal(capped.maxPendingPerChat, 10);
+
+    const unlimited = getReminderSafetyCaps({ REMINDERS_MAX_HORIZON_DAYS: '' });
+    assert.equal(unlimited.maxHorizonMs, null);
+    assert.equal(unlimited.maxHorizonDays, null);
+  });
+
+  it('addReminder does not prune recent terminal rows using backdated createdAt', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const dayMs = 24 * 60 * 60 * 1000;
+    const caps = {
+      ...getReminderSafetyCaps(),
+      terminalRetentionMs: dayMs,
+      maxTerminal: 100,
+      maxHorizonMs: null,
+      maxHorizonDays: null,
+    };
+    // Recent fired row: within retention relative to wall clock `now`,
+    // but far past retention if prune incorrectly used backdated createdAt.
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        nextId: 2,
+        reminders: [
+          {
+            id: 1,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 2 * dayMs,
+            dueAt: now - 60_000,
+            text: 'keep me',
+            status: 'fired',
+            deliveryAttemptAt: now - 30_000,
+            firedAt: now - 30_000,
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 60_000,
+      text: 'new',
+      createdAt: now - 10 * dayMs,
+      nowMs: now,
+      filePath,
+      caps,
+    });
+
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 2);
+    assert.ok(store.reminders.some((r) => r.status === 'fired' && r.text === 'keep me'));
+    assert.ok(store.reminders.some((r) => r.status === 'pending' && r.text === 'new'));
+  });
+
+  it('addReminder prunes terminal rows before enforcing the pending cap', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const caps = {
+      ...getReminderSafetyCaps(),
+      maxPendingPerChat: 1,
+      terminalRetentionMs: 60_000,
+      maxTerminal: 100,
+      maxHorizonMs: null,
+      maxHorizonDays: null,
+    };
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        nextId: 3,
+        reminders: [
+          {
+            id: 1,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 120_000,
+            dueAt: now - 90_000,
+            text: 'still pending',
+            status: 'pending',
+            deliveryAttemptAt: null,
+            firedAt: null,
+          },
+          {
+            id: 2,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 200_000,
+            dueAt: now - 180_000,
+            text: 'stale fired',
+            status: 'fired',
+            deliveryAttemptAt: now - 150_000,
+            firedAt: now - 150_000,
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    await assert.rejects(
+      () =>
+        addReminder({
+          chatId: 'c1@s.whatsapp.net',
+          dueAt: now + 60_000,
+          text: 'blocked',
+          createdAt: now,
+          nowMs: now,
+          filePath,
+          caps,
+        }),
+      (err) => {
+        assert.equal(/** @type {ReminderLimitError} */ (err).reason, 'pending_cap');
+        return true;
+      }
+    );
+
+    // Cap reject still compacted terminal rows (prune ran before the check).
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 1);
+    assert.equal(store.reminders[0].status, 'pending');
+    assert.equal(store.reminders[0].text, 'still pending');
+  });
+
+  it('prunes old fired/cancelled reminders while keeping pending', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const caps = {
+      ...getReminderSafetyCaps(),
+      terminalRetentionMs: 60_000,
+      maxTerminal: 100,
+    };
+
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 60_000,
+      text: 'keep pending',
+      createdAt: now,
+      nowMs: now,
+      filePath,
+      caps,
+    });
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 10_000,
+      text: 'old fired',
+      createdAt: now - 120_000,
+      nowMs: now,
+      filePath,
+      caps,
+    });
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 120_000,
+      text: 'will cancel',
+      createdAt: now - 120_000,
+      nowMs: now,
+      filePath,
+      caps,
+    });
+    // Finalize after all adds so prune-on-add does not compact mid-setup.
+    await claimReminderFired(2, now - 90_000, filePath);
+    await cancelReminder(3, { chatId: 'c1@s.whatsapp.net', filePath });
+
+    const removed = await pruneTerminalReminders({ nowMs: now, filePath, caps });
+    assert.equal(removed, 2);
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 1);
+    assert.equal(store.reminders[0].status, 'pending');
+    assert.equal(store.reminders[0].text, 'keep pending');
+  });
+
+  it('enforces maxTerminal even when within retention', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    const caps = {
+      ...getReminderSafetyCaps(),
+      terminalRetentionMs: 24 * 60 * 60 * 1000,
+      maxTerminal: 2,
+    };
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        nextId: 5,
+        reminders: [0, 1, 2, 3].map((i) => ({
+          id: i + 1,
+          chatId: 'c1@s.whatsapp.net',
+          actorId: null,
+          createdAt: now - (4 - i) * 1000,
+          dueAt: now - (4 - i) * 1000,
+          text: `done-${i}`,
+          status: 'fired',
+          deliveryAttemptAt: now - (4 - i) * 500,
+          firedAt: now - (4 - i) * 500,
+        })),
+      }),
+      'utf8'
+    );
+    const removed = await pruneTerminalReminders({ nowMs: now, filePath, caps });
+    assert.equal(removed, 2);
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 2);
+    assert.deepEqual(
+      store.reminders.map((r) => r.text).sort(),
+      ['done-2', 'done-3']
+    );
+  });
+
+  it('delivery tick prunes terminal rows after send', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    // Seed an old fired row directly, then deliver a due pending one.
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        nextId: 3,
+        reminders: [
+          {
+            id: 1,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 10 * 24 * 60 * 60 * 1000,
+            dueAt: now - 10 * 24 * 60 * 60 * 1000,
+            text: 'ancient',
+            status: 'fired',
+            deliveryAttemptAt: now - 10 * 24 * 60 * 60 * 1000,
+            firedAt: now - 10 * 24 * 60 * 60 * 1000,
+          },
+          {
+            id: 2,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 60_000,
+            dueAt: now - 1000,
+            text: 'due now',
+            status: 'pending',
+            deliveryAttemptAt: null,
+            firedAt: null,
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    const sent = [];
+    const r = await runReminderDeliveryTick({
+      sendText: async (chatId, text) => {
+        sent.push({ chatId, text });
+      },
+      nowMs: now,
+      filePath,
+    });
+    assert.equal(r.delivered, 1);
+    assert.ok(r.pruned >= 1);
+    assert.equal(sent[0].text, 'Reminder: due now');
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.some((x) => x.text === 'ancient'), false);
+    assert.equal(store.reminders.length, 1);
+    assert.equal(store.reminders[0].status, 'fired');
+    assert.equal(store.reminders[0].text, 'due now');
+  });
 });
 
 describe('reminderScheduler lifecycle', () => {
@@ -1472,6 +1895,88 @@ describe('reminderAgent allowlist', () => {
       }
     );
     assert.equal(empty.replyText, 'No upcoming reminders.');
+  });
+  it('surfaces pending-cap and horizon errors to allowlisted actors', async () => {
+    const now = Date.parse('2026-09-06T15:00:00+01:00');
+    const prevHorizon = process.env.REMINDERS_MAX_HORIZON_DAYS;
+    const prevPending = process.env.REMINDERS_MAX_PENDING_PER_CHAT;
+    process.env.REMINDERS_MAX_PENDING_PER_CHAT = '1';
+    process.env.REMINDERS_MAX_HORIZON_DAYS = '1';
+    try {
+      await addReminder({
+        chatId: 'c@s.whatsapp.net',
+        dueAt: now + 10 * 60_000,
+        text: 'first',
+        createdAt: now,
+        filePath,
+      });
+      const capped = await runReminderAgent(
+        {
+          text: 'nudge me in 20 minutes to check the oven',
+          chatId: 'c@s.whatsapp.net',
+          actorId: 'owner@s.whatsapp.net',
+        },
+        {
+          isAllowedActor: () => true,
+          nowMs: now,
+          filePath,
+        }
+      );
+      assert.equal(capped.handled, true);
+      assert.match(capped.replyText, /already has 1 pending reminder/i);
+
+      // Free the slot, then exceed horizon via a huge relative delay.
+      await cancelReminder(1, { chatId: 'c@s.whatsapp.net', filePath });
+      const far = await runReminderAgent(
+        {
+          text: 'remind me in 99999 hours to stretch',
+          chatId: 'c@s.whatsapp.net',
+          actorId: 'owner@s.whatsapp.net',
+        },
+        {
+          isAllowedActor: () => true,
+          nowMs: now,
+          filePath,
+        }
+      );
+      assert.equal(far.handled, true);
+      assert.match(far.replyText, /too far ahead/i);
+      assert.match(far.replyText, /max 1 day/i);
+    } finally {
+      if (prevHorizon === undefined) delete process.env.REMINDERS_MAX_HORIZON_DAYS;
+      else process.env.REMINDERS_MAX_HORIZON_DAYS = prevHorizon;
+      if (prevPending === undefined) delete process.env.REMINDERS_MAX_PENDING_PER_CHAT;
+      else process.env.REMINDERS_MAX_PENDING_PER_CHAT = prevPending;
+    }
+  });
+
+  it('creates reminder with truncated text when over max chars', async () => {
+    const now = Date.parse('2026-09-06T15:00:00+01:00');
+    const prev = process.env.REMINDERS_MAX_TEXT_CHARS;
+    process.env.REMINDERS_MAX_TEXT_CHARS = '30';
+    try {
+      const longTask = 'x'.repeat(80);
+      const r = await runReminderAgent(
+        {
+          text: `nudge me in 5 minutes to ${longTask}`,
+          chatId: 'c@s.whatsapp.net',
+          actorId: 'owner@s.whatsapp.net',
+        },
+        {
+          isAllowedActor: () => true,
+          nowMs: now,
+          filePath,
+        }
+      );
+      assert.equal(r.handled, true);
+      assert.match(r.replyText, /OK — I'll remind you at/);
+      assert.match(r.replyText, /…/);
+      const store = await readReminderStore(filePath);
+      assert.equal(store.reminders[0].text.length, 30);
+    } finally {
+      if (prev === undefined) delete process.env.REMINDERS_MAX_TEXT_CHARS;
+      else process.env.REMINDERS_MAX_TEXT_CHARS = prev;
+    }
   });
 });
 

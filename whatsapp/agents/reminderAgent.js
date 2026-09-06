@@ -8,6 +8,7 @@ import {
 import {
   addReminder,
   cancelReminder,
+  isReminderLimitError,
   listPendingReminders,
 } from '../reminders/reminderStore.js';
 
@@ -109,14 +110,22 @@ export async function runReminderAgent(m, deps) {
     return { handled: true, replyText: parsed.message };
   }
 
-  const reminder = await addReminder({
-    chatId: m.chatId,
-    actorId: m.actorId,
-    dueAt: parsed.dueAt,
-    text: parsed.text,
-    createdAt: nowMs,
-    filePath,
-  });
+  let reminder;
+  try {
+    reminder = await addReminder({
+      chatId: m.chatId,
+      actorId: m.actorId,
+      dueAt: parsed.dueAt,
+      text: parsed.text,
+      createdAt: nowMs,
+      filePath,
+    });
+  } catch (e) {
+    if (isReminderLimitError(e)) {
+      return { handled: true, replyText: e.message };
+    }
+    throw e;
+  }
 
   const when = formatReminderDue(reminder.dueAt, nowMs);
   const replyText = `OK — I'll remind you at ${when}: ${reminder.text} (#${reminder.id})`;
