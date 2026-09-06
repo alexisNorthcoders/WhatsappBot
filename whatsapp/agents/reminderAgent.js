@@ -3,7 +3,7 @@ import {
   classifyReminderIntent,
   formatReminderDue,
   parseCancelReminder,
-  parseRelativeReminder,
+  parseReminder,
 } from '../reminders/reminderParser.js';
 import {
   addReminder,
@@ -101,7 +101,7 @@ export async function runReminderAgent(m, deps) {
     return { handled: true, replyText: `Cancelled reminder #${cancelled.id}` };
   }
 
-  const parsed = parseRelativeReminder(text, nowMs);
+  const parsed = parseReminder(text, nowMs);
   if (!parsed.ok) {
     if (parsed.reason === 'not_reminder') {
       return { handled: false, replyText: '' };

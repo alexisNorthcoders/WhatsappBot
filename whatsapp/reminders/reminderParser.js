@@ -1,12 +1,18 @@
 /**
- * Relative reminder parsing for MVP (minutes / hours).
- * Absolute times ("at 6", "tomorrow …") are out of scope for #64.
+ * Reminder parsing: relative (minutes / hours) and absolute times
+ * ("at 6", "tomorrow at 9:15", …) with next-future ambiguity rules (#66).
  * List / cancel management phrases are covered by #65.
  *
  * Intent precedence for {@link classifyReminderIntent} (first match wins):
  * 1. create — "remind/nudge me …" (wins even when task text embeds "list"/"cancel")
  * 2. cancel — cancel / delete / remove + optional "reminder" + id (see CANCEL_RE)
  * 3. list — "list/show reminders", "what are my reminders", bare "reminders", …
+ *
+ * Absolute time rules (server local timezone via Date local getters):
+ * - "at H" / "at H:MM" with no am/pm: hours 1–7 → PM, 8–11 → AM, 12 → noon
+ *   (so "at 6" → 18:00). Explicit am/pm or 24h hours (13–23) override.
+ * - If that clock time is not strictly in the future today, roll to tomorrow
+ *   (same clock time). "tomorrow at …" always uses tomorrow.
  */
 
 const INTENT_RE = /\b(?:please\s+)?(?:remind|nudge)\s+me\b/i;
@@ -43,8 +49,15 @@ const RELATIVE_AMOUNT_RE =
 const RELATIVE_A_AN_RE =
   /(?:^|\b)(?:in\s+)?(?:an?\s+)(minute|min|hour|hr)\b/i;
 
+/**
+ * Absolute: optional "tomorrow", required "at", hour, optional :MM, optional am/pm.
+ * Examples: "at 6", "at 6pm", "tomorrow at 9", "tomorrow at 9:15", "at 18:00".
+ */
+const ABSOLUTE_TIME_RE =
+  /(?:^|\b)(tomorrow)\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b|(?:^|\b)at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b/i;
+
 const EXAMPLES =
-  'Try: "nudge me in 20 minutes to check the oven" or "remind me in 2 hours to stretch".';
+  'Try: "remind me at 6 to take the bins out", "nudge me tomorrow at 9 to call the dentist", or "remind me in 20 minutes to check the oven".';
 
 /**
  * @param {string} text
@@ -157,11 +170,13 @@ function normalizeTaskText(raw) {
 }
 
 /**
- * Extract task text given a relative phrase match index/range.
+ * Extract task text given a time-phrase match index/range.
  * Supports:
  * - "nudge me in 20 minutes to check the oven"
  * - "remind me to check the oven in 20 minutes"
  * - "in 20 minutes remind me to check the oven"
+ * - "remind me at 6 to take bins out"
+ * - "at 6 remind me to take bins out"
  * @param {string} text
  * @param {number} matchStart
  * @param {number} matchEnd
@@ -171,8 +186,10 @@ function extractTaskText(text, matchStart, matchEnd) {
   const before = text.slice(0, matchStart).trim();
   const after = text.slice(matchEnd).trim();
 
-  // Prefer text after the relative phrase ("… in 20 minutes to X")
-  let fromAfter = normalizeTaskText(after);
+  // Prefer text after the time phrase ("… at 6 to X" / "… in 20 minutes to X").
+  // Also strip leading intent when time comes first ("at 6 remind me to X").
+  let fromAfter = after.replace(INTENT_RE, ' ').trim();
+  fromAfter = normalizeTaskText(fromAfter);
   if (fromAfter) return fromAfter;
 
   // Else text before, stripping intent ("remind me to X in 20 minutes")
@@ -194,17 +211,73 @@ function unitMs(unitRaw) {
 }
 
 /**
+ * Local calendar + clock → epoch ms (server timezone).
+ * @param {number} nowMs
+ * @param {{ dayOffset?: number, hour: number, minute: number }} parts
+ * @returns {number}
+ */
+export function localDueAtMs(nowMs, { dayOffset = 0, hour, minute }) {
+  const now = new Date(nowMs);
+  return new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate() + dayOffset,
+    hour,
+    minute,
+    0,
+    0
+  ).getTime();
+}
+
+/**
+ * Resolve hour/minute + optional meridiem to 24h clock parts.
+ * Bare hours 1–7 → PM, 8–11 → AM, 12 → noon (matches PRD "at 6" → 18:00).
+ * @param {number} hourRaw
+ * @param {number} minute
+ * @param {string | undefined} meridiemRaw
+ * @returns {{ hour: number, minute: number } | null}
+ */
+export function resolveClockHour(hourRaw, minute, meridiemRaw) {
+  if (!Number.isInteger(hourRaw) || !Number.isInteger(minute)) return null;
+  if (minute < 0 || minute > 59) return null;
+
+  const mer = meridiemRaw ? String(meridiemRaw).replace(/\./g, '').toLowerCase() : '';
+
+  if (mer === 'am' || mer === 'pm') {
+    if (hourRaw < 1 || hourRaw > 12) return null;
+    let hour = hourRaw % 12;
+    if (mer === 'pm') hour += 12;
+    return { hour, minute };
+  }
+
+  // Explicit 24h (no meridiem)
+  if (hourRaw >= 0 && hourRaw <= 23) {
+    if (hourRaw >= 13 || hourRaw === 0) {
+      return { hour: hourRaw, minute };
+    }
+    // Bare 1–12: conversational default (1–7 PM, 8–11 AM, 12 noon)
+    if (hourRaw >= 1 && hourRaw <= 7) {
+      return { hour: hourRaw + 12, minute };
+    }
+    // 8–12 inclusive → morning / noon as written
+    return { hour: hourRaw, minute };
+  }
+
+  return null;
+}
+
+/**
  * @typedef {{ ok: true, dueAt: number, text: string, offsetMs: number }} ReminderParseOk
  * @typedef {{
  *   ok: false,
- *   reason: 'not_reminder' | 'unsupported_time' | 'missing_text' | 'invalid_offset',
+ *   reason: 'not_reminder' | 'unsupported_time' | 'missing_text' | 'invalid_offset' | 'invalid_time',
  *   message: string,
  * }} ReminderParseErr
  * @typedef {ReminderParseOk | ReminderParseErr} ReminderParseResult
  */
 
 /**
- * Parse a relative reminder request.
+ * Parse a relative reminder request (minutes / hours only).
  * @param {string} text
  * @param {number} [nowMs]
  * @returns {ReminderParseResult}
@@ -240,8 +313,7 @@ export function parseRelativeReminder(text, nowMs = Date.now()) {
     return {
       ok: false,
       reason: 'unsupported_time',
-      message:
-        `I only support relative reminders in minutes or hours right now. ${EXAMPLES}`,
+      message: `I couldn't understand that time. ${EXAMPLES}`,
     };
   }
 
@@ -278,5 +350,109 @@ export function parseRelativeReminder(text, nowMs = Date.now()) {
     dueAt: nowMs + offsetMs,
     text: task,
     offsetMs,
+  };
+}
+
+/**
+ * Parse absolute reminder phrasing ("at 6", "tomorrow at 9:15", …).
+ * @param {string} text
+ * @param {number} [nowMs]
+ * @returns {ReminderParseResult}
+ */
+export function parseAbsoluteReminder(text, nowMs = Date.now()) {
+  const trimmed = String(text ?? '').trim();
+  if (!looksLikeReminderRequest(trimmed)) {
+    return { ok: false, reason: 'not_reminder', message: '' };
+  }
+
+  const m = trimmed.match(ABSOLUTE_TIME_RE);
+  if (!m || m.index == null) {
+    return {
+      ok: false,
+      reason: 'unsupported_time',
+      message: `I couldn't understand that time. ${EXAMPLES}`,
+    };
+  }
+
+  // Group layout: (tomorrow)(H)(MM)(mer) | ()(H)(MM)(mer) via alternation
+  const isTomorrow = Boolean(m[1]);
+  const hourRaw = parseInt(isTomorrow ? m[2] : m[5], 10);
+  const minuteRaw = isTomorrow ? m[3] : m[6];
+  const meridiem = isTomorrow ? m[4] : m[7];
+  const minute = minuteRaw != null && minuteRaw !== '' ? parseInt(minuteRaw, 10) : 0;
+
+  const clock = resolveClockHour(hourRaw, minute, meridiem);
+  if (!clock) {
+    return {
+      ok: false,
+      reason: 'invalid_time',
+      message: `That doesn't look like a valid time. ${EXAMPLES}`,
+    };
+  }
+
+  let dayOffset = isTomorrow ? 1 : 0;
+  let dueAt = localDueAtMs(nowMs, { dayOffset, hour: clock.hour, minute: clock.minute });
+
+  // Next future occurrence: if not strictly after now, roll forward one day
+  // (also covers "tomorrow at …" when somehow still in the past — rare).
+  if (dueAt <= nowMs) {
+    dayOffset += 1;
+    dueAt = localDueAtMs(nowMs, { dayOffset, hour: clock.hour, minute: clock.minute });
+  }
+
+  if (dueAt <= nowMs) {
+    return {
+      ok: false,
+      reason: 'invalid_time',
+      message: `That time is not in the future. ${EXAMPLES}`,
+    };
+  }
+
+  const matchStart = m.index;
+  const matchEnd = m.index + m[0].length;
+  const task = extractTaskText(trimmed, matchStart, matchEnd);
+  if (!task) {
+    return {
+      ok: false,
+      reason: 'missing_text',
+      message:
+        'What should I remind you about? Example: "remind me at 6 to take the bins out".',
+    };
+  }
+
+  return {
+    ok: true,
+    dueAt,
+    text: task,
+    offsetMs: dueAt - nowMs,
+  };
+}
+
+/**
+ * Parse create-reminder phrasing (relative first, then absolute).
+ * @param {string} text
+ * @param {number} [nowMs]
+ * @returns {ReminderParseResult}
+ */
+export function parseReminder(text, nowMs = Date.now()) {
+  const trimmed = String(text ?? '').trim();
+  if (!looksLikeReminderRequest(trimmed)) {
+    return { ok: false, reason: 'not_reminder', message: '' };
+  }
+
+  const hasRelative =
+    RELATIVE_AMOUNT_RE.test(trimmed) || RELATIVE_A_AN_RE.test(trimmed);
+  if (hasRelative) {
+    return parseRelativeReminder(trimmed, nowMs);
+  }
+
+  if (ABSOLUTE_TIME_RE.test(trimmed)) {
+    return parseAbsoluteReminder(trimmed, nowMs);
+  }
+
+  return {
+    ok: false,
+    reason: 'unsupported_time',
+    message: `I couldn't understand that time. ${EXAMPLES}`,
   };
 }

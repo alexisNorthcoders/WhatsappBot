@@ -54,8 +54,8 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
-      /list reminders/,
-      'help should mention list reminders',
+      /remind me at 6/,
+      'help should mention absolute reminder phrasing',
     );
     assert.match(
       helpText,
