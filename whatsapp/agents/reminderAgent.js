@@ -4,6 +4,7 @@ import {
   formatReminderDue,
   parseCancelReminder,
   parseReminder,
+  REMINDER_HELP_TEXT,
 } from '../reminders/reminderParser.js';
 import {
   addReminder,
@@ -41,7 +42,8 @@ function formatUpcomingList(reminders, nowMs, meta = {}) {
 }
 
 /**
- * Handle reminder create / list / cancel (allowlisted actors only).
+ * Handle reminder help / create / list / cancel.
+ * Help is available to everyone; create/list/cancel require allowlisted actors.
  * @param {{
  *   text: string,
  *   chatId: string,
@@ -59,6 +61,11 @@ export async function runReminderAgent(m, deps) {
   const intent = classifyReminderIntent(text);
   if (!intent) {
     return { handled: false, replyText: '' };
+  }
+
+  // Discoverability: help does not require the allowlist.
+  if (intent === 'help') {
+    return { handled: true, replyText: REMINDER_HELP_TEXT };
   }
 
   const isAllowed =

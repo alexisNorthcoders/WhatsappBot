@@ -2,11 +2,13 @@
  * Reminder parsing: relative (minutes / hours) and absolute times
  * ("at 6", "tomorrow at 9:15", …) with next-future ambiguity rules (#66).
  * List / cancel management phrases are covered by #65.
+ * Help / examples discoverability is covered by #69.
  *
  * Intent precedence for {@link classifyReminderIntent} (first match wins):
- * 1. create — "remind/nudge me …" (wins even when task text embeds "list"/"cancel")
- * 2. cancel — cancel / delete / remove + optional "reminder" + id (see CANCEL_RE)
- * 3. list — "list/show reminders", "what are my reminders", bare "reminders", …
+ * 1. create — "remind/nudge me …" (wins even when task text embeds "list"/"cancel"/"help")
+ * 2. help — "reminder help", "help reminders", "!reminders", …
+ * 3. cancel — cancel / delete / remove + optional "reminder" + id (see CANCEL_RE)
+ * 4. list — "list/show reminders", "what are my reminders", bare "reminders", …
  *
  * Create-time precedence for {@link parseReminder} (first time phrase in the
  * string wins):
@@ -23,6 +25,16 @@
  */
 
 const INTENT_RE = /\b(?:please\s+)?(?:remind|nudge)\s+me\b/i;
+
+/**
+ * Help / examples (intentional aliases; keep !help in sync):
+ * - "reminder help" / "reminders help"
+ * - "help reminders" / "help with reminders"
+ * - "how do I set a reminder" / "how to use reminders"
+ * - "!reminders" / "!reminder"
+ */
+const HELP_RE =
+  /\b(?:reminder|reminders)\s+help\b|\bhelp\s+(?:with\s+)?(?:a\s+)?(?:reminder|reminders)\b|\bhow\s+(?:do\s+i|to)\s+(?:set\s+|use\s+)?(?:a\s+)?reminders?\b|^(?:please\s+)?!reminders?\s*[.!?]?\s*$/i;
 
 /** List upcoming: "list reminders", "show my reminders", "what are my reminders", … */
 const LIST_RE =
@@ -71,12 +83,43 @@ export const REMINDER_TIME_EXAMPLES =
 const EXAMPLES = REMINDER_TIME_EXAMPLES;
 
 /**
+ * Full user-facing help for set / list / cancel (say "reminder help").
+ * Keep cancel aliases and create phrasing aligned with CANCEL_RE / TIME examples.
+ */
+export const REMINDER_HELP_TEXT = `*Reminders help*
+
+*Set a reminder*
+• "remind me in 20 minutes to check the oven"
+• "nudge me in 2 hours to stretch"
+• "remind me at 6 to take the bins out" (bare 1–7 → PM, 8–12 → AM/noon)
+• "remind me tomorrow at 9 to call the dentist"
+
+*List upcoming*
+• "list reminders" / "show my reminders" / "reminders"
+
+*Cancel by ID* (use the # from the list or confirmation)
+• "cancel reminder 3" / "delete reminder 3" / "remove reminder 3"
+• "cancel #3"
+
+Allowlisted actors only. Times use this bot's local timezone.
+Say *reminder help* anytime for these examples.`;
+
+/**
  * @param {string} text
  * @returns {boolean}
  */
 export function looksLikeReminderRequest(text) {
   if (!text || typeof text !== 'string') return false;
   return INTENT_RE.test(text.trim());
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeReminderHelp(text) {
+  if (!text || typeof text !== 'string') return false;
+  return HELP_RE.test(text.trim());
 }
 
 /**
@@ -98,20 +141,22 @@ export function looksLikeReminderCancel(text) {
 }
 
 /**
- * Create / list / cancel intent for the reminder agent.
- * Precedence: create → cancel → list (see module doc).
+ * Create / help / list / cancel intent for the reminder agent.
+ * Precedence: create → help → cancel → list (see module doc).
  * @param {string} text
- * @returns {'create' | 'list' | 'cancel' | null}
+ * @returns {'create' | 'help' | 'list' | 'cancel' | null}
  */
 export function classifyReminderIntent(text) {
   if (!text || typeof text !== 'string') return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
-  // 1) create wins when scheduling text embeds list/cancel wording.
+  // 1) create wins when scheduling text embeds list/cancel/help wording.
   if (looksLikeReminderRequest(trimmed)) return 'create';
-  // 2) cancel before list (e.g. "cancel reminder 3" must not become list).
+  // 2) help before list (e.g. "reminders help" must not become bare list).
+  if (looksLikeReminderHelp(trimmed)) return 'help';
+  // 3) cancel before list (e.g. "cancel reminder 3" must not become list).
   if (looksLikeReminderCancel(trimmed)) return 'cancel';
-  // 3) list
+  // 4) list
   if (looksLikeReminderList(trimmed)) return 'list';
   return null;
 }

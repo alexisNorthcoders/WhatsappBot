@@ -7,6 +7,7 @@ import {
   classifyReminderIntent,
   formatReminderDue,
   looksLikeReminderCancel,
+  looksLikeReminderHelp,
   looksLikeReminderList,
   looksLikeReminderRequest,
   localDueAtMs,
@@ -14,6 +15,7 @@ import {
   parseCancelReminder,
   parseRelativeReminder,
   parseReminder,
+  REMINDER_HELP_TEXT,
   REMINDER_TIME_EXAMPLES,
   resolveClockHour,
 } from '../whatsapp/reminders/reminderParser.js';
@@ -78,7 +80,7 @@ describe('reminderParser', () => {
     assert.equal(classifyReminderIntent('list my reminders'), 'list');
     assert.equal(classifyReminderIntent('cancel reminder 3'), 'cancel');
     assert.equal(classifyReminderIntent('nudge me in 5 minutes to go'), 'create');
-    // Precedence: create → cancel → list
+    // Precedence: create → help → cancel → list
     assert.equal(
       classifyReminderIntent('remind me in 5 minutes to list my reminders'),
       'create'
@@ -88,6 +90,32 @@ describe('reminderParser', () => {
       'create'
     );
     assert.equal(classifyReminderIntent('hello'), null);
+  });
+
+  it('detects reminder help intent and examples phrasing', () => {
+    assert.equal(looksLikeReminderHelp('reminder help'), true);
+    assert.equal(looksLikeReminderHelp('reminders help'), true);
+    assert.equal(looksLikeReminderHelp('help reminders'), true);
+    assert.equal(looksLikeReminderHelp('help with reminders'), true);
+    assert.equal(looksLikeReminderHelp('how do I set a reminder'), true);
+    assert.equal(looksLikeReminderHelp('how to use reminders'), true);
+    assert.equal(looksLikeReminderHelp('!reminders'), true);
+    assert.equal(looksLikeReminderHelp('!reminder'), true);
+    assert.equal(looksLikeReminderHelp('list reminders'), false);
+    assert.equal(looksLikeReminderHelp('reminders'), false);
+
+    assert.equal(classifyReminderIntent('reminder help'), 'help');
+    assert.equal(classifyReminderIntent('help reminders'), 'help');
+    assert.equal(classifyReminderIntent('!reminders'), 'help');
+    assert.equal(
+      classifyReminderIntent('remind me in 5 minutes to ask for reminder help'),
+      'create'
+    );
+    assert.match(REMINDER_HELP_TEXT, /list reminders/i);
+    assert.match(REMINDER_HELP_TEXT, /cancel reminder 3/i);
+    assert.match(REMINDER_HELP_TEXT, /cancel #3/i);
+    assert.match(REMINDER_HELP_TEXT, /remind me in 20 minutes/i);
+    assert.match(REMINDER_HELP_TEXT, /remind me at 6/i);
   });
 
   it('parses cancel-by-id', () => {
@@ -1658,11 +1686,33 @@ describe('reminderAgent allowlist', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('shouldTryReminderAgent matches create/list/cancel', () => {
+  it('shouldTryReminderAgent matches create/list/cancel/help', () => {
     assert.equal(shouldTryReminderAgent('nudge me in 5 minutes to go'), true);
     assert.equal(shouldTryReminderAgent('list reminders'), true);
     assert.equal(shouldTryReminderAgent('cancel reminder 2'), true);
+    assert.equal(shouldTryReminderAgent('reminder help'), true);
+    assert.equal(shouldTryReminderAgent('!reminders'), true);
     assert.equal(shouldTryReminderAgent('hello'), false);
+  });
+
+  it('returns reminder help examples without requiring allowlist', async () => {
+    const r = await runReminderAgent(
+      {
+        text: 'reminder help',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'stranger@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => false,
+        filePath,
+      }
+    );
+    assert.equal(r.handled, true);
+    assert.equal(r.replyText, REMINDER_HELP_TEXT);
+    assert.match(r.replyText, /list reminders/i);
+    assert.match(r.replyText, /cancel reminder 3/i);
+    assert.match(r.replyText, /cancel #3/i);
+    assert.match(r.replyText, /remind me at 6/i);
   });
 
   it('denies non-allowlisted actors for create/list/cancel', async () => {

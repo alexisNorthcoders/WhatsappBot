@@ -54,8 +54,18 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
+      /reminder help/,
+      'help should point users at reminder help for examples',
+    );
+    assert.match(
+      helpText,
       /remind me at 6/,
       'help should mention absolute reminder phrasing',
+    );
+    assert.match(
+      helpText,
+      /list reminders/,
+      'help should mention how to list reminders',
     );
     assert.match(
       helpText,
