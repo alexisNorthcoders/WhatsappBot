@@ -2,6 +2,7 @@ import {
   claimReminderDelivery,
   completeReminderDelivery,
   listDuePendingReminders,
+  pruneTerminalReminders,
   releaseReminderDelivery,
   remindersStorePath,
   settleStaleDeliveries,
@@ -93,6 +94,7 @@ async function sendWithHeartbeat(id, filePath, sendFn) {
  *    - resolve → delivering → fired
  *    - {@link ReminderPreSendError} → release for retry
  *    - any other throw → finalize fired (message may have been accepted)
+ * 4. Prune old fired/cancelled rows so the local store stays bounded.
  *
  * listDue is a snapshot; {@link claimReminderDelivery} re-reads under lock so a
  * concurrent cancel (pending → cancelled) cannot still deliver.
@@ -103,7 +105,7 @@ async function sendWithHeartbeat(id, filePath, sendFn) {
  *   filePath?: string,
  *   staleMs?: number,
  * }} deps
- * @returns {Promise<{ delivered: number, failed: number, settledStale: number, uncertain: number }>}
+ * @returns {Promise<{ delivered: number, failed: number, settledStale: number, uncertain: number, pruned: number }>}
  */
 export async function runReminderDeliveryTick(deps) {
   const nowMs = deps.nowMs ?? Date.now();
@@ -164,7 +166,17 @@ export async function runReminderDeliveryTick(deps) {
     }
   }
 
-  return { delivered, failed, settledStale, uncertain };
+  let pruned = 0;
+  try {
+    pruned = await pruneTerminalReminders({ nowMs, filePath });
+    if (pruned > 0) {
+      deps.logger?.info?.({ pruned }, 'reminders: pruned terminal rows');
+    }
+  } catch (e) {
+    deps.logger?.warn?.({ err: errMsg(e) }, 'reminders: prune failed');
+  }
+
+  return { delivered, failed, settledStale, uncertain, pruned };
 }
 
 /**

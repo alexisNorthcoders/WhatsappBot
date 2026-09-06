@@ -11,6 +11,18 @@ const LOCK_RETRY_MS_MAX = 40;
 /** Default cap for list replies (WhatsApp-friendly). */
 export const REMINDER_LIST_LIMIT = 20;
 
+/** Default max reminder text length (truncated with an ellipsis when longer). */
+export const DEFAULT_REMINDER_MAX_TEXT_CHARS = 500;
+
+/** Default max pending reminders per chat (reject with guidance when at cap). */
+export const DEFAULT_REMINDER_MAX_PENDING_PER_CHAT = 25;
+
+/** Default how long fired/cancelled rows are kept before prune. */
+export const DEFAULT_REMINDER_TERMINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Default hard cap on fired+cancelled rows kept in the store. */
+export const DEFAULT_REMINDER_MAX_TERMINAL = 200;
+
 /**
  * How long a reminder may stay in `delivering` before restart recovery
  * finalizes it as fired without re-send (at-most-once after a crash mid-send).
@@ -18,6 +30,161 @@ export const REMINDER_LIST_LIMIT = 20;
  * (see {@link markReminderDeliveryInFlight}).
  */
 export const STALE_DELIVERING_MS = 2 * 60_000;
+
+/**
+ * User-facing / expected limit (pending cap, horizon, empty text after truncate).
+ * Callers should catch this and reply with `error.message`.
+ */
+export class ReminderLimitError extends Error {
+  /**
+   * @param {string} message
+   * @param {'pending_cap' | 'horizon' | 'empty_text'} reason
+   */
+  constructor(message, reason) {
+    super(message);
+    this.name = 'ReminderLimitError';
+    /** @type {'pending_cap' | 'horizon' | 'empty_text'} */
+    this.reason = reason;
+  }
+}
+
+/**
+ * @param {unknown} e
+ * @returns {e is ReminderLimitError}
+ */
+export function isReminderLimitError(e) {
+  return (
+    e instanceof ReminderLimitError ||
+    (Boolean(e) &&
+      typeof e === 'object' &&
+      /** @type {{ name?: unknown }} */ (e).name === 'ReminderLimitError')
+  );
+}
+
+/**
+ * @param {string | undefined} raw
+ * @param {number} fallback
+ */
+function parseEnvInt(raw, fallback) {
+  if (raw == null || String(raw).trim() === '') return fallback;
+  const n = parseInt(String(raw), 10);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * @param {string | undefined} raw
+ * @returns {number | null} ms, or null when unset / disabled
+ */
+function parseOptionalHorizonMs(raw) {
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = parseFloat(String(raw));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Safety / maintenance caps (env-overridable). Horizon is optional: unset = unlimited.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{
+ *   maxTextChars: number,
+ *   maxPendingPerChat: number,
+ *   maxHorizonMs: number | null,
+ *   terminalRetentionMs: number,
+ *   maxTerminal: number,
+ * }}
+ */
+export function getReminderSafetyCaps(env = process.env) {
+  const maxTextChars = Math.max(
+    1,
+    parseEnvInt(env.REMINDERS_MAX_TEXT_CHARS, DEFAULT_REMINDER_MAX_TEXT_CHARS)
+  );
+  const maxPendingPerChat = Math.max(
+    1,
+    parseEnvInt(env.REMINDERS_MAX_PENDING_PER_CHAT, DEFAULT_REMINDER_MAX_PENDING_PER_CHAT)
+  );
+  const maxHorizonMs = parseOptionalHorizonMs(env.REMINDERS_MAX_HORIZON_DAYS);
+  const terminalRetentionMs = Math.max(
+    0,
+    parseEnvInt(env.REMINDERS_TERMINAL_RETENTION_MS, DEFAULT_REMINDER_TERMINAL_RETENTION_MS)
+  );
+  const maxTerminal = Math.max(
+    0,
+    parseEnvInt(env.REMINDERS_MAX_TERMINAL, DEFAULT_REMINDER_MAX_TERMINAL)
+  );
+  return {
+    maxTextChars,
+    maxPendingPerChat,
+    maxHorizonMs,
+    terminalRetentionMs,
+    maxTerminal,
+  };
+}
+
+/**
+ * Truncate reminder text to maxChars (ellipsis when truncated).
+ * @param {string} text
+ * @param {number} [maxChars]
+ * @returns {string}
+ */
+export function truncateReminderText(text, maxChars = DEFAULT_REMINDER_MAX_TEXT_CHARS) {
+  const s = String(text ?? '').trim();
+  const cap =
+    typeof maxChars === 'number' && Number.isFinite(maxChars) && maxChars >= 1
+      ? Math.floor(maxChars)
+      : DEFAULT_REMINDER_MAX_TEXT_CHARS;
+  if (s.length <= cap) return s;
+  if (cap === 1) return '…';
+  return `${s.slice(0, cap - 1)}…`;
+}
+
+/**
+ * Age key for terminal pruning (firedAt preferred, else createdAt).
+ * @param {Reminder} r
+ */
+function terminalAgeMs(r) {
+  if (typeof r.firedAt === 'number' && Number.isFinite(r.firedAt)) return r.firedAt;
+  return r.createdAt;
+}
+
+/**
+ * In-place prune of fired/cancelled rows: drop past retention, then enforce maxTerminal.
+ * Pending / delivering rows are never removed.
+ * @param {ReminderStoreData} store
+ * @param {number} nowMs
+ * @param {{
+ *   terminalRetentionMs?: number,
+ *   maxTerminal?: number,
+ * }} [caps]
+ * @returns {number} number of rows removed
+ */
+export function pruneTerminalRemindersInStore(store, nowMs, caps = {}) {
+  const retentionMs =
+    typeof caps.terminalRetentionMs === 'number' && Number.isFinite(caps.terminalRetentionMs)
+      ? Math.max(0, caps.terminalRetentionMs)
+      : DEFAULT_REMINDER_TERMINAL_RETENTION_MS;
+  const maxTerminal =
+    typeof caps.maxTerminal === 'number' && Number.isFinite(caps.maxTerminal)
+      ? Math.max(0, Math.floor(caps.maxTerminal))
+      : DEFAULT_REMINDER_MAX_TERMINAL;
+
+  const active = [];
+  /** @type {Reminder[]} */
+  let terminal = [];
+  for (const r of store.reminders) {
+    if (r.status === 'fired' || r.status === 'cancelled') terminal.push(r);
+    else active.push(r);
+  }
+  const before = terminal.length;
+
+  terminal = terminal.filter((r) => nowMs - terminalAgeMs(r) <= retentionMs);
+  if (terminal.length > maxTerminal) {
+    terminal.sort((a, b) => terminalAgeMs(b) - terminalAgeMs(a) || b.id - a.id);
+    terminal = terminal.slice(0, maxTerminal);
+  }
+
+  store.reminders = active.concat(terminal);
+  return before - terminal.length;
+}
 
 /**
  * Reminder ids this process is currently sending. Prevents
@@ -234,6 +401,8 @@ export async function writeReminderStore(data, filePath = remindersStorePath()) 
 }
 
 /**
+ * Create a pending reminder with safety caps: text truncation, optional horizon,
+ * and max pending per chat. Also prunes old terminal rows under the same lock.
  * @param {{
  *   chatId: string,
  *   actorId?: string | null,
@@ -241,28 +410,82 @@ export async function writeReminderStore(data, filePath = remindersStorePath()) 
  *   text: string,
  *   createdAt?: number,
  *   filePath?: string,
+ *   caps?: ReturnType<typeof getReminderSafetyCaps>,
  * }} opts
  * @returns {Promise<Reminder>}
+ * @throws {ReminderLimitError} when pending cap / horizon / empty text
  */
 export async function addReminder(opts) {
   const filePath = opts.filePath ?? remindersStorePath();
+  const caps = opts.caps ?? getReminderSafetyCaps();
+  const createdAt = opts.createdAt ?? Date.now();
+  const text = truncateReminderText(opts.text, caps.maxTextChars);
+  if (!text) {
+    throw new ReminderLimitError('Reminder text is empty.', 'empty_text');
+  }
+
+  if (
+    caps.maxHorizonMs != null &&
+    Number.isFinite(opts.dueAt) &&
+    opts.dueAt - createdAt > caps.maxHorizonMs
+  ) {
+    const days = Math.max(1, Math.round(caps.maxHorizonMs / (24 * 60 * 60 * 1000)));
+    throw new ReminderLimitError(
+      `That time is too far ahead (max ${days} day${days === 1 ? '' : 's'}). Pick a sooner time.`,
+      'horizon'
+    );
+  }
+
   return withStoreLock(filePath, async () => {
     const store = await readReminderStore(filePath);
+    const pendingCount = store.reminders.filter(
+      (r) => r.chatId === opts.chatId && r.status === 'pending'
+    ).length;
+    if (pendingCount >= caps.maxPendingPerChat) {
+      throw new ReminderLimitError(
+        `This chat already has ${caps.maxPendingPerChat} pending reminders. ` +
+          'Cancel one first (say "list reminders", then "cancel reminder #ID").',
+        'pending_cap'
+      );
+    }
+
     const reminder = {
       id: store.nextId,
       chatId: opts.chatId,
       actorId: opts.actorId ?? null,
-      createdAt: opts.createdAt ?? Date.now(),
+      createdAt,
       dueAt: opts.dueAt,
-      text: String(opts.text ?? '').trim(),
+      text,
       status: /** @type {const} */ ('pending'),
       deliveryAttemptAt: null,
       firedAt: null,
     };
     store.nextId += 1;
     store.reminders.push(reminder);
+    pruneTerminalRemindersInStore(store, createdAt, caps);
     await writeReminderStore(store, filePath);
     return reminder;
+  });
+}
+
+/**
+ * Compact the store by pruning old fired/cancelled reminders.
+ * @param {{
+ *   nowMs?: number,
+ *   filePath?: string,
+ *   caps?: ReturnType<typeof getReminderSafetyCaps>,
+ * }} [opts]
+ * @returns {Promise<number>} rows removed
+ */
+export async function pruneTerminalReminders(opts = {}) {
+  const filePath = opts.filePath ?? remindersStorePath();
+  const caps = opts.caps ?? getReminderSafetyCaps();
+  const nowMs = opts.nowMs ?? Date.now();
+  return withStoreLock(filePath, async () => {
+    const store = await readReminderStore(filePath);
+    const removed = pruneTerminalRemindersInStore(store, nowMs, caps);
+    if (removed > 0) await writeReminderStore(store, filePath);
+    return removed;
   });
 }
 
