@@ -5,6 +5,8 @@
  * @param {{ info: Function; warn: Function; error: Function }} deps.logger
  * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
  * @param {{ append(chatId: string, role: 'user'|'assistant', content: string): Promise<void> }} deps.chatMemory
+ * @param {(text: string) => boolean} [deps.shouldTryReminderAgent]
+ * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<{ handled: boolean, replyText?: string }>} [deps.runReminderAgent]
  * @param {(text: string) => boolean} deps.shouldTryLightsAgent
  * @param {(text: string) => Promise<string>} deps.runLightsAgent
  * @param {string} deps.LIGHTS_AGENT_SKIP
@@ -24,6 +26,8 @@ export async function runAgentsChainSequential(m, deps) {
     logger,
     messaging,
     chatMemory,
+    shouldTryReminderAgent,
+    runReminderAgent,
     shouldTryLightsAgent,
     runLightsAgent,
     LIGHTS_AGENT_SKIP,
@@ -43,7 +47,26 @@ export async function runAgentsChainSequential(m, deps) {
 
   let handled = false;
 
-  if (shouldTryLightsAgent(text)) {
+  if (!handled && typeof shouldTryReminderAgent === 'function' && shouldTryReminderAgent(text)) {
+    try {
+      const reminderResult = await runReminderAgent(m);
+      if (reminderResult?.handled) {
+        const reply = reminderResult.replyText ?? '';
+        if (reply) {
+          await messaging.sendText(chatId, reply);
+          await chatMemory.append(chatId, 'user', text);
+          await chatMemory.append(chatId, 'assistant', reply);
+        }
+        handled = true;
+      }
+    } catch (reminderErr) {
+      logger.error({ err: reminderErr }, 'Reminder agent error');
+      await messaging.sendText(chatId, `Reminder error: ${reminderErr.message}`);
+      handled = true;
+    }
+  }
+
+  if (!handled && shouldTryLightsAgent(text)) {
     try {
       const lightsReply = await runLightsAgent(text);
       if (lightsReply.trim().toUpperCase() !== LIGHTS_AGENT_SKIP) {

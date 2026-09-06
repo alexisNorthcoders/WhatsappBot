@@ -14,6 +14,7 @@ import {
 } from '../agents/weatherAgent.js';
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.js';
+import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
 
 /**
@@ -55,6 +56,11 @@ export function createProductionPorts(deps) {
     chatMemory: {
       append: appendMessage,
     },
+    shouldTryReminderAgent,
+    runReminderAgent: async (m) =>
+      runReminderAgent(m, {
+        isAllowedActor,
+      }),
     shouldTryLightsAgent,
     runLightsAgent,
     LIGHTS_AGENT_SKIP,
