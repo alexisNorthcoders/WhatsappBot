@@ -9,8 +9,13 @@ import {
   looksLikeReminderCancel,
   looksLikeReminderList,
   looksLikeReminderRequest,
+  localDueAtMs,
+  parseAbsoluteReminder,
   parseCancelReminder,
   parseRelativeReminder,
+  parseReminder,
+  REMINDER_TIME_EXAMPLES,
+  resolveClockHour,
 } from '../whatsapp/reminders/reminderParser.js';
 import {
   addReminder,
@@ -162,20 +167,244 @@ describe('reminderParser', () => {
     if (!m.ok) assert.equal(m.reason, 'missing_text');
   });
 
-  it('returns unsupported_time for absolute phrasing (MVP)', () => {
-    const r = parseRelativeReminder('remind me at 6 to take the bins out', now);
-    assert.equal(r.ok, false);
-    if (!r.ok) {
-      assert.equal(r.reason, 'unsupported_time');
-      assert.match(r.message, /minutes or hours/i);
-    }
-  });
-
   it('formats due time as today/tomorrow', () => {
     const dueToday = now + 30 * 60_000;
     assert.match(formatReminderDue(dueToday, now), /today$/);
     const dueTomorrow = now + 20 * 3_600_000;
     assert.match(formatReminderDue(dueTomorrow, now), /tomorrow$/);
+  });
+
+  it('resolveClockHour: bare 1–7 → PM, 8–11 → AM, 12 → noon; am/pm and 24h override', () => {
+    // Bare hours 1–7 → PM
+    for (let h = 1; h <= 7; h++) {
+      assert.deepEqual(resolveClockHour(h, 0, undefined), { hour: h + 12, minute: 0 });
+    }
+    // Bare hours 8–11 → AM as written
+    for (let h = 8; h <= 11; h++) {
+      assert.deepEqual(resolveClockHour(h, 0, undefined), { hour: h, minute: 0 });
+    }
+    // Bare 12 → noon
+    assert.deepEqual(resolveClockHour(12, 0, undefined), { hour: 12, minute: 0 });
+    assert.deepEqual(resolveClockHour(12, 30, undefined), { hour: 12, minute: 30 });
+
+    // Explicit am/pm
+    assert.deepEqual(resolveClockHour(6, 0, 'am'), { hour: 6, minute: 0 });
+    assert.deepEqual(resolveClockHour(6, 30, 'pm'), { hour: 18, minute: 30 });
+    assert.deepEqual(resolveClockHour(12, 0, 'am'), { hour: 0, minute: 0 });
+    assert.deepEqual(resolveClockHour(12, 0, 'pm'), { hour: 12, minute: 0 });
+    assert.deepEqual(resolveClockHour(9, 15, 'a.m.'), { hour: 9, minute: 15 });
+    assert.deepEqual(resolveClockHour(9, 15, 'p.m.'), { hour: 21, minute: 15 });
+
+    // 24h (no meridiem)
+    assert.deepEqual(resolveClockHour(0, 0, undefined), { hour: 0, minute: 0 });
+    assert.deepEqual(resolveClockHour(18, 0, undefined), { hour: 18, minute: 0 });
+    assert.deepEqual(resolveClockHour(23, 45, undefined), { hour: 23, minute: 45 });
+
+    assert.equal(resolveClockHour(25, 0, undefined), null);
+    assert.equal(resolveClockHour(6, 99, undefined), null);
+    assert.equal(resolveClockHour(13, 0, 'pm'), null);
+  });
+
+  it('parses “at 6 …” as next future 18:00 (today if still future)', () => {
+    // Local noon — 18:00 today is still future
+    const noon = localDueAtMs(now, { hour: 12, minute: 0 });
+    const r = parseAbsoluteReminder('remind me at 6 to take the bins out', noon);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.text, 'take the bins out');
+      assert.equal(r.dueAt, localDueAtMs(noon, { hour: 18, minute: 0 }));
+      assert.match(formatReminderDue(r.dueAt, noon), /18:00 today/);
+    }
+
+    // Via unified parseReminder
+    const u = parseReminder('remind me at 6 to take the bins out', noon);
+    assert.equal(u.ok, true);
+    if (u.ok) assert.equal(u.dueAt, localDueAtMs(noon, { hour: 18, minute: 0 }));
+  });
+
+  it('rolls “at 6 …” to tomorrow when 18:00 today has passed', () => {
+    const evening = localDueAtMs(now, { hour: 19, minute: 0 });
+    const r = parseAbsoluteReminder('remind me at 6 to take the bins out', evening);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.dueAt, localDueAtMs(evening, { dayOffset: 1, hour: 18, minute: 0 }));
+      assert.match(formatReminderDue(r.dueAt, evening), /18:00 tomorrow/);
+    }
+  });
+
+  it('parses “tomorrow at 9 …” as 09:00 tomorrow (literal calendar tomorrow)', () => {
+    const noon = localDueAtMs(now, { hour: 12, minute: 0 });
+    const r = parseAbsoluteReminder(
+      'remind me tomorrow at 9 to email the landlord',
+      noon
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.text, 'email the landlord');
+      assert.equal(r.dueAt, localDueAtMs(noon, { dayOffset: 1, hour: 9, minute: 0 }));
+      assert.match(formatReminderDue(r.dueAt, noon), /09:00 tomorrow/);
+    }
+
+    // Late evening: still tomorrow 09:00, never day-after-tomorrow
+    const late = localDueAtMs(now, { hour: 22, minute: 30 });
+    const lateR = parseReminder('remind me tomorrow at 9 to email the landlord', late);
+    assert.equal(lateR.ok, true);
+    if (lateR.ok) {
+      assert.equal(lateR.dueAt, localDueAtMs(late, { dayOffset: 1, hour: 9, minute: 0 }));
+      assert.match(formatReminderDue(lateR.dueAt, late), /09:00 tomorrow/);
+    }
+  });
+
+  it('parses absolute task-before-time and time-before-task placements', () => {
+    const noon = localDueAtMs(now, { hour: 12, minute: 0 });
+    const due1800 = localDueAtMs(noon, { hour: 18, minute: 0 });
+
+    const timeThenTask = parseReminder('remind me at 6 to take bins out', noon);
+    assert.equal(timeThenTask.ok, true);
+    if (timeThenTask.ok) {
+      assert.equal(timeThenTask.text, 'take bins out');
+      assert.equal(timeThenTask.dueAt, due1800);
+    }
+
+    const taskThenTime = parseReminder('remind me to take bins out at 6', noon);
+    assert.equal(taskThenTime.ok, true);
+    if (taskThenTime.ok) {
+      assert.equal(taskThenTime.text, 'take bins out');
+      assert.equal(taskThenTime.dueAt, due1800);
+    }
+
+    const leadTime = parseReminder('at 6 remind me to take bins out', noon);
+    assert.equal(leadTime.ok, true);
+    if (leadTime.ok) {
+      assert.equal(leadTime.text, 'take bins out');
+      assert.equal(leadTime.dueAt, due1800);
+    }
+
+    const taskThenTomorrow = parseReminder(
+      'remind me to email the landlord tomorrow at 9',
+      noon
+    );
+    assert.equal(taskThenTomorrow.ok, true);
+    if (taskThenTomorrow.ok) {
+      assert.equal(taskThenTomorrow.text, 'email the landlord');
+      assert.equal(
+        taskThenTomorrow.dueAt,
+        localDueAtMs(noon, { dayOffset: 1, hour: 9, minute: 0 })
+      );
+    }
+
+    const tomorrowThenTask = parseReminder(
+      'remind me tomorrow at 9 to email the landlord',
+      noon
+    );
+    assert.equal(tomorrowThenTask.ok, true);
+    if (tomorrowThenTask.ok) {
+      assert.equal(tomorrowThenTask.text, 'email the landlord');
+      assert.equal(
+        tomorrowThenTask.dueAt,
+        localDueAtMs(noon, { dayOffset: 1, hour: 9, minute: 0 })
+      );
+    }
+  });
+
+  it('parses absolute variants (minutes, am/pm, 24h)', () => {
+    const noon = localDueAtMs(now, { hour: 12, minute: 0 });
+
+    const withMins = parseReminder('nudge me tomorrow at 9:15 to call dentist', noon);
+    assert.equal(withMins.ok, true);
+    if (withMins.ok) {
+      assert.equal(withMins.text, 'call dentist');
+      assert.equal(
+        withMins.dueAt,
+        localDueAtMs(noon, { dayOffset: 1, hour: 9, minute: 15 })
+      );
+    }
+
+    const pm = parseReminder('remind me at 6pm to take bins out', noon);
+    assert.equal(pm.ok, true);
+    if (pm.ok) assert.equal(pm.dueAt, localDueAtMs(noon, { hour: 18, minute: 0 }));
+
+    const am = parseReminder('remind me at 6am to stretch', noon);
+    assert.equal(am.ok, true);
+    if (am.ok) {
+      // 06:00 today is past at noon → tomorrow 06:00
+      assert.equal(am.dueAt, localDueAtMs(noon, { dayOffset: 1, hour: 6, minute: 0 }));
+    }
+
+    const h24 = parseReminder('remind me at 18:00 to take bins out', noon);
+    assert.equal(h24.ok, true);
+    if (h24.ok) assert.equal(h24.dueAt, localDueAtMs(noon, { hour: 18, minute: 0 }));
+  });
+
+  it('absolute/ambiguous parse errors include exact supported-form examples', () => {
+    const noon = localDueAtMs(now, { hour: 12, minute: 0 });
+
+    const noTask = parseReminder('remind me at 6', noon);
+    assert.equal(noTask.ok, false);
+    if (!noTask.ok) {
+      assert.equal(noTask.reason, 'missing_text');
+      assert.match(noTask.message, /what should i remind you about/i);
+      assert.match(noTask.message, /remind me at 6 to take the bins out/i);
+    }
+
+    const bad = parseReminder('remind me at tea time to stretch', noon);
+    assert.equal(bad.ok, false);
+    if (!bad.ok) {
+      assert.equal(bad.reason, 'unsupported_time');
+      assert.equal(bad.message, `I couldn't understand that time. ${REMINDER_TIME_EXAMPLES}`);
+      assert.match(bad.message, /bare 1–7 → PM/i);
+      assert.match(bad.message, /tomorrow at 9/i);
+      assert.match(bad.message, /in 20 minutes/i);
+    }
+
+    const invalidHour = parseAbsoluteReminder('remind me at 25 to stretch', noon);
+    assert.equal(invalidHour.ok, false);
+    if (!invalidHour.ok) {
+      assert.equal(invalidHour.reason, 'invalid_time');
+      assert.equal(
+        invalidHour.message,
+        `That doesn't look like a valid time. ${REMINDER_TIME_EXAMPLES}`
+      );
+    }
+  });
+
+  it('parseReminder: first time phrase in the string wins (relative vs absolute)', () => {
+    const noon = localDueAtMs(now, { hour: 12, minute: 0 });
+
+    // Pure relative still works
+    const pureRel = parseReminder('remind me in 20 minutes to check the oven', noon);
+    assert.equal(pureRel.ok, true);
+    if (pureRel.ok) {
+      assert.equal(pureRel.dueAt, noon + 20 * 60_000);
+      assert.equal(pureRel.text, 'check the oven');
+    }
+
+    // Relative phrase first → relative (keep "at 6" in the task)
+    const relFirst = parseReminder('remind me in 20 minutes to meet at 6', noon);
+    assert.equal(relFirst.ok, true);
+    if (relFirst.ok) {
+      assert.equal(relFirst.dueAt, noon + 20 * 60_000);
+      assert.equal(relFirst.text, 'meet at 6');
+    }
+
+    // Absolute phrase first → absolute (ignore later "in 20 minutes")
+    const absFirst = parseReminder(
+      'remind me tomorrow at 9 in 20 minutes to call the dentist',
+      noon
+    );
+    assert.equal(absFirst.ok, true);
+    if (absFirst.ok) {
+      assert.equal(absFirst.dueAt, localDueAtMs(noon, { dayOffset: 1, hour: 9, minute: 0 }));
+      assert.equal(absFirst.text, 'call the dentist');
+    }
+
+    // "at 6 … in N minutes" → absolute wins (at comes first)
+    const atThenIn = parseReminder('remind me at 6 in 20 minutes to stretch', noon);
+    assert.equal(atThenIn.ok, true);
+    if (atThenIn.ok) {
+      assert.equal(atThenIn.dueAt, localDueAtMs(noon, { hour: 18, minute: 0 }));
+      assert.equal(atThenIn.text, 'stretch');
+    }
   });
 });
 
@@ -622,6 +851,46 @@ describe('reminderAgent allowlist', () => {
     const store = await readReminderStore(filePath);
     assert.equal(store.reminders.length, 1);
     assert.equal(store.reminders[0].dueAt, now + 20 * 60_000);
+  });
+
+  it('creates absolute-time reminder (at 6 → next 18:00)', async () => {
+    const noon = Date.parse('2026-09-06T12:00:00+01:00');
+    const r = await runReminderAgent(
+      {
+        text: 'remind me at 6 to take the bins out',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'owner@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => true,
+        nowMs: noon,
+        filePath,
+      }
+    );
+    assert.equal(r.handled, true);
+    assert.match(r.replyText, /OK — I'll remind you at 18:00 today: take the bins out \(#1\)/);
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 1);
+    assert.equal(store.reminders[0].dueAt, localDueAtMs(noon, { hour: 18, minute: 0 }));
+  });
+
+  it('surfaces supported-form examples on invalid create input', async () => {
+    const r = await runReminderAgent(
+      {
+        text: 'remind me at tea time to stretch',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'owner@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => true,
+        filePath,
+      }
+    );
+    assert.equal(r.handled, true);
+    assert.equal(r.replyText, `I couldn't understand that time. ${REMINDER_TIME_EXAMPLES}`);
+    assert.match(r.replyText, /bare 1–7 → PM/i);
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 0);
   });
 
   it('lists upcoming reminders with id, due time, and text', async () => {
