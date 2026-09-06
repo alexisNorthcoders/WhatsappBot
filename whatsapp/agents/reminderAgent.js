@@ -34,7 +34,9 @@ export async function runReminderAgent(m, deps) {
     return { handled: false, replyText: '' };
   }
 
-  if (!deps.isAllowedActor(m.actorId)) {
+  const isAllowed =
+    typeof deps?.isAllowedActor === 'function' ? deps.isAllowedActor(m.actorId) : false;
+  if (!isAllowed) {
     const hint = lidExtraJidsHint(m.actorId);
     return {
       handled: true,

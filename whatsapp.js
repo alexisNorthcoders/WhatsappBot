@@ -29,7 +29,10 @@ import {
 } from './whatsapp/agents/cursorCliPending.js';
 import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
-import { startReminderScheduler } from './whatsapp/reminders/reminderScheduler.js';
+import {
+  startReminderScheduler,
+  stopReminderScheduler,
+} from './whatsapp/reminders/reminderScheduler.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -165,6 +168,7 @@ async function startSock() {
         }
       })();
     } else if (connection === 'close') {
+      stopReminderScheduler();
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       /*
        * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:

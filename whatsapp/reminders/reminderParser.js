@@ -59,15 +59,22 @@ export function formatReminderDue(dueAtMs, nowMs = Date.now()) {
 }
 
 /**
- * Strip filler around task text.
+ * Strip filler around task text (please/thanks, punctuation, to/that).
  * @param {string} raw
  * @returns {string}
  */
 function normalizeTaskText(raw) {
   let t = String(raw ?? '').trim();
-  t = t.replace(/^[,:\-–—]\s*/, '');
+  t = t.replace(/^[,:;.!\?\-–—]+\s*/, '');
+  t = t.replace(/\s*[,:;.!\?\-–—]+$/, '');
+  t = t.replace(/^(?:please|pls|plz|thanks|thank\s+you|thx)\s+/i, '');
+  t = t.replace(/\s+(?:please|pls|plz|thanks|thank\s+you|thx)$/i, '');
   t = t.replace(/^(?:to|that)\s+/i, '');
+  t = t.replace(/^[,:;.!\?\-–—]+\s*/, '');
+  t = t.replace(/\s*[,:;.!\?\-–—]+$/, '');
   t = t.replace(/\s+/g, ' ').trim();
+  // Filler-only leftovers (e.g. "please" after stripping time phrase)
+  if (/^(?:please|pls|plz|thanks|thank\s+you|thx)$/i.test(t)) return '';
   return t;
 }
 

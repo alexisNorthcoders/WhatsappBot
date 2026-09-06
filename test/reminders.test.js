@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'fs/promises';
+import { mkdtemp, rm, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -17,6 +17,8 @@ import {
 import {
   formatDeliveryMessage,
   runReminderDeliveryTick,
+  startReminderScheduler,
+  stopReminderScheduler,
 } from '../whatsapp/reminders/reminderScheduler.js';
 import { runReminderAgent, shouldTryReminderAgent } from '../whatsapp/agents/reminderAgent.js';
 import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
@@ -62,6 +64,34 @@ describe('reminderParser', () => {
       assert.equal(r.offsetMs, 3_600_000);
       assert.equal(r.text, 'drink water');
     }
+  });
+
+  it('handles real-world WhatsApp phrasing (please / punctuation)', () => {
+    const noTask = parseRelativeReminder('remind me in 20 minutes please', now);
+    assert.equal(noTask.ok, false);
+    if (!noTask.ok) assert.equal(noTask.reason, 'missing_text');
+
+    const withPlease = parseRelativeReminder(
+      'remind me in 20 minutes to check the oven please',
+      now
+    );
+    assert.equal(withPlease.ok, true);
+    if (withPlease.ok) assert.equal(withPlease.text, 'check the oven');
+
+    const punct = parseRelativeReminder('Remind me, in 20 minutes, to check the oven!!!', now);
+    assert.equal(punct.ok, true);
+    if (punct.ok) assert.equal(punct.text, 'check the oven');
+
+    const pleaseThenTask = parseRelativeReminder(
+      'nudge me in 20 minutes please check the oven',
+      now
+    );
+    assert.equal(pleaseThenTask.ok, true);
+    if (pleaseThenTask.ok) assert.equal(pleaseThenTask.text, 'check the oven');
+
+    const trailingBang = parseRelativeReminder('remind me in 20 minutes!!!', now);
+    assert.equal(trailingBang.ok, false);
+    if (!trailingBang.ok) assert.equal(trailingBang.reason, 'missing_text');
   });
 
   it('rejects zero delay and missing task text', () => {
@@ -124,6 +154,23 @@ describe('reminderStore + delivery', () => {
     assert.equal(store.nextId, 2);
   });
 
+  it('treats malformed store JSON as empty (survives corruption)', async () => {
+    await writeFile(filePath, '{not-json', 'utf8');
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 0);
+    assert.equal(store.nextId, 1);
+
+    const rem = await addReminder({
+      chatId: 'c@s.whatsapp.net',
+      dueAt: Date.now() + 1000,
+      text: 'recover',
+      filePath,
+    });
+    assert.equal(rem.id, 1);
+    const again = await readReminderStore(filePath);
+    assert.equal(again.reminders.length, 1);
+  });
+
   it('delivers due reminders once (claim before send)', async () => {
     const now = Date.parse('2026-09-06T12:00:00Z');
     await addReminder({
@@ -170,12 +217,104 @@ describe('reminderStore + delivery', () => {
     assert.equal(claimed, null);
   });
 
+  it('only one concurrent claim wins', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'once',
+      createdAt: now - 60_000,
+      filePath,
+    });
+
+    const results = await Promise.all([
+      claimReminderFired(1, now, filePath),
+      claimReminderFired(1, now + 1, filePath),
+      claimReminderFired(1, now + 2, filePath),
+    ]);
+    const winners = results.filter((r) => r != null);
+    assert.equal(winners.length, 1);
+    assert.equal(winners[0]?.status, 'fired');
+    assert.equal(winners[0]?.text, 'once');
+
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders[0].status, 'fired');
+  });
+
+  it('records send failure after claim (does not redeliver)', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'fail me',
+      createdAt: now - 60_000,
+      filePath,
+    });
+
+    const r1 = await runReminderDeliveryTick({
+      sendText: async () => {
+        throw new Error('socket down');
+      },
+      nowMs: now,
+      filePath,
+    });
+    assert.equal(r1.delivered, 0);
+    assert.equal(r1.failed, 1);
+
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders[0].status, 'fired');
+
+    const sent = [];
+    const r2 = await runReminderDeliveryTick({
+      sendText: async (chatId, text) => {
+        sent.push({ chatId, text });
+      },
+      nowMs: now,
+      filePath,
+    });
+    assert.equal(r2.delivered, 0);
+    assert.equal(sent.length, 0);
+  });
+
   it('marks overdue deliveries as late', () => {
     const now = 1_000_000;
     assert.equal(
       formatDeliveryMessage({ text: 'bins', dueAt: now - 5 * 60_000, nowMs: now }),
       'Reminder (late): bins'
     );
+  });
+});
+
+describe('reminderScheduler lifecycle', () => {
+  afterEach(() => {
+    stopReminderScheduler();
+  });
+
+  it('startReminderScheduler replaces prior interval (no duplicate pollers)', async () => {
+    const ticks = [];
+    /** @type {any} */
+    const fakeSock = {
+      sendMessage: async () => {},
+    };
+    startReminderScheduler({
+      getSocket: () => fakeSock,
+      pollMs: 50,
+      filePath: join(tmpdir(), `reminders-sched-${Date.now()}.json`),
+      logger: {
+        info: (a, b) => ticks.push(['info', a, b]),
+      },
+    });
+    startReminderScheduler({
+      getSocket: () => fakeSock,
+      pollMs: 50,
+      filePath: join(tmpdir(), `reminders-sched2-${Date.now()}.json`),
+      logger: {
+        info: (a, b) => ticks.push(['info2', a, b]),
+      },
+    });
+    // Two starts should leave a single live interval; stop clears it.
+    stopReminderScheduler();
+    assert.ok(ticks.some((t) => t[0] === 'info2'));
   });
 });
 
@@ -210,6 +349,21 @@ describe('reminderAgent allowlist', () => {
         isAllowedActor: () => false,
         filePath,
       }
+    );
+    assert.equal(r.handled, true);
+    assert.match(r.replyText, /Not allowed to set reminders/);
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders.length, 0);
+  });
+
+  it('denies safely when isAllowedActor is missing', async () => {
+    const r = await runReminderAgent(
+      {
+        text: 'nudge me in 10 minutes to check the oven',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'anyone@s.whatsapp.net',
+      },
+      /** @type {any} */ ({ filePath })
     );
     assert.equal(r.handled, true);
     assert.match(r.replyText, /Not allowed to set reminders/);

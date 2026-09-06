@@ -91,6 +91,7 @@ function truthyEnv(raw) {
 
 /**
  * Restart-safe poller for due reminders.
+ * Clears any existing interval first so reconnect / tests do not stack pollers.
  * @param {{
  *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
  *   logger?: { info?: Function, warn?: Function, error?: Function },
@@ -100,11 +101,11 @@ function truthyEnv(raw) {
  */
 export function startReminderScheduler(opts) {
   const { getSocket, logger } = opts;
+  stopReminderScheduler();
   if (truthyEnv(process.env.REMINDERS_DISABLE)) {
     logger?.info?.('reminders: disabled (REMINDERS_DISABLE)');
     return;
   }
-  if (intervalId) return;
 
   const pollMs = Number.isFinite(opts.pollMs)
     ? opts.pollMs
@@ -138,7 +139,7 @@ export function startReminderScheduler(opts) {
   logger?.info?.({ pollMs, filePath }, 'reminders: scheduler started');
 }
 
-/** Test helper — stop the singleton interval. */
+/** Stop the singleton interval (connection close / tests / restart). */
 export function stopReminderScheduler() {
   if (intervalId) {
     clearInterval(intervalId);
