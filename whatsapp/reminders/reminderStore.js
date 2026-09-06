@@ -14,8 +14,46 @@ export const REMINDER_LIST_LIMIT = 20;
 /**
  * How long a reminder may stay in `delivering` before restart recovery
  * finalizes it as fired without re-send (at-most-once after a crash mid-send).
+ * Only applies when this process is *not* still actively sending that id
+ * (see {@link markReminderDeliveryInFlight}).
  */
 export const STALE_DELIVERING_MS = 2 * 60_000;
+
+/**
+ * Reminder ids this process is currently sending. Prevents
+ * {@link settleStaleDeliveries} from finalizing an in-flight send when
+ * `deliveryAttemptAt` ages past {@link STALE_DELIVERING_MS} (slow network /
+ * backpressure). Cleared on process exit — crash recovery still settles.
+ * @type {Set<number>}
+ */
+const localInFlightDeliveries = new Set();
+
+/**
+ * @param {number} id
+ */
+export function markReminderDeliveryInFlight(id) {
+  if (typeof id === 'number' && Number.isInteger(id)) localInFlightDeliveries.add(id);
+}
+
+/**
+ * @param {number} id
+ */
+export function clearReminderDeliveryInFlight(id) {
+  localInFlightDeliveries.delete(id);
+}
+
+/**
+ * @param {number} id
+ * @returns {boolean}
+ */
+export function isReminderDeliveryInFlightLocally(id) {
+  return localInFlightDeliveries.has(id);
+}
+
+/** Test helper: drop process-local in-flight markers. */
+export function clearAllReminderDeliveryInFlightForTests() {
+  localInFlightDeliveries.clear();
+}
 
 /**
  * @typedef {'pending' | 'delivering' | 'fired' | 'cancelled'} ReminderStatus
@@ -323,6 +361,32 @@ export async function claimReminderDelivery(
     rem.status = 'delivering';
     rem.deliveryAttemptAt = attemptAtMs;
     await writeReminderStore(store, filePath);
+    markReminderDeliveryInFlight(id);
+    return { ...rem };
+  });
+}
+
+/**
+ * Refresh deliveryAttemptAt while a send is still in progress (heartbeat).
+ * Extends the stale window for crash recovery without allowing settle while
+ * {@link isReminderDeliveryInFlightLocally} is true.
+ * @param {number} id
+ * @param {number} [atMs]
+ * @param {string} [filePath]
+ * @returns {Promise<Reminder | null>}
+ */
+export async function touchReminderDelivery(
+  id,
+  atMs = Date.now(),
+  filePath = remindersStorePath()
+) {
+  return withStoreLock(filePath, async () => {
+    const store = await readReminderStore(filePath);
+    const rem = store.reminders.find((r) => r.id === id);
+    if (!rem || rem.status !== 'delivering') return null;
+    rem.deliveryAttemptAt = atMs;
+    await writeReminderStore(store, filePath);
+    markReminderDeliveryInFlight(id);
     return { ...rem };
   });
 }
@@ -339,40 +403,49 @@ export async function completeReminderDelivery(
   firedAtMs = Date.now(),
   filePath = remindersStorePath()
 ) {
-  return withStoreLock(filePath, async () => {
-    const store = await readReminderStore(filePath);
-    const rem = store.reminders.find((r) => r.id === id);
-    if (!rem || rem.status !== 'delivering') return null;
-    rem.status = 'fired';
-    rem.firedAt = firedAtMs;
-    await writeReminderStore(store, filePath);
-    return { ...rem };
-  });
+  try {
+    return await withStoreLock(filePath, async () => {
+      const store = await readReminderStore(filePath);
+      const rem = store.reminders.find((r) => r.id === id);
+      if (!rem || rem.status !== 'delivering') return null;
+      rem.status = 'fired';
+      rem.firedAt = firedAtMs;
+      await writeReminderStore(store, filePath);
+      return { ...rem };
+    });
+  } finally {
+    clearReminderDeliveryInFlight(id);
+  }
 }
 
 /**
  * Release a failed delivery claim so a later tick can retry (delivering → pending).
- * Use only when send threw before acceptance — avoids losing overdue reminders
- * across transient downtime while still requiring a new claim for the next attempt.
+ * Call **only** for known pre-send failures (scheduler `ReminderPreSendError`).
+ * Never release after an uncertain send error — that risks duplicate delivery.
  * @param {number} id
  * @param {string} [filePath]
  * @returns {Promise<Reminder | null>}
  */
 export async function releaseReminderDelivery(id, filePath = remindersStorePath()) {
-  return withStoreLock(filePath, async () => {
-    const store = await readReminderStore(filePath);
-    const rem = store.reminders.find((r) => r.id === id);
-    if (!rem || rem.status !== 'delivering') return null;
-    rem.status = 'pending';
-    rem.deliveryAttemptAt = null;
-    await writeReminderStore(store, filePath);
-    return { ...rem };
-  });
+  try {
+    return await withStoreLock(filePath, async () => {
+      const store = await readReminderStore(filePath);
+      const rem = store.reminders.find((r) => r.id === id);
+      if (!rem || rem.status !== 'delivering') return null;
+      rem.status = 'pending';
+      rem.deliveryAttemptAt = null;
+      await writeReminderStore(store, filePath);
+      return { ...rem };
+    });
+  } finally {
+    clearReminderDeliveryInFlight(id);
+  }
 }
 
 /**
  * After a crash mid-send, `delivering` rows may be stuck. Finalize stale ones as
- * fired without re-sending (at-most-once). Fresh delivering rows are left alone.
+ * fired without re-sending (at-most-once). Skips ids this process is still
+ * actively sending (local in-flight marker), even if deliveryAttemptAt is old.
  * @param {number} [nowMs]
  * @param {{
  *   staleMs?: number,
@@ -392,6 +465,8 @@ export async function settleStaleDeliveries(nowMs = Date.now(), opts = {}) {
     let settled = 0;
     for (const rem of store.reminders) {
       if (rem.status !== 'delivering') continue;
+      // Never finalize a send still running in this process.
+      if (isReminderDeliveryInFlightLocally(rem.id)) continue;
       const attemptedAt =
         typeof rem.deliveryAttemptAt === 'number' && Number.isFinite(rem.deliveryAttemptAt)
           ? rem.deliveryAttemptAt
@@ -407,9 +482,10 @@ export async function settleStaleDeliveries(nowMs = Date.now(), opts = {}) {
 }
 
 /**
- * Atomically claim a pending reminder straight to fired (pending → fired).
- * Prefer {@link claimReminderDelivery} + {@link completeReminderDelivery} around
- * the actual send. Kept for tests and one-shot claims that must not retry.
+ * @deprecated Legacy one-shot claim (pending → fired). **Not** used by the
+ * production delivery path — prefer {@link claimReminderDelivery} +
+ * {@link completeReminderDelivery}. Kept only for older tests / callers that
+ * need a direct fire without a delivering window. Do not use for sends.
  * @param {number} id
  * @param {number} [firedAtMs]
  * @param {string} [filePath]

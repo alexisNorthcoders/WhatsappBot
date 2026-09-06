@@ -22,7 +22,9 @@ import {
   cancelReminder,
   claimReminderDelivery,
   claimReminderFired,
+  clearAllReminderDeliveryInFlightForTests,
   completeReminderDelivery,
+  isReminderDeliveryInFlightLocally,
   listDuePendingReminders,
   listPendingReminders,
   readReminderStore,
@@ -33,6 +35,9 @@ import {
 } from '../whatsapp/reminders/reminderStore.js';
 import {
   formatDeliveryMessage,
+  isReminderSchedulerTickInFlight,
+  ReminderPreSendError,
+  resetReminderSchedulerInFlightForTests,
   runReminderDeliveryTick,
   startReminderScheduler,
   stopReminderScheduler,
@@ -425,6 +430,7 @@ describe('reminderStore + delivery', () => {
   });
 
   afterEach(async () => {
+    clearAllReminderDeliveryInFlightForTests();
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -546,7 +552,7 @@ describe('reminderStore + delivery', () => {
     assert.equal(completed?.firedAt, now + 10);
   });
 
-  it('releases claim on send failure so a later tick can retry', async () => {
+  it('releases claim on pre-send failure so a later tick can retry', async () => {
     const now = Date.parse('2026-09-06T12:00:00Z');
     await addReminder({
       chatId: 'c1@s.whatsapp.net',
@@ -558,13 +564,14 @@ describe('reminderStore + delivery', () => {
 
     const r1 = await runReminderDeliveryTick({
       sendText: async () => {
-        throw new Error('socket down');
+        throw new ReminderPreSendError('socket down');
       },
       nowMs: now,
       filePath,
     });
     assert.equal(r1.delivered, 0);
     assert.equal(r1.failed, 1);
+    assert.equal(r1.uncertain, 0);
 
     const store = await readReminderStore(filePath);
     assert.equal(store.reminders[0].status, 'pending');
@@ -581,6 +588,42 @@ describe('reminderStore + delivery', () => {
     assert.equal(r2.delivered, 1);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].text, 'Reminder: fail me');
+  });
+
+  it('finalizes without retry when send error is uncertain (may have been accepted)', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'maybe sent',
+      createdAt: now - 60_000,
+      filePath,
+    });
+
+    const r1 = await runReminderDeliveryTick({
+      sendText: async () => {
+        throw new Error('connection reset after write');
+      },
+      nowMs: now,
+      filePath,
+    });
+    assert.equal(r1.delivered, 0);
+    assert.equal(r1.failed, 0);
+    assert.equal(r1.uncertain, 1);
+
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders[0].status, 'fired');
+
+    const sent = [];
+    const r2 = await runReminderDeliveryTick({
+      sendText: async (chatId, text) => {
+        sent.push({ chatId, text });
+      },
+      nowMs: now,
+      filePath,
+    });
+    assert.equal(r2.delivered, 0);
+    assert.equal(sent.length, 0);
   });
 
   it('after simulated downtime, overdue reminders deliver once as late', async () => {
@@ -634,6 +677,8 @@ describe('reminderStore + delivery', () => {
     });
     const claimed = await claimReminderDelivery(1, now - STALE_DELIVERING_MS - 1, filePath);
     assert.equal(claimed?.status, 'delivering');
+    // Simulate process crash: in-memory in-flight markers are gone.
+    clearAllReminderDeliveryInFlightForTests();
 
     const sent = [];
     const r = await runReminderDeliveryTick({
@@ -686,6 +731,36 @@ describe('reminderStore + delivery', () => {
     assert.equal((await readReminderStore(filePath)).reminders[0].status, 'pending');
   });
 
+  it('does not settle stale delivering while this process is still sending', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 10_000,
+      text: 'long send',
+      createdAt: now - 60_000,
+      filePath,
+    });
+    // Claim with an ancient deliveryAttemptAt (would be stale without local marker).
+    await claimReminderDelivery(1, now - STALE_DELIVERING_MS - 1, filePath);
+    assert.equal(isReminderDeliveryInFlightLocally(1), true);
+
+    const settled = await settleStaleDeliveries(now, {
+      filePath,
+      staleMs: STALE_DELIVERING_MS,
+    });
+    assert.equal(settled, 0);
+    assert.equal((await readReminderStore(filePath)).reminders[0].status, 'delivering');
+
+    // Simulate crash: drop local marker — then stale settle finalizes without re-send.
+    clearAllReminderDeliveryInFlightForTests();
+    const settledAfterCrash = await settleStaleDeliveries(now, {
+      filePath,
+      staleMs: STALE_DELIVERING_MS,
+    });
+    assert.equal(settledAfterCrash, 1);
+    assert.equal((await readReminderStore(filePath)).reminders[0].status, 'fired');
+  });
+
   it('loads v1 store rows missing deliveryAttemptAt', async () => {
     await writeFile(
       filePath,
@@ -711,6 +786,109 @@ describe('reminderStore + delivery', () => {
     assert.equal(store.version, 2);
     assert.equal(store.reminders[0].deliveryAttemptAt, null);
     assert.equal(store.reminders[0].text, 'legacy');
+  });
+
+  it('migrates v1 store with mixed statuses; cancel/listDue/claim/settle behave', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await writeFile(
+      filePath,
+      JSON.stringify({
+        version: 1,
+        nextId: 5,
+        reminders: [
+          {
+            id: 1,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 120_000,
+            dueAt: now - 60_000,
+            text: 'due pending',
+            status: 'pending',
+            firedAt: null,
+          },
+          {
+            id: 2,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 120_000,
+            dueAt: now + 60_000,
+            text: 'upcoming',
+            status: 'pending',
+            firedAt: null,
+          },
+          {
+            id: 3,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 200_000,
+            dueAt: now - 180_000,
+            text: 'already fired',
+            status: 'fired',
+            firedAt: now - 170_000,
+          },
+          {
+            id: 4,
+            chatId: 'c1@s.whatsapp.net',
+            actorId: null,
+            createdAt: now - 90_000,
+            dueAt: now - 30_000,
+            text: 'was cancelled',
+            status: 'cancelled',
+            firedAt: null,
+          },
+        ],
+      }),
+      'utf8'
+    );
+
+    const store = await readReminderStore(filePath);
+    assert.equal(store.version, 2);
+    assert.equal(store.nextId, 5);
+    assert.equal(store.reminders.length, 4);
+    for (const rem of store.reminders) {
+      assert.equal(rem.deliveryAttemptAt, null);
+    }
+
+    const listed = await listPendingReminders({ chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(listed.total, 2);
+    assert.deepEqual(
+      listed.reminders.map((r) => r.id),
+      [1, 2]
+    );
+
+    const due = await listDuePendingReminders(now, filePath);
+    assert.equal(due.length, 1);
+    assert.equal(due[0].id, 1);
+
+    const cancelled = await cancelReminder(2, { chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(cancelled?.status, 'cancelled');
+    assert.equal(cancelled?.deliveryAttemptAt, null);
+
+    // Crash mid-send on migrated pending row: claim, drop local marker, settle.
+    const claimedStale = await claimReminderDelivery(1, now - STALE_DELIVERING_MS - 1, filePath);
+    assert.equal(claimedStale?.status, 'delivering');
+    assert.ok(claimedStale?.deliveryAttemptAt != null);
+    clearAllReminderDeliveryInFlightForTests();
+    const settled = await settleStaleDeliveries(now, {
+      filePath,
+      staleMs: STALE_DELIVERING_MS,
+    });
+    assert.equal(settled, 1);
+    assert.equal((await readReminderStore(filePath)).reminders.find((r) => r.id === 1)?.status, 'fired');
+
+    // Fresh pending after migration: claim → complete works.
+    const created = await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'post-migrate',
+      createdAt: now,
+      filePath,
+    });
+    const claimed = await claimReminderDelivery(created.id, now, filePath);
+    assert.equal(claimed?.status, 'delivering');
+    assert.equal(claimed?.deliveryAttemptAt, now);
+    const completed = await completeReminderDelivery(created.id, now + 1, filePath);
+    assert.equal(completed?.status, 'fired');
   });
 
   it('marks overdue deliveries as late', () => {
@@ -824,14 +1002,14 @@ describe('reminderStore + delivery', () => {
 
     const [cancelled, claimed] = await Promise.all([
       cancelReminder(1, { chatId: 'c1@s.whatsapp.net', filePath }),
-      claimReminderFired(1, now, filePath),
+      claimReminderDelivery(1, now, filePath),
     ]);
     const outcomes = [cancelled, claimed].filter((r) => r != null);
     assert.equal(outcomes.length, 1);
 
     const store = await readReminderStore(filePath);
     assert.ok(
-      store.reminders[0].status === 'cancelled' || store.reminders[0].status === 'fired'
+      store.reminders[0].status === 'cancelled' || store.reminders[0].status === 'delivering'
     );
 
     // If cancel won, a later delivery tick must not send.
@@ -846,6 +1024,8 @@ describe('reminderStore + delivery', () => {
       });
       assert.equal(r.delivered, 0);
       assert.equal(sent.length, 0);
+    } else {
+      await completeReminderDelivery(1, now, filePath);
     }
 
     // Stale due id after cancel alone: claim must return null.
@@ -859,8 +1039,24 @@ describe('reminderStore + delivery', () => {
     const due2 = await listDuePendingReminders(now, filePath);
     assert.equal(due2.some((r) => r.id === 2), true);
     await cancelReminder(2, { chatId: 'c1@s.whatsapp.net', filePath });
-    const claimedAfterCancel = await claimReminderFired(2, now, filePath);
+    const claimedAfterCancel = await claimReminderDelivery(2, now, filePath);
     assert.equal(claimedAfterCancel, null);
+  });
+
+  it('legacy claimReminderFired remains pending→fired one-shot (not production path)', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'legacy fire',
+      createdAt: now - 60_000,
+      filePath,
+    });
+    const fired = await claimReminderFired(1, now, filePath);
+    assert.equal(fired?.status, 'fired');
+    assert.equal(fired?.firedAt, now);
+    assert.equal(await claimReminderFired(1, now, filePath), null);
+    assert.equal(await claimReminderDelivery(1, now, filePath), null);
   });
 });
 
@@ -877,6 +1073,8 @@ describe('reminderScheduler lifecycle', () => {
 
   afterEach(async () => {
     stopReminderScheduler();
+    resetReminderSchedulerInFlightForTests();
+    clearAllReminderDeliveryInFlightForTests();
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -938,6 +1136,87 @@ describe('reminderScheduler lifecycle', () => {
     assert.match(sent[0].text, /Reminder \(late\): catch up/);
     const store = await readReminderStore(filePath);
     assert.equal(store.reminders[0].status, 'fired');
+  });
+
+  it('overlapping ticks / reconnect cannot double-claim the same reminder', async () => {
+    const now = Date.now();
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'once only',
+      createdAt: now - 60_000,
+      filePath,
+    });
+
+    /** @type {{ resolve: () => void }} */
+    const gate = { resolve: () => {} };
+    const releaseSend = new Promise((resolve) => {
+      gate.resolve = resolve;
+    });
+    const sent = [];
+    /** @type {any} */
+    const fakeSock = {
+      sendMessage: async (chatId, content) => {
+        sent.push({ chatId, text: content.text });
+        await releaseSend;
+      },
+    };
+
+    startReminderScheduler({
+      getSocket: () => fakeSock,
+      pollMs: 20,
+      filePath,
+    });
+
+    // Wait until first tick has claimed and entered send.
+    for (let i = 0; i < 50 && sent.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(sent.length, 1);
+    assert.equal(isReminderSchedulerTickInFlight(), true);
+
+    // Reconnect while first send is still blocked: must not start a second tick.
+    startReminderScheduler({
+      getSocket: () => fakeSock,
+      pollMs: 20,
+      filePath,
+    });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(sent.length, 1);
+    assert.equal((await readReminderStore(filePath)).reminders[0].status, 'delivering');
+
+    // Overlapping runReminderDeliveryTick also cannot double-claim.
+    const parallel = await Promise.all([
+      runReminderDeliveryTick({
+        sendText: async (chatId, text) => {
+          sent.push({ chatId, text });
+        },
+        nowMs: now,
+        filePath,
+      }),
+      runReminderDeliveryTick({
+        sendText: async (chatId, text) => {
+          sent.push({ chatId, text });
+        },
+        nowMs: now,
+        filePath,
+      }),
+    ]);
+    assert.equal(
+      parallel.reduce((n, r) => n + r.delivered, 0),
+      0
+    );
+    assert.equal(sent.length, 1);
+
+    gate.resolve();
+    for (let i = 0; i < 50; i++) {
+      const store = await readReminderStore(filePath);
+      if (store.reminders[0].status === 'fired') break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    stopReminderScheduler();
+    assert.equal(sent.length, 1);
+    assert.equal((await readReminderStore(filePath)).reminders[0].status, 'fired');
   });
 });
 
