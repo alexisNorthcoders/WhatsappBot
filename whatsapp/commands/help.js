@@ -1,3 +1,5 @@
+import { REMINDER_COMMAND_HELP_SNIPPET } from '../reminders/reminderParser.js';
+
 export default async function helpCommand(sock, sender) {
   const helpText = `*WhatsApp Bot — Command Reference*
 
@@ -42,7 +44,7 @@ export default async function helpCommand(sock, sender) {
 • *Notes* — Manage Joplin notes (say "save a note", "find my notes", "delete note"…, or "save https://… to Joplin" / "fetch this page to a note")
 • *Email* — Send emails via Gmail (say "email [person] about…")
 • *Weather* — Ask naturally: e.g. weather, forecast, temperature, rain/snow/storm, wind, humidity, sunny/cloudy, °C/°F, "will it rain", "how hot/cold", "what's it like outside". Name a city if you want; otherwise the bot uses its default city.
-• *Reminders* — "nudge/remind me in 20 minutes to …", "remind me at 6 to …" (bare 1–7 → PM), "tomorrow at 9 to …"; "list reminders"; "cancel/delete/remove reminder 3" or "cancel #3" (allowlisted actors only)
+• *Reminders* — ${REMINDER_COMMAND_HELP_SNIPPET}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Other*
