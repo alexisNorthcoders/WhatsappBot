@@ -205,8 +205,11 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     assert.equal(calls[1].args[0], 'pr');
   });
 
-  it('fails fast when allow_auto_merge is false (repo setting)', async () => {
-    cursorPostRunExec.execFile = (_cmd, args, _opts, cb) => {
+  it('falls back to direct merge when allow_auto_merge is false (e.g. private Free-plan repo)', async () => {
+    /** @type {{ cmd: string, args: string[] }[]} */
+    const calls = [];
+    cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+      calls.push({ cmd, args: [...args] });
       if (args[0] === 'api') {
         cb(
           null,
@@ -220,11 +223,21 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
         );
         return;
       }
-      cb(new Error('gh pr merge must not run when auto-merge is disabled at repo level'));
+      if (args[0] === 'pr' && args[1] === 'merge') {
+        assert.ok(!args.includes('--auto'), 'must not call --auto when repo disallows it');
+        assert.ok(args.includes('--squash'));
+        cb(null, '', '');
+        return;
+      }
+      cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
     };
     const r = await tryGhPrQueueAutoMerge('/tmp/r', 'https://github.com/o/rr/pull/2');
-    assert.equal(r.ok, false);
-    assert.match(r.error, /Allow auto-merge/);
+    assert.equal(r.ok, true);
+    assert.equal(r.mergedDirectly, true);
+    assert.equal(r.mergeMethod, 'squash');
+    const mergeCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+    assert.equal(mergeCalls.length, 1);
+    assert.ok(!mergeCalls[0].args.includes('--auto'));
   });
 
   it('falls back to direct merge when --auto fails with unprotected-branch gate error', async () => {

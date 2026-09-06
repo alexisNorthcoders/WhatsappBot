@@ -653,6 +653,8 @@ function mergeStrategyToGhFlags(strategy) {
  * If GitHub reports the head branch is out of date, merges base into head via the REST update-branch endpoint (once), then retries.
  * When `--auto` fails because there is no branch-protection gate to wait on (common on unprotected `main`), falls back to a
  * direct `gh pr merge` (no `--auto`) so the PR is not left open forever (seen on PR #72).
+ * When the repo has `allow_auto_merge=false` (typical for private Free-plan repos where the setting cannot be enabled),
+ * also falls back to a direct merge instead of failing and leaving the PR open.
  * @param {string} repo
  * @param {string} prUrl
  * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergedDirectly?: boolean, mergeMethod?: 'squash'|'merge'|'rebase' }>}
@@ -673,14 +675,6 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
       ok: false,
       error:
         `Could not read repository merge settings (GitHub API): ${caps.error}. Fix \`gh auth\` or network, then retry.`,
-    };
-  }
-  /* `gh pr merge --auto` only queues auto-merge when the repo allows it; otherwise GitHub rejects. Fail fast with setup guidance (issue #47 review). */
-  if (caps.allow_auto_merge === false) {
-    return {
-      ok: false,
-      error:
-        'GitHub **Allow auto-merge** is disabled for this repository. Enable it under **Settings → General → Pull requests** (separate from choosing squash vs merge commit). Then `gh pr merge --auto` can queue the merge.',
     };
   }
 
@@ -734,6 +728,24 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
         ...extra,
       };
     }
+  }
+
+  /*
+   * `gh pr merge --auto` only queues when the repo allows auto-merge. Private repos on GitHub Free
+   * often cannot enable it (branch protection / auto-merge are Pro features), so fall back to a
+   * direct merge — same outcome as the unprotected-main path below.
+   */
+  if (caps.allow_auto_merge === false) {
+    if (postRunLogEnabled()) {
+      console.log(
+        '[cursorPostRun]',
+        'tryGhPrQueueAutoMerge: repo allow_auto_merge=false; falling back to direct merge',
+        url
+      );
+    }
+    return tryDirectMergeFallback(
+      'GitHub **Allow auto-merge** is disabled for this repository (common on private Free-plan repos).'
+    );
   }
 
   try {
