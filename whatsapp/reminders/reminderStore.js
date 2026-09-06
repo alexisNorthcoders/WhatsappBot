@@ -209,6 +209,50 @@ export async function listDuePendingReminders(nowMs = Date.now(), filePath = rem
 }
 
 /**
+ * Upcoming pending reminders (any dueAt), soonest first.
+ * When chatId is set, only that chat’s reminders are returned (no cross-chat leak).
+ * @param {{
+ *   chatId?: string,
+ *   filePath?: string,
+ * }} [opts]
+ * @returns {Promise<Reminder[]>}
+ */
+export async function listPendingReminders(opts = {}) {
+  const filePath = opts.filePath ?? remindersStorePath();
+  const store = await readReminderStore(filePath);
+  return store.reminders
+    .filter(
+      (r) =>
+        r.status === 'pending' && (opts.chatId == null || r.chatId === opts.chatId)
+    )
+    .sort((a, b) => a.dueAt - b.dueAt || a.id - b.id);
+}
+
+/**
+ * Atomically cancel a pending reminder (pending → cancelled).
+ * When chatId is set, only cancels if the reminder belongs to that chat.
+ * Returns the cancelled reminder, or null if missing / wrong chat / not pending.
+ * @param {number} id
+ * @param {{
+ *   chatId?: string,
+ *   filePath?: string,
+ * }} [opts]
+ * @returns {Promise<Reminder | null>}
+ */
+export async function cancelReminder(id, opts = {}) {
+  const filePath = opts.filePath ?? remindersStorePath();
+  return withStoreLock(filePath, async () => {
+    const store = await readReminderStore(filePath);
+    const rem = store.reminders.find((r) => r.id === id);
+    if (!rem || rem.status !== 'pending') return null;
+    if (opts.chatId != null && rem.chatId !== opts.chatId) return null;
+    rem.status = 'cancelled';
+    await writeReminderStore(store, filePath);
+    return { ...rem };
+  });
+}
+
+/**
  * Atomically claim a pending reminder for delivery (pending → fired).
  * Uses an exclusive lock + re-read so only one claimant wins under concurrency.
  * Returns the claimed reminder, or null if it was already claimed/cancelled.

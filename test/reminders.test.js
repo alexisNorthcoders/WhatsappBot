@@ -4,14 +4,20 @@ import { mkdtemp, rm, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
+  classifyReminderIntent,
   formatReminderDue,
+  looksLikeReminderCancel,
+  looksLikeReminderList,
   looksLikeReminderRequest,
+  parseCancelReminder,
   parseRelativeReminder,
 } from '../whatsapp/reminders/reminderParser.js';
 import {
   addReminder,
+  cancelReminder,
   claimReminderFired,
   listDuePendingReminders,
+  listPendingReminders,
   readReminderStore,
 } from '../whatsapp/reminders/reminderStore.js';
 import {
@@ -30,6 +36,43 @@ describe('reminderParser', () => {
     assert.equal(looksLikeReminderRequest('nudge me in 20 minutes to check the oven'), true);
     assert.equal(looksLikeReminderRequest('Please remind me in 1 hour to stretch'), true);
     assert.equal(looksLikeReminderRequest('what is the weather'), false);
+  });
+
+  it('detects list and cancel intents', () => {
+    assert.equal(looksLikeReminderList('list reminders'), true);
+    assert.equal(looksLikeReminderList('show my upcoming reminders'), true);
+    assert.equal(looksLikeReminderList('what are my reminders?'), true);
+    assert.equal(looksLikeReminderList('reminders'), true);
+    assert.equal(looksLikeReminderList('what is the weather'), false);
+
+    assert.equal(looksLikeReminderCancel('cancel reminder 3'), true);
+    assert.equal(looksLikeReminderCancel('cancel #12'), true);
+    assert.equal(looksLikeReminderCancel('delete reminder #2'), true);
+    assert.equal(looksLikeReminderCancel('list reminders'), false);
+
+    assert.equal(classifyReminderIntent('list my reminders'), 'list');
+    assert.equal(classifyReminderIntent('cancel reminder 3'), 'cancel');
+    assert.equal(classifyReminderIntent('nudge me in 5 minutes to go'), 'create');
+    // Create wins when scheduling text embeds "list"
+    assert.equal(
+      classifyReminderIntent('remind me in 5 minutes to list my reminders'),
+      'create'
+    );
+    assert.equal(classifyReminderIntent('hello'), null);
+  });
+
+  it('parses cancel-by-id', () => {
+    const a = parseCancelReminder('cancel reminder 3');
+    assert.equal(a.ok, true);
+    if (a.ok) assert.equal(a.id, 3);
+
+    const b = parseCancelReminder('Please delete reminder #12');
+    assert.equal(b.ok, true);
+    if (b.ok) assert.equal(b.id, 12);
+
+    const c = parseCancelReminder('cancel #7');
+    assert.equal(c.ok, true);
+    if (c.ok) assert.equal(c.id, 7);
   });
 
   it('parses minutes and hours with task text', () => {
@@ -283,6 +326,65 @@ describe('reminderStore + delivery', () => {
       'Reminder (late): bins'
     );
   });
+
+  it('lists pending reminders for a chat (not other chats / not cancelled)', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 60_000,
+      text: 'first',
+      createdAt: now,
+      filePath,
+    });
+    await addReminder({
+      chatId: 'c2@s.whatsapp.net',
+      dueAt: now + 30_000,
+      text: 'other chat',
+      createdAt: now,
+      filePath,
+    });
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now + 120_000,
+      text: 'second',
+      createdAt: now,
+      filePath,
+    });
+    const cancelled = await cancelReminder(1, { chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(cancelled?.id, 1);
+
+    const listed = await listPendingReminders({ chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].id, 3);
+    assert.equal(listed[0].text, 'second');
+  });
+
+  it('cancel prevents future delivery', async () => {
+    const now = Date.parse('2026-09-06T12:00:00Z');
+    await addReminder({
+      chatId: 'c1@s.whatsapp.net',
+      dueAt: now - 1000,
+      text: 'should not fire',
+      createdAt: now - 60_000,
+      filePath,
+    });
+    const cancelled = await cancelReminder(1, { chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(cancelled?.status, 'cancelled');
+
+    const sent = [];
+    const r = await runReminderDeliveryTick({
+      sendText: async (chatId, text) => {
+        sent.push({ chatId, text });
+      },
+      nowMs: now,
+      filePath,
+    });
+    assert.equal(r.delivered, 0);
+    assert.equal(sent.length, 0);
+
+    const again = await cancelReminder(1, { chatId: 'c1@s.whatsapp.net', filePath });
+    assert.equal(again, null);
+  });
 });
 
 describe('reminderScheduler lifecycle', () => {
@@ -333,13 +435,15 @@ describe('reminderAgent allowlist', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('shouldTryReminderAgent matches intent', () => {
+  it('shouldTryReminderAgent matches create/list/cancel', () => {
     assert.equal(shouldTryReminderAgent('nudge me in 5 minutes to go'), true);
+    assert.equal(shouldTryReminderAgent('list reminders'), true);
+    assert.equal(shouldTryReminderAgent('cancel reminder 2'), true);
     assert.equal(shouldTryReminderAgent('hello'), false);
   });
 
-  it('denies non-allowlisted actors', async () => {
-    const r = await runReminderAgent(
+  it('denies non-allowlisted actors for create/list/cancel', async () => {
+    const denied = await runReminderAgent(
       {
         text: 'nudge me in 10 minutes to check the oven',
         chatId: 'c@s.whatsapp.net',
@@ -350,10 +454,38 @@ describe('reminderAgent allowlist', () => {
         filePath,
       }
     );
-    assert.equal(r.handled, true);
-    assert.match(r.replyText, /Not allowed to set reminders/);
+    assert.equal(denied.handled, true);
+    assert.match(denied.replyText, /Not allowed to manage reminders/);
     const store = await readReminderStore(filePath);
     assert.equal(store.reminders.length, 0);
+
+    const listDenied = await runReminderAgent(
+      {
+        text: 'list reminders',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'stranger@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => false,
+        filePath,
+      }
+    );
+    assert.equal(listDenied.handled, true);
+    assert.match(listDenied.replyText, /Not allowed to manage reminders/);
+
+    const cancelDenied = await runReminderAgent(
+      {
+        text: 'cancel reminder 1',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'stranger@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => false,
+        filePath,
+      }
+    );
+    assert.equal(cancelDenied.handled, true);
+    assert.match(cancelDenied.replyText, /Not allowed to manage reminders/);
   });
 
   it('denies safely when isAllowedActor is missing', async () => {
@@ -366,7 +498,7 @@ describe('reminderAgent allowlist', () => {
       /** @type {any} */ ({ filePath })
     );
     assert.equal(r.handled, true);
-    assert.match(r.replyText, /Not allowed to set reminders/);
+    assert.match(r.replyText, /Not allowed to manage reminders/);
     const store = await readReminderStore(filePath);
     assert.equal(store.reminders.length, 0);
   });
@@ -388,9 +520,88 @@ describe('reminderAgent allowlist', () => {
     assert.equal(r.handled, true);
     assert.match(r.replyText, /OK — I'll remind you at/);
     assert.match(r.replyText, /check the oven/);
+    assert.match(r.replyText, /#1/);
     const store = await readReminderStore(filePath);
     assert.equal(store.reminders.length, 1);
     assert.equal(store.reminders[0].dueAt, now + 20 * 60_000);
+  });
+
+  it('lists upcoming reminders with id, due time, and text', async () => {
+    const now = Date.parse('2026-09-06T15:00:00+01:00');
+    await addReminder({
+      chatId: 'c@s.whatsapp.net',
+      dueAt: now + 20 * 60_000,
+      text: 'check the oven',
+      createdAt: now,
+      filePath,
+    });
+    await addReminder({
+      chatId: 'c@s.whatsapp.net',
+      dueAt: now + 60 * 60_000,
+      text: 'stretch',
+      createdAt: now,
+      filePath,
+    });
+
+    const r = await runReminderAgent(
+      {
+        text: 'list my reminders',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'owner@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => true,
+        nowMs: now,
+        filePath,
+      }
+    );
+    assert.equal(r.handled, true);
+    assert.match(r.replyText, /^Upcoming reminders:/);
+    assert.match(r.replyText, /#1 — .+ today: check the oven/);
+    assert.match(r.replyText, /#2 — .+ today: stretch/);
+  });
+
+  it('cancels by id and confirms', async () => {
+    const now = Date.parse('2026-09-06T15:00:00+01:00');
+    await addReminder({
+      chatId: 'c@s.whatsapp.net',
+      dueAt: now + 20 * 60_000,
+      text: 'check the oven',
+      createdAt: now,
+      filePath,
+    });
+
+    const r = await runReminderAgent(
+      {
+        text: 'cancel reminder 1',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'owner@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => true,
+        nowMs: now,
+        filePath,
+      }
+    );
+    assert.equal(r.handled, true);
+    assert.equal(r.replyText, 'Cancelled reminder #1');
+
+    const store = await readReminderStore(filePath);
+    assert.equal(store.reminders[0].status, 'cancelled');
+
+    const empty = await runReminderAgent(
+      {
+        text: 'list reminders',
+        chatId: 'c@s.whatsapp.net',
+        actorId: 'owner@s.whatsapp.net',
+      },
+      {
+        isAllowedActor: () => true,
+        nowMs: now,
+        filePath,
+      }
+    );
+    assert.equal(empty.replyText, 'No upcoming reminders.');
   });
 });
 
