@@ -1,7 +1,10 @@
 import {
-  claimReminderFired,
+  claimReminderDelivery,
+  completeReminderDelivery,
   listDuePendingReminders,
+  releaseReminderDelivery,
   remindersStorePath,
+  settleStaleDeliveries,
 } from './reminderStore.js';
 
 const DEFAULT_POLL_MS = 30_000;
@@ -31,27 +34,40 @@ export function formatDeliveryMessage(opts) {
 }
 
 /**
- * Deliver all due pending reminders (exactly-once claim before send).
- * listDue is a snapshot; {@link claimReminderFired} re-reads under lock so a
+ * Deliver all due pending reminders with restart-safe, at-most-once semantics:
+ * 1. Finalize stale `delivering` rows from a prior crash (no re-send).
+ * 2. Claim pending → delivering (records deliveryAttemptAt).
+ * 3. Send; on success delivering → fired; on failure release back to pending for retry.
+ *
+ * listDue is a snapshot; {@link claimReminderDelivery} re-reads under lock so a
  * concurrent cancel (pending → cancelled) cannot still deliver.
  * @param {{
  *   sendText: (chatId: string, text: string) => Promise<void>,
  *   logger?: { info?: Function, warn?: Function, error?: Function },
  *   nowMs?: number,
  *   filePath?: string,
+ *   staleMs?: number,
  * }} deps
- * @returns {Promise<{ delivered: number, failed: number }>}
+ * @returns {Promise<{ delivered: number, failed: number, settledStale: number }>}
  */
 export async function runReminderDeliveryTick(deps) {
   const nowMs = deps.nowMs ?? Date.now();
   const filePath = deps.filePath ?? remindersStorePath();
+  const settledStale = await settleStaleDeliveries(nowMs, {
+    filePath,
+    staleMs: deps.staleMs,
+  });
+  if (settledStale > 0) {
+    deps.logger?.info?.({ settledStale }, 'reminders: settled stale delivering rows');
+  }
+
   const due = await listDuePendingReminders(nowMs, filePath);
   let delivered = 0;
   let failed = 0;
 
   for (const rem of due) {
-    // Authoritative gate: skip if cancelled/already fired since listDue.
-    const claimed = await claimReminderFired(rem.id, nowMs, filePath);
+    // Authoritative gate: skip if cancelled/already claimed since listDue.
+    const claimed = await claimReminderDelivery(rem.id, nowMs, filePath);
     if (!claimed) continue;
     const body = formatDeliveryMessage({
       text: claimed.text,
@@ -60,18 +76,27 @@ export async function runReminderDeliveryTick(deps) {
     });
     try {
       await deps.sendText(claimed.chatId, body);
+      const completed = await completeReminderDelivery(claimed.id, nowMs, filePath);
+      if (!completed) {
+        // Claim disappeared (unexpected); do not retry — avoid duplicates.
+        deps.logger?.warn?.(
+          { id: claimed.id, chatId: claimed.chatId },
+          'reminder send ok but complete failed (left non-pending)'
+        );
+      }
       delivered += 1;
       deps.logger?.info?.({ id: claimed.id, chatId: claimed.chatId }, 'reminder delivered');
     } catch (e) {
       failed += 1;
+      await releaseReminderDelivery(claimed.id, filePath);
       deps.logger?.warn?.(
         { err: errMsg(e), id: claimed.id, chatId: claimed.chatId },
-        'reminder delivery send failed (already marked fired)'
+        'reminder delivery send failed (released for retry)'
       );
     }
   }
 
-  return { delivered, failed };
+  return { delivered, failed, settledStale };
 }
 
 /**
@@ -94,6 +119,8 @@ function truthyEnv(raw) {
 
 /**
  * Restart-safe poller for due reminders.
+ * Runs an immediate tick on start so overdue reminders from downtime are
+ * delivered within one short window after reconnect (not only after pollMs).
  * Clears any existing interval first so reconnect / tests do not stack pollers.
  * @param {{
  *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
@@ -138,6 +165,7 @@ export function startReminderScheduler(opts) {
   intervalId = setInterval(() => {
     void tick();
   }, pollMs);
+  // Catch up overdue reminders immediately after restart / reconnect.
   void tick();
   logger?.info?.({ pollMs, filePath }, 'reminders: scheduler started');
 }
