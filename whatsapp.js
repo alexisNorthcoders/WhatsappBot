@@ -29,6 +29,7 @@ import {
 } from './whatsapp/agents/cursorCliPending.js';
 import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
+import { startReminderScheduler } from './whatsapp/reminders/reminderScheduler.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -128,6 +129,10 @@ async function startSock() {
     if (connection === 'open') {
       reconnectAttempt = 0;
       logger.info('✅ WhatsApp connected.');
+      startReminderScheduler({
+        getSocket: () => waSocket,
+        logger,
+      });
       if (myPhone) {
         const getOwnerJid = () => ownerJidFromMyPhone();
         startCronIssueTracer({
