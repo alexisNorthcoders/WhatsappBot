@@ -71,15 +71,45 @@ function parseEnvInt(raw, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * @param {string | undefined} raw
- * @returns {number | null} ms, or null when unset / disabled
+ * @returns {{ maxHorizonMs: number | null, maxHorizonDays: number | null }}
  */
-function parseOptionalHorizonMs(raw) {
-  if (raw == null || String(raw).trim() === '') return null;
+function parseOptionalHorizon(raw) {
+  if (raw == null || String(raw).trim() === '') {
+    return { maxHorizonMs: null, maxHorizonDays: null };
+  }
   const n = parseFloat(String(raw));
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return Math.floor(n * 24 * 60 * 60 * 1000);
+  if (!Number.isFinite(n) || n <= 0) {
+    return { maxHorizonMs: null, maxHorizonDays: null };
+  }
+  return {
+    maxHorizonMs: Math.floor(n * DAY_MS),
+    maxHorizonDays: n,
+  };
+}
+
+/**
+ * User-facing horizon limit label from configured days (or ms fallback).
+ * @param {{ maxHorizonDays?: number | null, maxHorizonMs?: number | null }} caps
+ * @returns {string | null}
+ */
+function formatHorizonDaysLabel(caps) {
+  let days =
+    typeof caps.maxHorizonDays === 'number' && Number.isFinite(caps.maxHorizonDays)
+      ? caps.maxHorizonDays
+      : null;
+  if (days == null) {
+    if (typeof caps.maxHorizonMs !== 'number' || !Number.isFinite(caps.maxHorizonMs)) {
+      return null;
+    }
+    days = caps.maxHorizonMs / DAY_MS;
+  }
+  const label = Number.isInteger(days) ? String(days) : String(parseFloat(days.toFixed(6)));
+  const unit = days === 1 ? 'day' : 'days';
+  return `${label} ${unit}`;
 }
 
 /**
@@ -89,6 +119,7 @@ function parseOptionalHorizonMs(raw) {
  *   maxTextChars: number,
  *   maxPendingPerChat: number,
  *   maxHorizonMs: number | null,
+ *   maxHorizonDays: number | null,
  *   terminalRetentionMs: number,
  *   maxTerminal: number,
  * }}
@@ -102,7 +133,7 @@ export function getReminderSafetyCaps(env = process.env) {
     1,
     parseEnvInt(env.REMINDERS_MAX_PENDING_PER_CHAT, DEFAULT_REMINDER_MAX_PENDING_PER_CHAT)
   );
-  const maxHorizonMs = parseOptionalHorizonMs(env.REMINDERS_MAX_HORIZON_DAYS);
+  const { maxHorizonMs, maxHorizonDays } = parseOptionalHorizon(env.REMINDERS_MAX_HORIZON_DAYS);
   const terminalRetentionMs = Math.max(
     0,
     parseEnvInt(env.REMINDERS_TERMINAL_RETENTION_MS, DEFAULT_REMINDER_TERMINAL_RETENTION_MS)
@@ -115,6 +146,7 @@ export function getReminderSafetyCaps(env = process.env) {
     maxTextChars,
     maxPendingPerChat,
     maxHorizonMs,
+    maxHorizonDays,
     terminalRetentionMs,
     maxTerminal,
   };
@@ -122,12 +154,13 @@ export function getReminderSafetyCaps(env = process.env) {
 
 /**
  * Truncate reminder text to maxChars (ellipsis when truncated).
+ * Does not trim or otherwise normalize whitespace — only length-caps the string.
  * @param {string} text
  * @param {number} [maxChars]
  * @returns {string}
  */
 export function truncateReminderText(text, maxChars = DEFAULT_REMINDER_MAX_TEXT_CHARS) {
-  const s = String(text ?? '').trim();
+  const s = String(text ?? '');
   const cap =
     typeof maxChars === 'number' && Number.isFinite(maxChars) && maxChars >= 1
       ? Math.floor(maxChars)
@@ -402,13 +435,15 @@ export async function writeReminderStore(data, filePath = remindersStorePath()) 
 
 /**
  * Create a pending reminder with safety caps: text truncation, optional horizon,
- * and max pending per chat. Also prunes old terminal rows under the same lock.
+ * and max pending per chat. Also prunes old terminal rows under the same lock
+ * (using wall-clock / `nowMs`, never caller-supplied `createdAt`).
  * @param {{
  *   chatId: string,
  *   actorId?: string | null,
  *   dueAt: number,
  *   text: string,
  *   createdAt?: number,
+ *   nowMs?: number,
  *   filePath?: string,
  *   caps?: ReturnType<typeof getReminderSafetyCaps>,
  * }} opts
@@ -418,7 +453,8 @@ export async function writeReminderStore(data, filePath = remindersStorePath()) 
 export async function addReminder(opts) {
   const filePath = opts.filePath ?? remindersStorePath();
   const caps = opts.caps ?? getReminderSafetyCaps();
-  const createdAt = opts.createdAt ?? Date.now();
+  const nowMs = opts.nowMs ?? Date.now();
+  const createdAt = opts.createdAt ?? nowMs;
   const text = truncateReminderText(opts.text, caps.maxTextChars);
   if (!text) {
     throw new ReminderLimitError('Reminder text is empty.', 'empty_text');
@@ -429,19 +465,22 @@ export async function addReminder(opts) {
     Number.isFinite(opts.dueAt) &&
     opts.dueAt - createdAt > caps.maxHorizonMs
   ) {
-    const days = Math.max(1, Math.round(caps.maxHorizonMs / (24 * 60 * 60 * 1000)));
+    const horizonLabel = formatHorizonDaysLabel(caps) ?? 'the configured limit';
     throw new ReminderLimitError(
-      `That time is too far ahead (max ${days} day${days === 1 ? '' : 's'}). Pick a sooner time.`,
+      `That time is too far ahead (max ${horizonLabel}). Pick a sooner time.`,
       'horizon'
     );
   }
 
   return withStoreLock(filePath, async () => {
     const store = await readReminderStore(filePath);
+    // Maintenance first (wall clock), then enforce pending cap on the compacted store.
+    const pruned = pruneTerminalRemindersInStore(store, nowMs, caps);
     const pendingCount = store.reminders.filter(
       (r) => r.chatId === opts.chatId && r.status === 'pending'
     ).length;
     if (pendingCount >= caps.maxPendingPerChat) {
+      if (pruned > 0) await writeReminderStore(store, filePath);
       throw new ReminderLimitError(
         `This chat already has ${caps.maxPendingPerChat} pending reminders. ` +
           'Cancel one first (say "list reminders", then "cancel reminder #ID").',
@@ -462,7 +501,6 @@ export async function addReminder(opts) {
     };
     store.nextId += 1;
     store.reminders.push(reminder);
-    pruneTerminalRemindersInStore(store, createdAt, caps);
     await writeReminderStore(store, filePath);
     return reminder;
   });
