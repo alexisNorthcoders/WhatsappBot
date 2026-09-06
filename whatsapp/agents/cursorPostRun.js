@@ -440,6 +440,24 @@ export function githubPrMergeErrorLooksStaleHead(combinedMessage) {
 }
 
 /**
+ * True when `gh pr merge --auto` failed because there is nothing for auto-merge to wait on
+ * (no branch protection / required checks / reviews). In that case a direct merge is correct.
+ * GitHub GraphQL `enablePullRequestAutoMerge` returns messages like:
+ * - "Protected branch rules not configured for this branch"
+ * - "Pull request is in clean status"
+ * @param {string} combinedMessage
+ * @returns {boolean}
+ */
+export function githubPrMergeErrorLooksNoAutoMergeGate(combinedMessage) {
+  const m = String(combinedMessage || '').toLowerCase();
+  if (!m) return false;
+  return (
+    m.includes('protected branch rules not configured') ||
+    m.includes('pull request is in clean status')
+  );
+}
+
+/**
  * `PUT .../pulls/{n}/update-branch` returns 422 when there is nothing to merge from base (branch already up to date).
  * @param {string} combinedMessage
  * @returns {boolean}
@@ -630,12 +648,14 @@ function mergeStrategyToGhFlags(strategy) {
 }
 
 /**
- * Queue auto-merge for the PR via `gh pr merge --auto`, using a merge method the repo allows (squash, merge commit, or rebase).
+ * Queue auto-merge for the PR via `gh pr merge --auto`, using a merge method the repo allows (squash preferred; issue #47).
  * Issue #47: never assume squash is enabled; read repo flags first.
  * If GitHub reports the head branch is out of date, merges base into head via the REST update-branch endpoint (once), then retries.
+ * When `--auto` fails because there is no branch-protection gate to wait on (common on unprotected `main`), falls back to a
+ * direct `gh pr merge` (no `--auto`) so the PR is not left open forever (seen on PR #72).
  * @param {string} repo
  * @param {string} prUrl
- * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergeMethod?: 'squash'|'merge'|'rebase' }>}
+ * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergedDirectly?: boolean, mergeMethod?: 'squash'|'merge'|'rebase' }>}
  */
 export async function tryGhPrQueueAutoMerge(repo, prUrl) {
   const url = String(prUrl || '').trim();
@@ -684,11 +704,46 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
     await execFileAsync('gh', ['pr', 'merge', url, '--auto', ...flags], execOpts);
   }
 
+  async function mergeDirect() {
+    const flags = mergeStrategyToGhFlags(strategy);
+    await execFileAsync('gh', ['pr', 'merge', url, ...flags], execOpts);
+  }
+
+  /**
+   * When auto-merge cannot be enabled because there is nothing to wait for, merge immediately.
+   * @param {string} errFromAuto
+   * @param {{ staleHeadSynced?: boolean }} [extra]
+   */
+  async function tryDirectMergeFallback(errFromAuto, extra = {}) {
+    if (postRunLogEnabled()) {
+      console.log(
+        '[cursorPostRun]',
+        'tryGhPrQueueAutoMerge: no auto-merge gate; falling back to direct merge',
+        url
+      );
+    }
+    try {
+      await mergeDirect();
+      return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...extra };
+    } catch (eDirect) {
+      const errDirect = eDirect.stderr || eDirect.message || String(eDirect);
+      return {
+        ok: false,
+        error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}`,
+        mergeMethod: strategy,
+        ...extra,
+      };
+    }
+  }
+
   try {
     await mergeAuto();
     return { ok: true, mergeMethod: strategy };
   } catch (e) {
     const errFirst = e.stderr || e.message || String(e);
+    if (githubPrMergeErrorLooksNoAutoMergeGate(errFirst)) {
+      return tryDirectMergeFallback(errFirst);
+    }
     if (!prStaleHeadSyncBeforeAutoMergeEnabled() || !githubPrMergeErrorLooksStaleHead(errFirst)) {
       return { ok: false, error: errFirst, mergeMethod: strategy };
     }
@@ -712,6 +767,9 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
       return { ok: true, staleHeadSynced: !sync.noOp, mergeMethod: strategy };
     } catch (e2) {
       const errSecond = e2.stderr || e2.message || String(e2);
+      if (githubPrMergeErrorLooksNoAutoMergeGate(errSecond)) {
+        return tryDirectMergeFallback(errSecond, { staleHeadSynced: !sync.noOp });
+      }
       return {
         ok: false,
         error: `${errFirst.trim()}\n\nAfter update-branch: ${errSecond.trim()}`,
@@ -1562,6 +1620,7 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  * When guardrails pass (`VERDICT: APPROVE`, or `REQUEST_CHANGES` with a successful autofix push), runs
  * `gh pr merge --auto` using a merge method allowed on the repo (squash preferred; issue #47) and polls the linked issue until `CLOSED` or a bounded timeout (issue #13).
  * If GitHub reports the PR head is out of date, syncs it via `gh api PUT …/update-branch` once (Debian `gh` often lacks `pr update-branch`), then retries auto-merge; disable with `CURSOR_POST_RUN_PR_STALE_HEAD_SYNC=0`.
+ * If `--auto` fails because `main` has no protected-branch / required-check gate, falls back to a direct merge so the PR is not left hanging.
  * When the issue is confirmed **CLOSED**, sends a separate **“changes made”** email (DeepInfra
  * `meta-llama/Meta-Llama-3-8B-Instruct` by default) to `CURSOR_REVIEW_EMAIL_TO` via Gmail SMTP (issue #14).
  * Disable auto-merge with `CURSOR_POST_RUN_PR_AUTO_MERGE=0`. Tune wait with `CURSOR_POST_RUN_ISSUE_CLOSE_POLL_MS` /
@@ -1893,7 +1952,19 @@ export async function maybeCommitReviewEmail(opts) {
           ? ` (${githubMergeMethodSummaryLabel(prAutoMergeResult.mergeMethod)})`
           : '';
       if (prAutoMergeResult.ok) {
-        if (issueCloseWait?.closed) {
+        if (prAutoMergeResult.mergedDirectly) {
+          if (issueCloseWait?.closed) {
+            parts.push(
+              `PR was **merged immediately**${mergeBracket} (no branch-protection gate for auto-merge); linked issue **#${issueNum}** is **closed**.`
+            );
+          } else if (issueCloseWait?.timedOut) {
+            parts.push(
+              `PR was **merged immediately**${mergeBracket} (no branch-protection gate for auto-merge), but issue **#${issueNum}** is still **not closed** after waiting (bounded poll). **Post-close summary email** was not sent.`
+            );
+          } else {
+            parts.push(`PR was **merged immediately**${mergeBracket} (no branch-protection gate for auto-merge).`);
+          }
+        } else if (issueCloseWait?.closed) {
           parts.push(
             `GitHub **auto-merge${mergeBracket}** was enabled for the PR; linked issue **#${issueNum}** is **closed**.`
           );
