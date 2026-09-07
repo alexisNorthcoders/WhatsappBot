@@ -163,6 +163,27 @@ export async function runIssueFetchAndGitPrep(p) {
 }
 
 /**
+ * Whether cron should persist last-started after a finished `runCursorAgentWithPost`.
+ * Empty “success” runs (`clean_after_wait`) and failed agent exits must not suppress retries.
+ *
+ * @param {unknown} agentResult return value of `runCursorAgentWithPost` (or a test mock)
+ * @returns {boolean}
+ */
+export function cronShouldPersistLastStarted(agentResult) {
+  if (agentResult == null || typeof agentResult !== 'object') {
+    // Void / legacy mocks: treat as progress so existing tests keep “successful run” semantics.
+    return true;
+  }
+  const r = /** @type {{ agentRunOk?: unknown, post?: { skipReason?: unknown } | null }} */ (
+    agentResult
+  );
+  if (r.agentRunOk !== true) return false;
+  const reason = r.post?.skipReason;
+  if (reason === 'clean_after_wait' || reason === 'agent_not_ok') return false;
+  return true;
+}
+
+/**
  * Runs the Cursor agent and post-run PR/review steps (shared by manual and cron issue flows).
  *
  * @param {{
@@ -175,6 +196,10 @@ export async function runIssueFetchAndGitPrep(p) {
  *   joplinSource: { title: string, id: string } | null,
  *   sendProgressMessages?: boolean,
  * }} p
+ * @returns {Promise<{
+ *   agentRunOk: boolean,
+ *   post: { ran?: boolean, note?: string, skipReason?: string } | null,
+ * }>}
  */
 export async function runCursorAgentWithPost(p) {
   const {
@@ -254,6 +279,12 @@ export async function runCursorAgentWithPost(p) {
     outcome,
   });
 
+  const agentRunOk = Boolean(
+    result?.ok && !result?.spawnError && !result?.timedOut
+  );
+  /** @type {{ ran?: boolean, note?: string, skipReason?: string } | null} */
+  let post = null;
+
   try {
     const body = formatAgentResult(result);
     const chunks = splitWhatsAppChunks(body);
@@ -261,11 +292,8 @@ export async function runCursorAgentWithPost(p) {
       await sock.sendMessage(recipientJid, { text: chunk });
     }
 
-    const agentRunOk = Boolean(
-      result?.ok && !result?.spawnError && !result?.timedOut
-    );
     try {
-      const post = await maybeCommitReviewEmail({
+      post = await maybeCommitReviewEmail({
         repo,
         userPrompt: prompt,
         agentRunOk,
@@ -276,6 +304,11 @@ export async function runCursorAgentWithPost(p) {
         await sock.sendMessage(recipientJid, { text: post.note });
       }
     } catch (postErr) {
+      post = {
+        ran: false,
+        note: '',
+        skipReason: 'post_run_threw',
+      };
       await sock.sendMessage(recipientJid, {
         text: `Post-run commit/PR pipeline failed: ${errorMessageFromUnknown(postErr)}`,
       });
@@ -294,4 +327,6 @@ export async function runCursorAgentWithPost(p) {
   } finally {
     if (delivered) await clearPendingCursorRun();
   }
+
+  return { agentRunOk, post };
 }

@@ -16,6 +16,7 @@ import {
 import {
   runIssueFetchAndGitPrep,
   runCursorAgentWithPost,
+  cronShouldPersistLastStarted,
   errorMessageFromUnknown,
 } from './cursorIssuePipeline.js';
 
@@ -90,9 +91,9 @@ function truncateErrorSummary(err, max = 1500) {
 
 /**
  * One cron evaluation cycle (exported for tests; production uses `startCronIssueTracer`).
- * Persists last-started per GitHub repo only after `runCursorAgentWithPost` completes without
- * throwing, so a crash or unexpected failure before that point does not suppress retries for the
- * same open issue in that repo.
+ * Persists last-started per GitHub repo only after `runCursorAgentWithPost` completes with
+ * lasting progress (agent ok and not an empty/no-git-change run). Crashes, failed exits, and
+ * empty “success” runs do not suppress retries for the same open issue in that repo.
  *
  * @param {CronIssueTracerTickDeps} [deps]
  */
@@ -175,7 +176,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       const issueMatch = { issueNumber: next.number, extraInstructions: '' };
       phase = 'cursor agent run and post-run automation';
       try {
-        await runAgent({
+        const agentResult = await runAgent({
           sock,
           recipientJid: ownerJid,
           prompt: prepped.prompt,
@@ -185,6 +186,24 @@ export async function runCronIssueTracerTick(deps = {}) {
           joplinSource: null,
           sendProgressMessages: false,
         });
+        if (!cronShouldPersistLastStarted(agentResult)) {
+          const skip = agentResult?.post?.skipReason;
+          const why =
+            skip === 'clean_after_wait'
+              ? 'the agent finished with no git changes (empty run)'
+              : agentResult?.agentRunOk === false
+                ? 'the agent run did not succeed'
+                : `post-run reported skipReason=${String(skip || 'unknown')}`;
+          phase = 'notifying owner (not persisting last-started)';
+          await sock.sendMessage(ownerJid, {
+            text: [
+              `Cron (${cronLabel}): \`${gitRepo}\` issue #${next.number} did not make lasting progress (${why}).`,
+              '',
+              'Not recording last-started — the next cron tick can retry this issue.',
+            ].join('\n'),
+          });
+          return;
+        }
         phase = 'persisting last-started issue';
         await writePerRepo({ repo: gitRepo, number: next.number });
       } catch (runErr) {

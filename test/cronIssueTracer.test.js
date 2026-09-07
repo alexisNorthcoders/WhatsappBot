@@ -5,10 +5,43 @@ import {
   pickNextRunnableIssueForRepo,
   runCronIssueTracerTick,
 } from '../whatsapp/agents/cronIssueTracer.js';
+import { cronShouldPersistLastStarted } from '../whatsapp/agents/cursorIssuePipeline.js';
 import {
   isCursorAgentBusy,
   releaseAgentBusyLock,
 } from '../whatsapp/agents/cursorAgentBusy.js';
+
+describe('cronShouldPersistLastStarted', () => {
+  it('treats void / null results as persist (legacy successful mocks)', () => {
+    assert.equal(cronShouldPersistLastStarted(undefined), true);
+    assert.equal(cronShouldPersistLastStarted(null), true);
+  });
+
+  it('does not persist empty agent success (clean_after_wait)', () => {
+    assert.equal(
+      cronShouldPersistLastStarted({
+        agentRunOk: true,
+        post: { ran: false, skipReason: 'clean_after_wait' },
+      }),
+      false
+    );
+  });
+
+  it('does not persist failed agent runs', () => {
+    assert.equal(
+      cronShouldPersistLastStarted({ agentRunOk: false, post: { skipReason: 'agent_not_ok' } }),
+      false
+    );
+    assert.equal(cronShouldPersistLastStarted({ agentRunOk: false, post: null }), false);
+  });
+
+  it('persists when agent ok and post-run made progress', () => {
+    assert.equal(
+      cronShouldPersistLastStarted({ agentRunOk: true, post: { ran: true } }),
+      true
+    );
+  });
+});
 
 describe('pickNextEligibleIssue', () => {
   it('returns null when every issue is PRD-prefixed', () => {
@@ -217,6 +250,11 @@ describe('runCronIssueTracerTick', () => {
       throw new Error(`unexpected list ${repo}`);
     };
 
+    const successfulProgress = async () => ({
+      agentRunOk: true,
+      post: { ran: true },
+    });
+
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
@@ -231,7 +269,7 @@ describe('runCronIssueTracerTick', () => {
         prepCalls++;
         return { prompt: 'p', issueSource: { number: 7, repo: REPO, title: 'Work' } };
       },
-      runCursorAgentWithPost: async () => {},
+      runCursorAgentWithPost: successfulProgress,
     });
     assert.equal(prepCalls, 1);
     assert.equal(persisted.get(REPO), 7);
@@ -275,6 +313,77 @@ describe('runCronIssueTracerTick', () => {
       },
     });
     assert.equal(prepCalls, 1, 'persisted last-started must block duplicate auto-starts across ticks');
+  });
+
+  it('does not persist last-started after an empty agent success so the same issue can retry', async () => {
+    const sock = makeMockSock();
+    /** @type {unknown[]} */
+    const writes = [];
+    let prepCalls = 0;
+    const listBoth = async (/** @type {{ repo: string }} */ { repo }) => {
+      if (repo === REPO) return [{ number: 32, title: 'Still open' }];
+      if (repo === REPO_P) return [];
+      throw new Error(`unexpected list ${repo}`);
+    };
+
+    await runCronIssueTracerTick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: listBoth,
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      writeCronPerRepoLastStartedEntry: async (row) => {
+        writes.push(row);
+      },
+      resolveWorkspaceFromAlias: async () => '/plat',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      runIssueFetchAndGitPrep: async () => {
+        prepCalls++;
+        return {
+          prompt: 'p',
+          issueSource: { number: 32, repo: REPO, title: 'Still open' },
+        };
+      },
+      runCursorAgentWithPost: async () => ({
+        agentRunOk: true,
+        post: { ran: false, skipReason: 'clean_after_wait' },
+      }),
+    });
+    assert.equal(prepCalls, 1);
+    assert.deepEqual(writes, []);
+    assert.ok(
+      sock.sent.some((m) => m.text.includes('Not recording last-started')),
+      'owner should be told the issue remains eligible'
+    );
+
+    // Next tick can start the same issue again
+    await runCronIssueTracerTick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: listBoth,
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      writeCronPerRepoLastStartedEntry: async (row) => {
+        writes.push(row);
+      },
+      resolveWorkspaceFromAlias: async () => '/plat',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      runIssueFetchAndGitPrep: async () => {
+        prepCalls++;
+        return {
+          prompt: 'p',
+          issueSource: { number: 32, repo: REPO, title: 'Still open' },
+        };
+      },
+      runCursorAgentWithPost: async () => ({
+        agentRunOk: true,
+        post: { ran: true },
+      }),
+    });
+    assert.equal(prepCalls, 2);
+    assert.deepEqual(writes, [{ repo: REPO, number: 32 }]);
   });
 
   it('prefers WhatsappBot over Platformer when both have eligible issues (repo priority)', async () => {
@@ -389,6 +498,7 @@ describe('runCronIssueTracerTick', () => {
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
+      cronPlatformerAlias: 'platformer',
       listOpenGithubIssues: async ({ repo }) => {
         if (repo === REPO) {
           return [{ number: 5, title: 'PRD: x' }];
