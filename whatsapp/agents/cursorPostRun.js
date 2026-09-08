@@ -141,6 +141,21 @@ function prStaleHeadSyncBeforeAutoMergeEnabled() {
 }
 
 /**
+ * Before a direct `gh pr merge`, poll until GitHub reports the PR mergeable (autofix push often
+ * leaves mergeable=UNKNOWN briefly → “Pull Request is not mergeable”).
+ * Tune with `CURSOR_POST_RUN_MERGEABLE_POLL_MS` (default 2000) /
+ * `CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS` (default 90000).
+ */
+function readPostRunMergeableWaitSettings() {
+  const pollMs = parseInt(process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS || '2000', 10);
+  const maxWaitMs = parseInt(process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS || '90000', 10);
+  return {
+    pollMs: Number.isFinite(pollMs) && pollMs >= 0 ? pollMs : 2000,
+    maxWaitMs: Number.isFinite(maxWaitMs) && maxWaitMs > 0 ? maxWaitMs : 90000,
+  };
+}
+
+/**
  * Issue-close poll tuning (read per wait so tests/env can tune without reloading the module).
  * Default max wait is 30 minutes — short CI windows (formerly 3 min) caused post-close emails to be skipped when merges lagged (GitHub #36).
  */
@@ -445,6 +460,37 @@ export function githubPrMergeErrorLooksStaleHead(combinedMessage) {
 }
 
 /**
+ * True when GitHub rejected a merge because mergeability is not ready yet
+ * (“Pull Request is not mergeable” — common right after push while GitHub recomputes).
+ * @param {string} combinedMessage
+ * @returns {boolean}
+ */
+export function githubPrMergeErrorLooksNotYetMergeable(combinedMessage) {
+  const m = String(combinedMessage || '').toLowerCase();
+  if (!m) return false;
+  return m.includes('not mergeable') || m.includes('isnt mergeable') || m.includes("isn't mergeable");
+}
+
+/**
+ * Classify `gh pr view --json mergeable,mergeStateStatus,state` for merge readiness.
+ * @param {{ mergeable?: string, mergeStateStatus?: string, state?: string } | null | undefined} view
+ * @returns {'ready' | 'waiting' | 'behind' | 'conflict' | 'blocked' | 'draft' | 'closed'}
+ */
+export function classifyGithubPrMergeability(view) {
+  const state = String(view?.state || '').toUpperCase();
+  if (state === 'MERGED' || state === 'CLOSED') return 'closed';
+  const mergeable = String(view?.mergeable || '').toUpperCase();
+  const status = String(view?.mergeStateStatus || '').toUpperCase();
+  if (status === 'DRAFT') return 'draft';
+  if (mergeable === 'CONFLICTING' || status === 'DIRTY') return 'conflict';
+  if (status === 'BEHIND') return 'behind';
+  if (status === 'BLOCKED') return 'blocked';
+  if (mergeable === 'UNKNOWN' || status === 'UNKNOWN' || !mergeable) return 'waiting';
+  if (mergeable === 'MERGEABLE') return 'ready';
+  return 'waiting';
+}
+
+/**
  * True when `gh pr merge --auto` failed because there is nothing for auto-merge to wait on
  * (no branch protection / required checks / reviews). In that case a direct merge is correct.
  * GitHub GraphQL `enablePullRequestAutoMerge` returns messages like:
@@ -535,6 +581,119 @@ async function tryGhPrUpdateBranchViaApi(repo, prUrl) {
     }
     return { ok: false, error: err };
   }
+}
+
+/**
+ * @param {string} repo
+ * @param {string} prUrl
+ * @returns {Promise<{ ok: true, mergeable: string, mergeStateStatus: string, state: string } | { ok: false, error: string }>}
+ */
+async function tryGhPrViewMergeability(repo, prUrl) {
+  const url = String(prUrl || '').trim();
+  if (!/^https:\/\/github\.com\/.+\/pull\/\d+/i.test(url)) {
+    return { ok: false, error: 'Invalid PR URL for mergeability poll' };
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['pr', 'view', url, '--json', 'mergeable,mergeStateStatus,state'],
+      {
+        cwd: repo,
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+      }
+    );
+    const j = JSON.parse(String(stdout || '{}'));
+    return {
+      ok: true,
+      mergeable: String(j.mergeable || ''),
+      mergeStateStatus: String(j.mergeStateStatus || ''),
+      state: String(j.state || ''),
+    };
+  } catch (e) {
+    return { ok: false, error: e.stderr || e.message || String(e) };
+  }
+}
+
+/**
+ * Poll until the PR is ready for a direct merge (or permanently blocked / timed out).
+ * When status is BEHIND, syncs via update-branch (if enabled) and keeps polling.
+ *
+ * @param {string} repo
+ * @param {string} prUrl
+ * @returns {Promise<{ ok: boolean, error?: string, waitedMs: number, polls: number, classification?: string, staleHeadSynced?: boolean }>}
+ */
+export async function waitForGithubPrMergeable(repo, prUrl) {
+  const { pollMs, maxWaitMs } = readPostRunMergeableWaitSettings();
+  const start = Date.now();
+  let polls = 0;
+  let staleHeadSynced = false;
+  /** @type {string | undefined} */
+  let lastClassification;
+
+  while (Date.now() - start < maxWaitMs) {
+    polls++;
+    const view = await tryGhPrViewMergeability(repo, prUrl);
+    if (!view.ok) {
+      logPost('waitForGithubPrMergeable: pr view failed', view.error);
+      await new Promise((r) => setTimeout(r, pollMs));
+      continue;
+    }
+    const classification = classifyGithubPrMergeability(view);
+    lastClassification = classification;
+    logPost(`waitForGithubPrMergeable poll #${polls}`, {
+      classification,
+      mergeable: view.mergeable,
+      mergeStateStatus: view.mergeStateStatus,
+      state: view.state,
+      elapsedMs: Date.now() - start,
+    });
+
+    if (classification === 'ready' || classification === 'closed') {
+      return {
+        ok: true,
+        waitedMs: Date.now() - start,
+        polls,
+        classification,
+        staleHeadSynced,
+      };
+    }
+    if (classification === 'conflict' || classification === 'draft') {
+      return {
+        ok: false,
+        error: `PR is not mergeable (${classification}; mergeable=${view.mergeable || '?'} status=${view.mergeStateStatus || '?'}).`,
+        waitedMs: Date.now() - start,
+        polls,
+        classification,
+        staleHeadSynced,
+      };
+    }
+    if (classification === 'behind' && prStaleHeadSyncBeforeAutoMergeEnabled()) {
+      if (postRunLogEnabled()) {
+        console.log(
+          '[cursorPostRun]',
+          'waitForGithubPrMergeable: PR behind base; GitHub API update-branch',
+          prUrl
+        );
+      }
+      const sync = await tryGhPrUpdateBranchViaApi(repo, prUrl);
+      if (sync.ok && !sync.noOp) staleHeadSynced = true;
+      if (!sync.ok) {
+        logPost('waitForGithubPrMergeable: update-branch failed', sync.error);
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+
+  return {
+    ok: false,
+    error: `Timed out after ${maxWaitMs}ms waiting for PR mergeability (last=${lastClassification || 'unknown'}; polls=${polls}).`,
+    waitedMs: Date.now() - start,
+    polls,
+    classification: lastClassification,
+    staleHeadSynced,
+  };
 }
 
 /**
@@ -660,6 +819,8 @@ function mergeStrategyToGhFlags(strategy) {
  * direct `gh pr merge` (no `--auto`) so the PR is not left open forever (seen on PR #72).
  * When the repo has `allow_auto_merge=false` (typical for private Free-plan repos where the setting cannot be enabled),
  * also falls back to a direct merge instead of failing and leaving the PR open.
+ * Direct merges poll until GitHub reports the PR mergeable (or timeout) so transient
+ * “Pull Request is not mergeable” right after push does not fail the run.
  * @param {string} repo
  * @param {string} prUrl
  * @returns {Promise<{ ok: boolean, error?: string, staleHeadSynced?: boolean, mergedDirectly?: boolean, mergeMethod?: 'squash'|'merge'|'rebase' }>}
@@ -710,8 +871,8 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
 
   /**
    * When auto-merge cannot be enabled because there is nothing to wait for, merge immediately.
-   * If the direct merge fails because the base moved (common race on busy repos), sync head once
-   * via update-branch and retry the direct merge.
+   * Polls until GitHub reports the PR mergeable first (avoids “not mergeable” right after push).
+   * If the direct merge still fails because the base moved or mergeability raced, sync / wait and retry once.
    * @param {string} errFromAuto
    * @param {{ staleHeadSynced?: boolean }} [extra]
    */
@@ -723,36 +884,69 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
         url
       );
     }
+
+    const ready = await waitForGithubPrMergeable(repo, url);
+    const syncedExtra = {
+      ...extra,
+      staleHeadSynced: Boolean(extra.staleHeadSynced) || Boolean(ready.staleHeadSynced),
+    };
+    if (!ready.ok) {
+      return {
+        ok: false,
+        error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback aborted: ${ready.error || 'PR not mergeable yet'}`,
+        mergeMethod: strategy,
+        ...syncedExtra,
+      };
+    }
+
     try {
       await mergeDirect();
-      return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...extra };
+      return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...syncedExtra };
     } catch (eDirect) {
       const errDirect = eDirect.stderr || eDirect.message || String(eDirect);
-      if (
-        !prStaleHeadSyncBeforeAutoMergeEnabled() ||
-        !githubPrMergeErrorLooksStaleHead(errDirect)
-      ) {
+      const canRetry =
+        prStaleHeadSyncBeforeAutoMergeEnabled() &&
+        (githubPrMergeErrorLooksStaleHead(errDirect) ||
+          githubPrMergeErrorLooksNotYetMergeable(errDirect));
+      if (!canRetry) {
         return {
           ok: false,
           error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}`,
           mergeMethod: strategy,
-          ...extra,
+          ...syncedExtra,
         };
       }
       if (postRunLogEnabled()) {
         console.log(
           '[cursorPostRun]',
-          'tryGhPrQueueAutoMerge: direct merge hit stale base; GitHub API update-branch then retry',
+          githubPrMergeErrorLooksStaleHead(errDirect)
+            ? 'tryGhPrQueueAutoMerge: direct merge hit stale base; GitHub API update-branch then retry'
+            : 'tryGhPrQueueAutoMerge: direct merge hit not-yet-mergeable; wait then retry',
           url
         );
       }
-      const sync = await tryGhPrUpdateBranchViaApi(repo, url);
-      if (!sync.ok) {
+      if (githubPrMergeErrorLooksStaleHead(errDirect)) {
+        const sync = await tryGhPrUpdateBranchViaApi(repo, url);
+        if (!sync.ok) {
+          return {
+            ok: false,
+            error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`,
+            mergeMethod: strategy,
+            ...syncedExtra,
+          };
+        }
+        syncedExtra.staleHeadSynced = !sync.noOp || Boolean(syncedExtra.staleHeadSynced);
+      }
+
+      const readyAgain = await waitForGithubPrMergeable(repo, url);
+      syncedExtra.staleHeadSynced =
+        Boolean(syncedExtra.staleHeadSynced) || Boolean(readyAgain.staleHeadSynced);
+      if (!readyAgain.ok) {
         return {
           ok: false,
-          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nGitHub update-branch failed: ${sync.error || 'unknown'}`,
+          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nRetry wait: ${readyAgain.error || 'PR not mergeable'}`,
           mergeMethod: strategy,
-          ...extra,
+          ...syncedExtra,
         };
       }
       try {
@@ -761,15 +955,15 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
           ok: true,
           mergedDirectly: true,
           mergeMethod: strategy,
-          staleHeadSynced: !sync.noOp || Boolean(extra.staleHeadSynced),
+          ...syncedExtra,
         };
       } catch (eRetry) {
         const errRetry = eRetry.stderr || eRetry.message || String(eRetry);
         return {
           ok: false,
-          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nAfter update-branch: ${String(errRetry).trim()}`,
+          error: `${String(errFromAuto || '').trim()}\n\nDirect merge fallback failed: ${String(errDirect).trim()}\n\nAfter wait/retry: ${String(errRetry).trim()}`,
           mergeMethod: strategy,
-          staleHeadSynced: !sync.noOp || Boolean(extra.staleHeadSynced),
+          ...syncedExtra,
         };
       }
     }

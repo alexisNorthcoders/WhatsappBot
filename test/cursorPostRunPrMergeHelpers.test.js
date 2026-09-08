@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import * as childProcess from 'node:child_process';
-import { afterEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   cursorPostRunExec,
   githubPrMergeErrorLooksStaleHead,
   githubPrMergeErrorLooksNoAutoMergeGate,
+  githubPrMergeErrorLooksNotYetMergeable,
   githubPrUpdateBranchErrorLooksNoOp,
   pickGithubMergeStrategy,
   githubMergeMethodSummaryLabel,
+  classifyGithubPrMergeability,
   tryGhRepoMergeCapabilities,
   tryGhPrQueueAutoMerge,
 } from '../whatsapp/agents/cursorPostRun.js';
@@ -17,6 +19,40 @@ const realExecFile = childProcess.execFile.bind(childProcess);
 function restoreExecFile() {
   cursorPostRunExec.execFile = (command, args, options, callback) =>
     realExecFile(command, args, options, callback);
+}
+
+/** Fast mergeability polls in unit tests (real sleeps would make the suite slow). */
+function withFastMergeablePoll(fn) {
+  return async () => {
+    const prevPoll = process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS;
+    const prevMax = process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS;
+    process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS = '0';
+    process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS = '2000';
+    try {
+      await fn();
+    } finally {
+      if (prevPoll === undefined) delete process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS;
+      else process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS = prevPoll;
+      if (prevMax === undefined) delete process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS;
+      else process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS = prevMax;
+    }
+  };
+}
+
+function replyMergeableReady(_cmd, args, _opts, cb) {
+  if (args[0] === 'pr' && args[1] === 'view') {
+    cb(
+      null,
+      JSON.stringify({
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: 'CLEAN',
+        state: 'OPEN',
+      }),
+      ''
+    );
+    return true;
+  }
+  return false;
 }
 
 describe('PR merge / update-branch error heuristics', () => {
@@ -34,6 +70,16 @@ describe('PR merge / update-branch error heuristics', () => {
       true
     );
     assert.equal(githubPrMergeErrorLooksStaleHead('unrelated failure'), false);
+  });
+
+  it('detects not-yet-mergeable errors (post-push race)', () => {
+    assert.equal(
+      githubPrMergeErrorLooksNotYetMergeable(
+        'Message: Pull Request is not mergeable, Locations: [{Line:1 Column:58}]'
+      ),
+      true
+    );
+    assert.equal(githubPrMergeErrorLooksNotYetMergeable('Base branch was modified'), false);
   });
 
   it('detects no-auto-merge-gate errors (unprotected main / clean status)', () => {
@@ -89,6 +135,49 @@ describe('PR merge / update-branch error heuristics', () => {
     assert.equal(githubMergeMethodSummaryLabel('squash'), 'squash');
     assert.equal(githubMergeMethodSummaryLabel('merge'), 'merge commit');
     assert.equal(githubMergeMethodSummaryLabel('rebase'), 'rebase');
+  });
+
+  it('classifyGithubPrMergeability covers ready / waiting / conflict / behind', () => {
+    assert.equal(
+      classifyGithubPrMergeability({
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: 'CLEAN',
+        state: 'OPEN',
+      }),
+      'ready'
+    );
+    assert.equal(
+      classifyGithubPrMergeability({
+        mergeable: 'UNKNOWN',
+        mergeStateStatus: 'UNKNOWN',
+        state: 'OPEN',
+      }),
+      'waiting'
+    );
+    assert.equal(
+      classifyGithubPrMergeability({
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: 'BEHIND',
+        state: 'OPEN',
+      }),
+      'behind'
+    );
+    assert.equal(
+      classifyGithubPrMergeability({
+        mergeable: 'CONFLICTING',
+        mergeStateStatus: 'DIRTY',
+        state: 'OPEN',
+      }),
+      'conflict'
+    );
+    assert.equal(
+      classifyGithubPrMergeability({
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: 'CLEAN',
+        state: 'MERGED',
+      }),
+      'closed'
+    );
   });
 });
 
@@ -170,8 +259,15 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
 });
 
 describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
+  beforeEach(() => {
+    process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS = '0';
+    process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS = '2000';
+  });
+
   afterEach(() => {
     restoreExecFile();
+    delete process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS;
+    delete process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS;
   });
 
   it('falls back to merge commit when squash is disabled but merge + auto-merge are allowed', async () => {
@@ -211,140 +307,262 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     assert.equal(calls[1].args[0], 'pr');
   });
 
-  it('falls back to direct merge when allow_auto_merge is false (e.g. private Free-plan repo)', async () => {
-    /** @type {{ cmd: string, args: string[] }[]} */
-    const calls = [];
-    cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
-      calls.push({ cmd, args: [...args] });
-      if (args[0] === 'api') {
-        cb(
-          null,
-          JSON.stringify({
-            allow_squash_merge: true,
-            allow_merge_commit: true,
-            allow_rebase_merge: true,
-            allow_auto_merge: false,
-          }),
-          ''
-        );
-        return;
-      }
-      if (args[0] === 'pr' && args[1] === 'merge') {
-        assert.ok(!args.includes('--auto'), 'must not call --auto when repo disallows it');
-        assert.ok(args.includes('--squash'));
-        cb(null, '', '');
-        return;
-      }
-      cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
-    };
-    const r = await tryGhPrQueueAutoMerge('/tmp/r', 'https://github.com/o/rr/pull/2');
-    assert.equal(r.ok, true);
-    assert.equal(r.mergedDirectly, true);
-    assert.equal(r.mergeMethod, 'squash');
-    const mergeCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
-    assert.equal(mergeCalls.length, 1);
-    assert.ok(!mergeCalls[0].args.includes('--auto'));
-  });
-
-  it('retries direct merge after update-branch when base was modified (private repo path)', async () => {
-    /** @type {{ cmd: string, args: string[] }[]} */
-    const calls = [];
-    let mergeAttempts = 0;
-    cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
-      calls.push({ cmd, args: [...args] });
-      if (args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X')) {
-        cb(
-          null,
-          JSON.stringify({
-            allow_squash_merge: true,
-            allow_merge_commit: true,
-            allow_rebase_merge: true,
-            allow_auto_merge: false,
-          }),
-          ''
-        );
-        return;
-      }
-      if (args[0] === 'api' && args.includes('-X') && args.includes('PUT')) {
-        assert.match(String(args[args.length - 1] || args[3] || ''), /update-branch/);
-        cb(null, '', '');
-        return;
-      }
-      if (args[0] === 'pr' && args[1] === 'merge') {
-        mergeAttempts += 1;
-        assert.ok(!args.includes('--auto'));
-        if (mergeAttempts === 1) {
-          const err = new Error('gh failed');
-          err.stderr =
-            'Message: Base branch was modified. Review and try the merge again., Locations: [{Line:1 Column:58}]';
-          cb(err, '', err.stderr);
+  it(
+    'falls back to direct merge when allow_auto_merge is false (e.g. private Free-plan repo)',
+    withFastMergeablePoll(async () => {
+      /** @type {{ cmd: string, args: string[] }[]} */
+      const calls = [];
+      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+        calls.push({ cmd, args: [...args] });
+        if (replyMergeableReady(cmd, args, _opts, cb)) return;
+        if (args[0] === 'api') {
+          cb(
+            null,
+            JSON.stringify({
+              allow_squash_merge: true,
+              allow_merge_commit: true,
+              allow_rebase_merge: true,
+              allow_auto_merge: false,
+            }),
+            ''
+          );
           return;
         }
-        cb(null, '', '');
-        return;
-      }
-      cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
-    };
-
-    const r = await tryGhPrQueueAutoMerge(
-      '/tmp/r',
-      'https://github.com/alexisNorthcoders/chess-trainer/pull/12'
-    );
-    assert.equal(r.ok, true);
-    assert.equal(r.mergedDirectly, true);
-    assert.equal(r.staleHeadSynced, true);
-    assert.equal(mergeAttempts, 2);
-    const updateCalls = calls.filter(
-      (c) => c.args[0] === 'api' && c.args.includes('PUT')
-    );
-    assert.equal(updateCalls.length, 1);
-  });
-
-  it('falls back to direct merge when --auto fails with unprotected-branch gate error', async () => {
-    /** @type {{ cmd: string, args: string[] }[]} */
-    const calls = [];
-    cursorPostRunExec.execFile = (cmd, args, opts, cb) => {
-      calls.push({ cmd, args: [...args] });
-      const sub = args[0];
-      if (sub === 'api' && String(args[1] || '').startsWith('repos/')) {
-        cb(
-          null,
-          JSON.stringify({
-            allow_squash_merge: true,
-            allow_merge_commit: true,
-            allow_rebase_merge: true,
-            allow_auto_merge: true,
-          }),
-          ''
-        );
-        return;
-      }
-      if (sub === 'pr' && args[1] === 'merge') {
-        if (args.includes('--auto')) {
-          const err = new Error('gh failed');
-          err.stderr =
-            'Message: Pull request Protected branch rules not configured for this branch, Locations: [{Line:1 Column:72}]\n';
-          cb(err, '', err.stderr);
+        if (args[0] === 'pr' && args[1] === 'merge') {
+          assert.ok(!args.includes('--auto'), 'must not call --auto when repo disallows it');
+          assert.ok(args.includes('--squash'));
+          cb(null, '', '');
           return;
         }
-        assert.ok(args.includes('--squash'));
-        assert.ok(!args.includes('--auto'));
-        cb(null, '', '');
-        return;
-      }
-      cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
-    };
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+      const r = await tryGhPrQueueAutoMerge('/tmp/r', 'https://github.com/o/rr/pull/2');
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.equal(r.mergeMethod, 'squash');
+      const mergeCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+      assert.equal(mergeCalls.length, 1);
+      assert.ok(!mergeCalls[0].args.includes('--auto'));
+      const viewCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'view');
+      assert.ok(viewCalls.length >= 1, 'should poll mergeability before direct merge');
+    })
+  );
 
-    const r = await tryGhPrQueueAutoMerge(
-      '/tmp/r',
-      'https://github.com/alexisNorthcoders/WhatsappBot/pull/72'
-    );
-    assert.equal(r.ok, true);
-    assert.equal(r.mergedDirectly, true);
-    assert.equal(r.mergeMethod, 'squash');
-    const mergeCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
-    assert.equal(mergeCalls.length, 2);
-    assert.ok(mergeCalls[0].args.includes('--auto'));
-    assert.ok(!mergeCalls[1].args.includes('--auto'));
-  });
+  it(
+    'retries direct merge after update-branch when base was modified (private repo path)',
+    withFastMergeablePoll(async () => {
+      /** @type {{ cmd: string, args: string[] }[]} */
+      const calls = [];
+      let mergeAttempts = 0;
+      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+        calls.push({ cmd, args: [...args] });
+        if (replyMergeableReady(cmd, args, _opts, cb)) return;
+        if (args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X')) {
+          cb(
+            null,
+            JSON.stringify({
+              allow_squash_merge: true,
+              allow_merge_commit: true,
+              allow_rebase_merge: true,
+              allow_auto_merge: false,
+            }),
+            ''
+          );
+          return;
+        }
+        if (args[0] === 'api' && args.includes('-X') && args.includes('PUT')) {
+          assert.match(String(args[args.length - 1] || args[3] || ''), /update-branch/);
+          cb(null, '', '');
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'merge') {
+          mergeAttempts += 1;
+          assert.ok(!args.includes('--auto'));
+          if (mergeAttempts === 1) {
+            const err = new Error('gh failed');
+            err.stderr =
+              'Message: Base branch was modified. Review and try the merge again., Locations: [{Line:1 Column:58}]';
+            cb(err, '', err.stderr);
+            return;
+          }
+          cb(null, '', '');
+          return;
+        }
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+
+      const r = await tryGhPrQueueAutoMerge(
+        '/tmp/r',
+        'https://github.com/alexisNorthcoders/chess-trainer/pull/12'
+      );
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.equal(r.staleHeadSynced, true);
+      assert.equal(mergeAttempts, 2);
+      const updateCalls = calls.filter(
+        (c) => c.args[0] === 'api' && c.args.includes('PUT')
+      );
+      assert.equal(updateCalls.length, 1);
+    })
+  );
+
+  it(
+    'waits through UNKNOWN mergeability then merges (post-push race like PR #45)',
+    withFastMergeablePoll(async () => {
+      let viewPolls = 0;
+      let mergeAttempts = 0;
+      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+        if (args[0] === 'api' && !args.includes('-X')) {
+          cb(
+            null,
+            JSON.stringify({
+              allow_squash_merge: true,
+              allow_merge_commit: true,
+              allow_rebase_merge: true,
+              allow_auto_merge: false,
+            }),
+            ''
+          );
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'view') {
+          viewPolls += 1;
+          if (viewPolls < 3) {
+            cb(
+              null,
+              JSON.stringify({
+                mergeable: 'UNKNOWN',
+                mergeStateStatus: 'UNKNOWN',
+                state: 'OPEN',
+              }),
+              ''
+            );
+            return;
+          }
+          cb(
+            null,
+            JSON.stringify({
+              mergeable: 'MERGEABLE',
+              mergeStateStatus: 'CLEAN',
+              state: 'OPEN',
+            }),
+            ''
+          );
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'merge') {
+          mergeAttempts += 1;
+          assert.ok(!args.includes('--auto'));
+          cb(null, '', '');
+          return;
+        }
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+
+      const r = await tryGhPrQueueAutoMerge(
+        '/tmp/r',
+        'https://github.com/alexisNorthcoders/chess-trainer/pull/45'
+      );
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.ok(viewPolls >= 3);
+      assert.equal(mergeAttempts, 1);
+    })
+  );
+
+  it(
+    'retries after transient not-mergeable error once mergeability is ready',
+    withFastMergeablePoll(async () => {
+      let mergeAttempts = 0;
+      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+        if (replyMergeableReady(cmd, args, _opts, cb)) return;
+        if (args[0] === 'api' && !args.includes('-X')) {
+          cb(
+            null,
+            JSON.stringify({
+              allow_squash_merge: true,
+              allow_merge_commit: true,
+              allow_rebase_merge: true,
+              allow_auto_merge: false,
+            }),
+            ''
+          );
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'merge') {
+          mergeAttempts += 1;
+          if (mergeAttempts === 1) {
+            const err = new Error('gh failed');
+            err.stderr =
+              'Message: Pull Request is not mergeable, Locations: [{Line:1 Column:58}]';
+            cb(err, '', err.stderr);
+            return;
+          }
+          cb(null, '', '');
+          return;
+        }
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+
+      const r = await tryGhPrQueueAutoMerge(
+        '/tmp/r',
+        'https://github.com/alexisNorthcoders/chess-trainer/pull/45'
+      );
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.equal(mergeAttempts, 2);
+    })
+  );
+
+  it(
+    'falls back to direct merge when --auto fails with unprotected-branch gate error',
+    withFastMergeablePoll(async () => {
+      /** @type {{ cmd: string, args: string[] }[]} */
+      const calls = [];
+      cursorPostRunExec.execFile = (cmd, args, opts, cb) => {
+        calls.push({ cmd, args: [...args] });
+        if (replyMergeableReady(cmd, args, opts, cb)) return;
+        const sub = args[0];
+        if (sub === 'api' && String(args[1] || '').startsWith('repos/')) {
+          cb(
+            null,
+            JSON.stringify({
+              allow_squash_merge: true,
+              allow_merge_commit: true,
+              allow_rebase_merge: true,
+              allow_auto_merge: true,
+            }),
+            ''
+          );
+          return;
+        }
+        if (sub === 'pr' && args[1] === 'merge') {
+          if (args.includes('--auto')) {
+            const err = new Error('gh failed');
+            err.stderr =
+              'Message: Pull request Protected branch rules not configured for this branch, Locations: [{Line:1 Column:72}]\n';
+            cb(err, '', err.stderr);
+            return;
+          }
+          assert.ok(args.includes('--squash'));
+          assert.ok(!args.includes('--auto'));
+          cb(null, '', '');
+          return;
+        }
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+
+      const r = await tryGhPrQueueAutoMerge(
+        '/tmp/r',
+        'https://github.com/alexisNorthcoders/WhatsappBot/pull/72'
+      );
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.equal(r.mergeMethod, 'squash');
+      const mergeCalls = calls.filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+      assert.equal(mergeCalls.length, 2);
+      assert.ok(mergeCalls[0].args.includes('--auto'));
+      assert.ok(!mergeCalls[1].args.includes('--auto'));
+    })
+  );
 });
