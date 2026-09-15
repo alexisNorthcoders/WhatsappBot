@@ -275,7 +275,7 @@ export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
 /**
  * Open issues in the given repo (GitHub), via `gh issue list`.
  * @param {{ repo?: string }} [opts]
- * @returns {Promise<{ number: number, title: string }[]>}
+ * @returns {Promise<{ number: number, title: string, labels: string[] }[]>}
  */
 export async function listOpenGithubIssues(opts = {}) {
   const repo = opts.repo?.trim()
@@ -291,7 +291,7 @@ export async function listOpenGithubIssues(opts = {}) {
     '--state',
     'open',
     '--json',
-    'number,title',
+    'number,title,labels',
     '--limit',
     String(limit),
   ];
@@ -321,6 +321,9 @@ export async function listOpenGithubIssues(opts = {}) {
     .map((row) => ({
       number: typeof row.number === 'number' ? row.number : parseInt(String(row.number), 10),
       title: String(row.title ?? ''),
+      labels: Array.isArray(row.labels)
+        ? row.labels.map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean)
+        : [],
     }))
     .filter((row) => Number.isFinite(row.number) && row.number > 0);
 }

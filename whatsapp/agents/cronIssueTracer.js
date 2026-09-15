@@ -22,6 +22,9 @@ import {
 
 const DEFAULT_MS = 10 * 60 * 1000;
 
+/** Only issues carrying this label are eligible for cron pickup. */
+const READY_FOR_AGENT_LABEL = 'ready-for-agent';
+
 /** Must match the allowlisted `CLAUDE_WORKSPACE_MAP` key for the secondary repo. */
 const CRON_PLATFORMER_WORKSPACE_ALIAS = (() => {
   const t = (process.env.CRON_PLATFORMER_WORKSPACE_ALIAS || 'platformer').trim();
@@ -32,24 +35,27 @@ let intervalId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 let inFlight = false;
 
 /**
- * @param {{ number: number, title: string }[]} rows
- * @returns {{ number: number, title: string } | null} lowest eligible OPEN issue
+ * @param {{ number: number, title: string, labels?: string[] }[]} rows
+ * @returns {{ number: number, title: string, labels?: string[] } | null} lowest OPEN issue labeled `ready-for-agent`
  */
 export function pickNextEligibleIssue(rows) {
   const eligible = rows.filter(
-    (r) => !String(r.title || '').trim().toLowerCase().startsWith('prd')
+    (r) =>
+      Array.isArray(r.labels) &&
+      r.labels.some((l) => String(l).trim().toLowerCase() === READY_FOR_AGENT_LABEL)
   );
   if (eligible.length === 0) return null;
   return eligible.reduce((a, b) => (a.number < b.number ? a : b));
 }
 
 /**
- * Lowest PRD-filtered eligible issue for `gitRepo` that is not suppressed by per-repo last-started.
+ * Lowest `ready-for-agent`-labeled eligible issue for `gitRepo` that is not suppressed by
+ * per-repo last-started.
  *
- * @param {{ number: number, title: string }[]} rows
+ * @param {{ number: number, title: string, labels?: string[] }[]} rows
  * @param {string} gitRepo
  * @param {Map<string, number>} lastByRepo
- * @returns {{ number: number, title: string } | null}
+ * @returns {{ number: number, title: string, labels?: string[] } | null}
  */
 export function pickNextRunnableIssueForRepo(rows, gitRepo, lastByRepo) {
   const next = pickNextEligibleIssue(rows);

@@ -44,71 +44,82 @@ describe('cronShouldPersistLastStarted', () => {
 });
 
 describe('pickNextEligibleIssue', () => {
-  it('returns null when every issue is PRD-prefixed', () => {
+  it('returns null when no issue carries the ready-for-agent label', () => {
     const r = pickNextEligibleIssue([
-      { number: 23, title: 'PRD: some product doc' },
-      { number: 99, title: 'prd lowercase' },
+      { number: 23, title: 'Needs triage', labels: ['needs-triage'] },
+      { number: 99, title: 'No labels at all', labels: [] },
     ]);
     assert.equal(r, null);
   });
 
-  it('ignores case and leading whitespace for PRD rule', () => {
+  it('ignores case and whitespace in the label name', () => {
     const r = pickNextEligibleIssue([
-      { number: 10, title: '  Prd: x' },
-      { number: 2, title: 'real task' },
+      { number: 10, title: 'x', labels: ['needs-triage'] },
+      { number: 2, title: 'real task', labels: [' Ready-For-Agent '] },
     ]);
-    assert.deepEqual(r, { number: 2, title: 'real task' });
+    assert.deepEqual(r, { number: 2, title: 'real task', labels: [' Ready-For-Agent '] });
   });
 
-  it('picks lowest issue number among eligible', () => {
+  it('picks lowest issue number among ready-for-agent-labeled issues', () => {
     const r = pickNextEligibleIssue([
-      { number: 30, title: 'Later' },
-      { number: 5, title: 'First eligible' },
-      { number: 8, title: 'Mid' },
+      { number: 30, title: 'Later', labels: ['ready-for-agent'] },
+      { number: 5, title: 'First eligible', labels: ['ready-for-agent'] },
+      { number: 8, title: 'Mid', labels: ['ready-for-agent'] },
     ]);
-    assert.deepEqual(r, { number: 5, title: 'First eligible' });
+    assert.deepEqual(r, { number: 5, title: 'First eligible', labels: ['ready-for-agent'] });
   });
 
-  it('ignores PRD-prefixed titles that use punctuation after the letters (e.g. PRD-…)', () => {
-    const r = pickNextEligibleIssue([{ number: 1, title: 'PRD-foo' }]);
+  it('ignores issues with an unrelated label set', () => {
+    const r = pickNextEligibleIssue([{ number: 1, title: 'Doc PRD', labels: ['documentation'] }]);
     assert.equal(r, null);
   });
 
-  it('treats leading tab as whitespace for the PRD filter', () => {
+  it('treats a missing labels array as ineligible', () => {
     const r = pickNextEligibleIssue([
-      { number: 1, title: '\tPrD:   product' },
-      { number: 2, title: 'bugfix' },
+      { number: 1, title: 'no labels field' },
+      { number: 2, title: 'bugfix', labels: ['ready-for-agent'] },
     ]);
-    assert.deepEqual(r, { number: 2, title: 'bugfix' });
+    assert.deepEqual(r, { number: 2, title: 'bugfix', labels: ['ready-for-agent'] });
   });
 
-  it('treats mixed leading whitespace and letter case as PRD-prefixed (case-insensitive prefix)', () => {
+  it('does not treat other labels as a match for ready-for-agent', () => {
     const r = pickNextEligibleIssue([
-      { number: 1, title: '  \t pRd \t : roadmap item' },
-      { number: 9, title: 'Ship feature' },
+      { number: 9, title: 'Ship feature', labels: ['ready-for-human'] },
     ]);
-    assert.deepEqual(r, { number: 9, title: 'Ship feature' });
+    assert.equal(r, null);
   });
 
-  it('does not exclude issues whose title merely contains "prd" after other words', () => {
+  it('picks an issue that has ready-for-agent alongside other labels', () => {
     const r = pickNextEligibleIssue([
-      { number: 3, title: 'Follow-up from PRD discussion' },
+      { number: 3, title: 'Follow-up', labels: ['enhancement', 'ready-for-agent'] },
     ]);
-    assert.deepEqual(r, { number: 3, title: 'Follow-up from PRD discussion' });
+    assert.deepEqual(r, {
+      number: 3,
+      title: 'Follow-up',
+      labels: ['enhancement', 'ready-for-agent'],
+    });
   });
 });
 
 describe('pickNextRunnableIssueForRepo', () => {
   it('returns null when the only eligible issue matches last-started for that repo', () => {
     const last = new Map([[REPO, 3]]);
-    const r = pickNextRunnableIssueForRepo([{ number: 3, title: 'Open' }], REPO, last);
+    const r = pickNextRunnableIssueForRepo(
+      [{ number: 3, title: 'Open', labels: ['ready-for-agent'] }],
+      REPO,
+      last
+    );
     assert.equal(r, null);
   });
 
   it('returns the eligible issue when last-started is a different number', () => {
     const last = new Map([[REPO, 2]]);
-    const r = pickNextRunnableIssueForRepo([{ number: 5, title: 'Open' }], REPO, last);
-    assert.deepEqual(r, { number: 5, title: 'Open' });
+    const r = pickNextRunnableIssueForRepo(
+      [{ number: 5, title: 'Open', labels: ['ready-for-agent'] }],
+      REPO,
+      last
+    );
+    assert.deepEqual(r, { number: 5, title: 'Open', labels: ['ready-for-agent'] });
   });
 });
 
@@ -168,7 +179,7 @@ describe('runCronIssueTracerTick', () => {
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
-      listOpenGithubIssues: async () => [{ number: 1, title: 'Task' }],
+      listOpenGithubIssues: async () => [{ number: 1, title: 'Task', labels: ['ready-for-agent'] }],
       resolveIssueRepoSlug: () => REPO,
       readCronPerRepoLastStarted: async () => new Map(),
       getDefaultWorkspaceRoot: async () => '/tmp/ws',
@@ -187,7 +198,7 @@ describe('runCronIssueTracerTick', () => {
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
-      listOpenGithubIssues: async () => [{ number: 2, title: 'Task' }],
+      listOpenGithubIssues: async () => [{ number: 2, title: 'Task', labels: ['ready-for-agent'] }],
       resolveIssueRepoSlug: () => REPO,
       readCronPerRepoLastStarted: async () => new Map(),
       getDefaultWorkspaceRoot: async () => '/tmp/ws',
@@ -215,7 +226,7 @@ describe('runCronIssueTracerTick', () => {
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
-        if (repo === REPO) return [{ number: 10, title: 'Still open' }];
+        if (repo === REPO) return [{ number: 10, title: 'Still open', labels: ['ready-for-agent'] }];
         if (repo === REPO_P) return [];
         throw new Error(`unexpected list ${repo}`);
       },
@@ -245,7 +256,7 @@ describe('runCronIssueTracerTick', () => {
     };
 
     const listBoth = async (/** @type {{ repo: string }} */ { repo }) => {
-      if (repo === REPO) return [{ number: 7, title: 'Work' }];
+      if (repo === REPO) return [{ number: 7, title: 'Work', labels: ['ready-for-agent'] }];
       if (repo === REPO_P) return [];
       throw new Error(`unexpected list ${repo}`);
     };
@@ -321,7 +332,7 @@ describe('runCronIssueTracerTick', () => {
     const writes = [];
     let prepCalls = 0;
     const listBoth = async (/** @type {{ repo: string }} */ { repo }) => {
-      if (repo === REPO) return [{ number: 32, title: 'Still open' }];
+      if (repo === REPO) return [{ number: 32, title: 'Still open', labels: ['ready-for-agent'] }];
       if (repo === REPO_P) return [];
       throw new Error(`unexpected list ${repo}`);
     };
@@ -394,11 +405,11 @@ describe('runCronIssueTracerTick', () => {
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
         if (repo === REPO) {
-          return [{ number: 50, title: 'WA task' }];
+          return [{ number: 50, title: 'WA task', labels: ['ready-for-agent'] }];
         }
         if (repo === REPO_P) {
           platListed = true;
-          return [{ number: 1, title: 'Lower number but secondary repo' }];
+          return [{ number: 1, title: 'Lower number but secondary repo', labels: ['ready-for-agent'] }];
         }
         throw new Error(`unexpected list ${repo}`);
       },
@@ -431,7 +442,7 @@ describe('runCronIssueTracerTick', () => {
       listOpenGithubIssues: async ({ repo }) => {
         listCalls++;
         assert.equal(repo, REPO);
-        return [{ number: 1, title: 'WA' }];
+        return [{ number: 1, title: 'WA', labels: ['ready-for-agent'] }];
       },
       resolveIssueRepoSlug: () => REPO,
       readCronPerRepoLastStarted: async () => new Map(),
@@ -464,10 +475,10 @@ describe('runCronIssueTracerTick', () => {
       listOpenGithubIssues: async ({ repo }) => {
         listCalls++;
         if (repo === REPO) {
-          return [{ number: 9, title: 'WA task' }];
+          return [{ number: 9, title: 'WA task', labels: ['ready-for-agent'] }];
         }
         if (repo === REPO_P) {
-          return [{ number: 4, title: 'Plat task' }];
+          return [{ number: 4, title: 'Plat task', labels: ['ready-for-agent'] }];
         }
         throw new Error(`unexpected repo list ${repo}`);
       },
@@ -490,7 +501,7 @@ describe('runCronIssueTracerTick', () => {
     assert.equal(prepInfo.issueNumber, 4);
   });
 
-  it('uses Platformer when WhatsappBot has no eligible issues (e.g. only PRD-titled opens)', async () => {
+  it('uses Platformer when WhatsappBot has no eligible issues (e.g. none labeled ready-for-agent)', async () => {
     const sock = makeMockSock();
     let prepInfo = /** @type {null | { workspaceRoot: string, issueNumber: number, alias: string | null }} */ (
       null
@@ -501,10 +512,10 @@ describe('runCronIssueTracerTick', () => {
       cronPlatformerAlias: 'platformer',
       listOpenGithubIssues: async ({ repo }) => {
         if (repo === REPO) {
-          return [{ number: 5, title: 'PRD: x' }];
+          return [{ number: 5, title: 'x', labels: ['needs-triage'] }];
         }
         if (repo === REPO_P) {
-          return [{ number: 2, title: 'Plat' }];
+          return [{ number: 2, title: 'Plat', labels: ['ready-for-agent'] }];
         }
         throw new Error(`unexpected repo list ${repo}`);
       },
@@ -534,18 +545,18 @@ describe('runCronIssueTracerTick', () => {
     assert.equal(prepInfo.issueNumber, 2);
   });
 
-  it('does not start Platformer when every open Platformer issue is PRD-titled', async () => {
+  it('does not start Platformer when no open Platformer issue is labeled ready-for-agent', async () => {
     const sock = makeMockSock();
     let prepCalls = 0;
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
-        if (repo === REPO) return [{ number: 1, title: 'PRD: wa' }];
+        if (repo === REPO) return [{ number: 1, title: 'wa', labels: ['needs-triage'] }];
         if (repo === REPO_P) {
           return [
-            { number: 2, title: 'PRD: plat doc' },
-            { number: 3, title: 'prd-dash' },
+            { number: 2, title: 'plat doc', labels: [] },
+            { number: 3, title: 'ready-for-human item', labels: ['ready-for-human'] },
           ];
         }
         return [];
@@ -560,7 +571,11 @@ describe('runCronIssueTracerTick', () => {
         return { prompt: 'p', issueSource: { number: 1, repo: REPO, title: 'x' } };
       },
     });
-    assert.equal(prepCalls, 0, 'no repo should run prep when both repos only have PRD-titled opens');
+    assert.equal(
+      prepCalls,
+      0,
+      'no repo should run prep when neither repo has a ready-for-agent-labeled open issue'
+    );
   });
 
   it('starts work on a different eligible issue when last-started was another number in that repo', async () => {
@@ -569,7 +584,7 @@ describe('runCronIssueTracerTick', () => {
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
-      listOpenGithubIssues: async () => [{ number: 20, title: 'New' }],
+      listOpenGithubIssues: async () => [{ number: 20, title: 'New', labels: ['ready-for-agent'] }],
       resolveIssueRepoSlug: () => REPO,
       readCronPerRepoLastStarted: async () => new Map([[REPO, 3]]),
       getDefaultWorkspaceRoot: async () => '/tmp/ws',
@@ -600,7 +615,7 @@ describe('runCronIssueTracerTick', () => {
         if (repo === REPO_P) pLists++;
         if (repo === REPO) return [];
         if (repo === REPO_P) {
-          return [{ number: 3, title: 'C' }];
+          return [{ number: 3, title: 'C', labels: ['ready-for-agent'] }];
         }
         return [];
       },
