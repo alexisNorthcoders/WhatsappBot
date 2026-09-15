@@ -31,12 +31,26 @@ export const claudePostRunExec = {
 };
 
 /**
+ * Default ceiling for every `gh`/`git` child process spawned from this file. Without this, a
+ * hung `gh` call (rate-limit stall, network hiccup, GraphQL timeout) never resolves or rejects —
+ * which blocks the single-flight Claude agent lock forever and silently wedges the cron issue
+ * tracer (`claudeAgentBusy.js`, `cronIssueTracer.js`'s `inFlight`). Override per repo/network via
+ * `CLAUDE_POST_RUN_EXEC_TIMEOUT_MS`.
+ */
+const DEFAULT_EXEC_TIMEOUT_MS = (() => {
+  const n = parseInt(process.env.CLAUDE_POST_RUN_EXEC_TIMEOUT_MS, 10);
+  return Number.isFinite(n) && n > 0 ? n : 90_000;
+})();
+
+/**
  * Same contract as `promisify(child_process.execFile)`: resolves to `{ stdout, stderr }`.
  * Do not `promisify` a wrapper around `execFile` — that drops the custom promisify implementation and breaks callers that destructure `{ stdout }`.
+ * Applies `DEFAULT_EXEC_TIMEOUT_MS` unless the caller already set `timeout`.
  */
 function execFileAsync(command, args, options) {
+  const opts = { timeout: DEFAULT_EXEC_TIMEOUT_MS, ...options };
   return new Promise((resolve, reject) => {
-    claudePostRunExec.execFile(command, args, options, (err, stdout, stderr) => {
+    claudePostRunExec.execFile(command, args, opts, (err, stdout, stderr) => {
       if (err) {
         err.stdout = stdout;
         err.stderr = stderr;
@@ -1790,16 +1804,18 @@ async function runLlmReview(diffForLlm, userPrompt) {
       return { text: 'Review skipped: OPENAI_API_KEY is not set.', usage, outcome };
     }
     const system = [
-      'You are a senior software engineer reviewing a pull-request diff produced by an automated Claude CLI run from WhatsApp.',
+      'You are a senior software engineer doing a one-shot merge gate on a pull-request diff produced by an automated Claude CLI run from WhatsApp.',
+      'This is not a human PR conversation: there is no back-and-forth, and at most one automated follow-up pass will ever read your bullets and try to apply them blind. Judge real mergeability, not how thorough you can make the review look — do not invent or pad out concerns to fill a quota.',
       'Your entire reply MUST start with exactly one of these two lines as line 1 (no markdown heading, no code fence, no leading whitespace, no preamble):',
       VERDICT_APPROVE,
       VERDICT_REQUEST_CHANGES,
       '',
-      `Use ${VERDICT_APPROVE} only when you would merge as-is or with truly trivial nits.`,
-      `Use ${VERDICT_REQUEST_CHANGES} when there are material risks: correctness bugs, security (secrets, injection), breakage, missing coverage for risky logic, or serious maintainability problems.`,
-      'After line 1, output one blank line, then concise actionable Markdown (short bullets are fine). Do not repeat the verdict line in the body.',
-      'Always include at least 3 actionable bullets when using REQUEST_CHANGES; include at least 1 short note when using APPROVE.',
-      'Cover where relevant: correctness, edge cases, security, performance hotspots, readability, and tests.',
+      `${VERDICT_APPROVE} is the default outcome. Use it for anything you would actually merge, including diffs with minor style nits, readability suggestions, or non-critical missing test coverage — raise those as short notes, they are not blockers on their own.`,
+      `Use ${VERDICT_REQUEST_CHANGES} only for concrete, material problems: correctness bugs that would misbehave on realistic inputs, security issues (secrets, injection, auth bypass, unsafe eval), breaking changes or regressions, destructive operations without guardrails, or a genuinely risky piece of new logic left completely untested.`,
+      "When in doubt between the two, approve with notes — a false REQUEST_CHANGES costs a wasted automated fix pass and merge delay for no real benefit; a false APPROVE on a truly material bug is the only mistake worth avoiding.",
+      'After line 1, output one blank line, then concise Markdown. Do not repeat the verdict line in the body.',
+      `For ${VERDICT_APPROVE}: 0-2 short optional notes; empty body is fine if there is nothing worth mentioning.`,
+      `For ${VERDICT_REQUEST_CHANGES}: list only the specific blocking issues (usually 1-3, never padded) as bullets, each naming the file/location, what is wrong, and what to do about it — precise enough that a single automated pass can fix it without asking a follow-up question.`,
       'If the diff is empty or not really code, still pick the more appropriate verdict and explain briefly.',
     ].join('\n');
 

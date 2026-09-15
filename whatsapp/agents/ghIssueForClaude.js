@@ -9,6 +9,13 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_GH_ISSUE_REPO = 'alexisNorthcoders/WhatsappBot';
 
+/** Same rationale as `claudePostRun.js`'s constant of the same name: an unbounded `gh`/`git`
+ * call can hang forever and wedge the single-flight agent lock / cron tracer. */
+const DEFAULT_EXEC_TIMEOUT_MS = (() => {
+  const n = parseInt(process.env.CLAUDE_POST_RUN_EXEC_TIMEOUT_MS, 10);
+  return Number.isFinite(n) && n > 0 ? n : 90_000;
+})();
+
 /** Max `--limit` for `gh issue list` (GitHub caps at 500). Lower via env if GraphQL calls time out (504). */
 const GH_ISSUE_LIST_MAX_CAP = 500;
 
@@ -49,6 +56,7 @@ function resolveGhIssueListLimit() {
  * @param {import('child_process').ExecFileOptionsWithStringEncoding} execOpts
  */
 async function execGhWithRetry(bin, args, execOpts) {
+  const opts = { timeout: DEFAULT_EXEC_TIMEOUT_MS, ...execOpts };
   const backoffMs = [0, 2500, 8000];
   let /** @type {unknown} */ lastErr;
   for (let attempt = 0; attempt < backoffMs.length; attempt++) {
@@ -56,7 +64,7 @@ async function execGhWithRetry(bin, args, execOpts) {
       await new Promise((r) => setTimeout(r, backoffMs[attempt]));
     }
     try {
-      return await execFileAsync(bin, args, execOpts);
+      return await execFileAsync(bin, args, opts);
     } catch (e) {
       lastErr = e;
       if (e && typeof e === 'object' && /** @type {{ code?: string }} */ (e).code === 'ENOENT') {
@@ -118,6 +126,7 @@ async function tryOwnerRepoFromGitOrigin(workspaceRoot) {
       cwd: workspaceRoot,
       encoding: 'utf8',
       maxBuffer: 1024 * 1024,
+      timeout: DEFAULT_EXEC_TIMEOUT_MS,
       env: { ...process.env, PATH: augmentedPathEnv() },
     }));
   } catch {
