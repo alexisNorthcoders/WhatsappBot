@@ -35,7 +35,7 @@ describe('createProductionPorts privileged routes', () => {
     assert.match(sent[0].text, /Not allowed to restart/);
   });
 
-  it('denies cursor command when isAllowedActor returns false', async () => {
+  it('denies claude command when isAllowedActor returns false', async () => {
     const sent = [];
     const sock = {
       sendMessage: async (jid, content) => {
@@ -50,7 +50,7 @@ describe('createProductionPorts privileged routes', () => {
       downloadMediaMessage: async () => Buffer.from(''),
       fs: { writeFile: async () => {} },
       logger: { info() {}, warn() {}, error() {} },
-      commands: { cursor: async () => assert.fail('cursor should not run') },
+      commands: { claude: async () => assert.fail('claude should not run') },
       secondPhone: undefined,
       isAllowedActor: () => false,
     });
@@ -59,12 +59,12 @@ describe('createProductionPorts privileged routes', () => {
       chatId: '1@s.whatsapp.net',
       actorId: '1@s.whatsapp.net',
       fromMe: false,
-      text: 'cursor fix the bug',
+      text: 'claude fix the bug',
       features: { hasImage: false },
       raw: { key: { remoteJid: '1@s.whatsapp.net', participant: null, id: 'x' }, message: {} },
     };
     const r = await ports.routes.runCommandByFirstToken(inbound);
     assert.equal(r.handled, true);
-    assert.match(sent[0].text, /Not allowed to run the Cursor agent/);
+    assert.match(sent[0].text, /Not allowed to run the Claude agent/);
   });
 });

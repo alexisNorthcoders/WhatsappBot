@@ -5,11 +5,11 @@ import {
   pickNextRunnableIssueForRepo,
   runCronIssueTracerTick,
 } from '../whatsapp/agents/cronIssueTracer.js';
-import { cronShouldPersistLastStarted } from '../whatsapp/agents/cursorIssuePipeline.js';
+import { cronShouldPersistLastStarted } from '../whatsapp/agents/claudeIssuePipeline.js';
 import {
-  isCursorAgentBusy,
+  isClaudeAgentBusy,
   releaseAgentBusyLock,
-} from '../whatsapp/agents/cursorAgentBusy.js';
+} from '../whatsapp/agents/claudeAgentBusy.js';
 
 describe('cronShouldPersistLastStarted', () => {
   it('treats void / null results as persist (legacy successful mocks)', () => {
@@ -129,13 +129,13 @@ const OWNER = '123@s.whatsapp.net';
 
 describe('runCronIssueTracerTick', () => {
   beforeEach(() => {
-    if (isCursorAgentBusy()) {
+    if (isClaudeAgentBusy()) {
       releaseAgentBusyLock();
     }
   });
 
   it('returns without listing issues when the agent is already busy', async () => {
-    assert.equal(isCursorAgentBusy(), false);
+    assert.equal(isClaudeAgentBusy(), false);
     const sock = makeMockSock();
     let listCalls = 0;
     let prepCalls = 0;
@@ -143,7 +143,7 @@ describe('runCronIssueTracerTick', () => {
     await runCronIssueTracerTick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
-      isCursorAgentBusy: () => true,
+      isClaudeAgentBusy: () => true,
       listOpenGithubIssues: async () => {
         listCalls++;
         return [];
@@ -152,7 +152,7 @@ describe('runCronIssueTracerTick', () => {
         prepCalls++;
         return null;
       },
-      runCursorAgentWithPost: async () => {
+      runClaudeAgentWithPost: async () => {
         agentCalls++;
       },
     });
@@ -160,7 +160,7 @@ describe('runCronIssueTracerTick', () => {
     assert.equal(prepCalls, 0);
     assert.equal(agentCalls, 0);
     assert.equal(sock.sent.length, 0, 'owner should not get cron noise while a manual run holds the lock');
-    assert.equal(isCursorAgentBusy(), false, 'cron early-return must not mutate the real busy lock');
+    assert.equal(isClaudeAgentBusy(), false, 'cron early-return must not mutate the real busy lock');
   });
 
   it('releases the agent busy lock when issue fetch / git prep returns null', async () => {
@@ -173,14 +173,14 @@ describe('runCronIssueTracerTick', () => {
       readCronPerRepoLastStarted: async () => new Map(),
       getDefaultWorkspaceRoot: async () => '/tmp/ws',
       runIssueFetchAndGitPrep: async () => null,
-      runCursorAgentWithPost: async () => {
-        throw new Error('runCursorAgentWithPost should not run when prep failed');
+      runClaudeAgentWithPost: async () => {
+        throw new Error('runClaudeAgentWithPost should not run when prep failed');
       },
     });
-    assert.equal(isCursorAgentBusy(), false);
+    assert.equal(isClaudeAgentBusy(), false);
   });
 
-  it('releases the agent busy lock when runCursorAgentWithPost throws', async () => {
+  it('releases the agent busy lock when runClaudeAgentWithPost throws', async () => {
     const sock = makeMockSock();
     /** @type {unknown[]} */
     const writes = [];
@@ -195,14 +195,14 @@ describe('runCronIssueTracerTick', () => {
         prompt: 'p',
         issueSource: { number: 2, repo: REPO, title: 'Task' },
       }),
-      runCursorAgentWithPost: async () => {
+      runClaudeAgentWithPost: async () => {
         throw 'non-Error rejection';
       },
       writeCronPerRepoLastStartedEntry: async (row) => {
         writes.push(row);
       },
     });
-    assert.equal(isCursorAgentBusy(), false);
+    assert.equal(isClaudeAgentBusy(), false);
     assert.deepEqual(writes, []);
     const errMsg = sock.sent.map((m) => m.text).find((t) => t.includes('non-Error'));
     assert.ok(errMsg, 'owner should be notified of run failure');
@@ -269,7 +269,7 @@ describe('runCronIssueTracerTick', () => {
         prepCalls++;
         return { prompt: 'p', issueSource: { number: 7, repo: REPO, title: 'Work' } };
       },
-      runCursorAgentWithPost: successfulProgress,
+      runClaudeAgentWithPost: successfulProgress,
     });
     assert.equal(prepCalls, 1);
     assert.equal(persisted.get(REPO), 7);
@@ -288,7 +288,7 @@ describe('runCronIssueTracerTick', () => {
         prepCalls++;
         return { prompt: 'p', issueSource: { number: 7, repo: REPO, title: 'Work' } };
       },
-      runCursorAgentWithPost: async () => {
+      runClaudeAgentWithPost: async () => {
         throw new Error('should not run again for same issue');
       },
     });
@@ -308,7 +308,7 @@ describe('runCronIssueTracerTick', () => {
         prepCalls++;
         return { prompt: 'p', issueSource: { number: 7, repo: REPO, title: 'Work' } };
       },
-      runCursorAgentWithPost: async () => {
+      runClaudeAgentWithPost: async () => {
         throw new Error('should not run on third tick either');
       },
     });
@@ -345,7 +345,7 @@ describe('runCronIssueTracerTick', () => {
           issueSource: { number: 32, repo: REPO, title: 'Still open' },
         };
       },
-      runCursorAgentWithPost: async () => ({
+      runClaudeAgentWithPost: async () => ({
         agentRunOk: true,
         post: { ran: false, skipReason: 'clean_after_wait' },
       }),
@@ -377,7 +377,7 @@ describe('runCronIssueTracerTick', () => {
           issueSource: { number: 32, repo: REPO, title: 'Still open' },
         };
       },
-      runCursorAgentWithPost: async () => ({
+      runClaudeAgentWithPost: async () => ({
         agentRunOk: true,
         post: { ran: true },
       }),
@@ -415,7 +415,7 @@ describe('runCronIssueTracerTick', () => {
           issueSource: { number: 50, repo: REPO, title: 'WA task' },
         };
       },
-      runCursorAgentWithPost: async () => {},
+      runClaudeAgentWithPost: async () => {},
     });
     assert.equal(platListed, false, 'Platformer must not be consulted when WhatsappBot still has runnable work');
   });
@@ -447,7 +447,7 @@ describe('runCronIssueTracerTick', () => {
           issueSource: { number: 1, repo: REPO, title: 'WA' },
         };
       },
-      runCursorAgentWithPost: async () => {},
+      runClaudeAgentWithPost: async () => {},
     });
     assert.equal(listCalls, 1, 'only WhatsappBot issue list should run');
     assert.equal(platRootCalls, 0);
@@ -482,7 +482,7 @@ describe('runCronIssueTracerTick', () => {
         prepInfo = { workspaceRoot: p.workspaceRoot, issueNumber: p.issueNumber };
         return { prompt: 'p', issueSource: { number: 4, repo: REPO_P, title: 'Plat task' } };
       },
-      runCursorAgentWithPost: async () => {},
+      runClaudeAgentWithPost: async () => {},
     });
     assert.ok(listCalls >= 2, 'WhatsappBot and Platformer issue lists should run');
     assert.ok(prepInfo, 'Platformer path should run prep');
@@ -526,7 +526,7 @@ describe('runCronIssueTracerTick', () => {
         };
         return { prompt: 'p', issueSource: { number: 2, repo: REPO_P, title: 'Plat' } };
       },
-      runCursorAgentWithPost: async () => {},
+      runClaudeAgentWithPost: async () => {},
     });
     assert.ok(prepInfo, 'Platformer path should run prep');
     assert.equal(prepInfo.workspaceRoot, '/plat/root');
@@ -580,7 +580,7 @@ describe('runCronIssueTracerTick', () => {
           issueSource: { number: p.issueNumber, repo: REPO, title: 'New' },
         };
       },
-      runCursorAgentWithPost: async () => {},
+      runClaudeAgentWithPost: async () => {},
       writeCronPerRepoLastStartedEntry: async () => {},
     });
     assert.equal(prepFor, 20);
@@ -614,7 +614,7 @@ describe('runCronIssueTracerTick', () => {
         assert.equal(p.issueNumber, 3);
         return { prompt: 'p', issueSource: { number: 3, repo: REPO_P, title: 'C' } };
       },
-      runCursorAgentWithPost: async () => {},
+      runClaudeAgentWithPost: async () => {},
     });
     assert.equal(pLists, 1);
   });

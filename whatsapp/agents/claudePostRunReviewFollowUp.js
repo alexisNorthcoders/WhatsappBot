@@ -1,11 +1,11 @@
 import {
   VERDICT_REQUEST_CHANGES,
   autoMergeAllowedByReviewGate,
-} from './cursorPostRunDecisionLogic.js';
+} from './claudePostRunDecisionLogic.js';
 
 /**
  * Post-LLM-review steps: optional single autofix pass, merge-gate PR comment, auto-merge + issue poll.
- * Inject `tryGhPrQueueAutoMerge` (from cursorPostRun) so `node:test` can mock `gh` and related helpers.
+ * Inject `tryGhPrQueueAutoMerge` (from claudePostRun) so `node:test` can mock `gh` and related helpers.
  */
 export async function runPostReviewAutofixMergeFlow({
   repo,
@@ -47,7 +47,7 @@ export async function runPostReviewAutofixMergeFlow({
           '',
           postReviewAutofix.detail,
           '',
-          '**Do not merge** this PR until the review feedback is addressed (manually or with another `cursor issue:…` run).',
+          '**Do not merge** this PR until the review feedback is addressed (manually or with another `claude issue:…` run).',
         ].join('\n');
         const gateComment = await tryGhPrReviewComment(repo, prResult.url, gateBody);
         logPost('post-review autofix merge-gate PR comment', gateComment);

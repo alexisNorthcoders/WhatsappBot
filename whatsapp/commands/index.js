@@ -7,7 +7,7 @@ import imageCommand from './image.js';
 import sdxlCommand from './sdxl.js';
 import spriteCommand from './sprite.js';
 import danielCommand from './daniel.js';
-import cursorCommand from './cursor.js';
+import claudeCommand from './claude.js';
 import summarizeCommand from './summarize.js';
 import * as lightsCommands from './lights.js';
 
@@ -21,7 +21,7 @@ export {
     sdxlCommand as sdxl,
     spriteCommand as sprite,
     danielCommand as daniel,
-    cursorCommand as cursor,
+    claudeCommand as claude,
     summarizeCommand as summarize,
     summarizeCommand as summarise,
 };

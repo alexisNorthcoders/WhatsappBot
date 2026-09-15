@@ -76,7 +76,7 @@ export async function runReminderAgent(m, deps) {
       handled: true,
       replyText:
         `Not allowed to manage reminders from this identity.${hint}\n\n` +
-        '(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CURSOR_AGENT_EXTRA_JIDS.)',
+        '(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)',
     };
   }
 

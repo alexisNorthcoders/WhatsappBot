@@ -46,20 +46,20 @@ async function canonicalizeConfiguredPath(rawPath) {
 }
 
 async function loadJsonMapFile() {
-  const f = process.env.CURSOR_WORKSPACE_MAP_FILE?.trim();
+  const f = process.env.CLAUDE_WORKSPACE_MAP_FILE?.trim();
   if (!f) return new Map();
   const resolved = pathResolve(f);
   let raw;
   try {
     raw = await fs.readFile(resolved, 'utf8');
   } catch (e) {
-    throw new Error(`CURSOR_WORKSPACE_MAP_FILE: cannot read ${resolved}: ${e.message || e}`);
+    throw new Error(`CLAUDE_WORKSPACE_MAP_FILE: cannot read ${resolved}: ${e.message || e}`);
   }
   let obj;
   try {
     obj = JSON.parse(raw);
   } catch (e) {
-    throw new Error(`CURSOR_WORKSPACE_MAP_FILE: invalid JSON (${e.message || e})`);
+    throw new Error(`CLAUDE_WORKSPACE_MAP_FILE: invalid JSON (${e.message || e})`);
   }
   /** @type {Map<string, string>} */
   const out = new Map();
@@ -86,7 +86,7 @@ export async function getWorkspaceAllowlist() {
   const defaultRoot = await canonicalizeConfiguredPath(BOT_REPO_ROOT);
   roots.add(defaultRoot);
 
-  const envMap = parseCompactMap(process.env.CURSOR_WORKSPACE_MAP);
+  const envMap = parseCompactMap(process.env.CLAUDE_WORKSPACE_MAP);
   const fileMap = await loadJsonMapFile();
   const merged = new Map([...envMap, ...fileMap]);
 
@@ -116,7 +116,7 @@ export async function resolveWorkspaceFromAlias(alias) {
   const rp = aliases.get(alias);
   if (!rp) {
     const valid = [...aliases.keys()].sort();
-    const hint = valid.length ? valid.join(', ') : '(no aliases — set CURSOR_WORKSPACE_MAP)';
+    const hint = valid.length ? valid.join(', ') : '(no aliases — set CLAUDE_WORKSPACE_MAP)';
     throw new Error(`Unknown workspace alias "${alias}". Valid aliases: ${hint}`);
   }
   return rp;

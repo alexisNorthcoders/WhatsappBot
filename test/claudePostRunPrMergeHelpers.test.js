@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import * as childProcess from 'node:child_process';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
-  cursorPostRunExec,
+  claudePostRunExec,
   githubPrMergeErrorLooksStaleHead,
   githubPrMergeErrorLooksNoAutoMergeGate,
   githubPrMergeErrorLooksNotYetMergeable,
@@ -12,29 +12,29 @@ import {
   classifyGithubPrMergeability,
   tryGhRepoMergeCapabilities,
   tryGhPrQueueAutoMerge,
-} from '../whatsapp/agents/cursorPostRun.js';
+} from '../whatsapp/agents/claudePostRun.js';
 
 const realExecFile = childProcess.execFile.bind(childProcess);
 
 function restoreExecFile() {
-  cursorPostRunExec.execFile = (command, args, options, callback) =>
+  claudePostRunExec.execFile = (command, args, options, callback) =>
     realExecFile(command, args, options, callback);
 }
 
 /** Fast mergeability polls in unit tests (real sleeps would make the suite slow). */
 function withFastMergeablePoll(fn) {
   return async () => {
-    const prevPoll = process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS;
-    const prevMax = process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS;
-    process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS = '0';
-    process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS = '2000';
+    const prevPoll = process.env.CLAUDE_POST_RUN_MERGEABLE_POLL_MS;
+    const prevMax = process.env.CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS;
+    process.env.CLAUDE_POST_RUN_MERGEABLE_POLL_MS = '0';
+    process.env.CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS = '2000';
     try {
       await fn();
     } finally {
-      if (prevPoll === undefined) delete process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS;
-      else process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS = prevPoll;
-      if (prevMax === undefined) delete process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS;
-      else process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS = prevMax;
+      if (prevPoll === undefined) delete process.env.CLAUDE_POST_RUN_MERGEABLE_POLL_MS;
+      else process.env.CLAUDE_POST_RUN_MERGEABLE_POLL_MS = prevPoll;
+      if (prevMax === undefined) delete process.env.CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS;
+      else process.env.CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS = prevMax;
     }
   };
 }
@@ -187,7 +187,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
   });
 
   it('rejects non-JSON stdout with a clear error', async () => {
-    cursorPostRunExec.execFile = (cmd, args, opts, cb) => {
+    claudePostRunExec.execFile = (cmd, args, opts, cb) => {
       assert.equal(cmd, 'gh');
       cb(null, 'NOTICE: extra noise\nnot-json', '');
     };
@@ -197,7 +197,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
   });
 
   it('rejects jq output missing a required key', async () => {
-    cursorPostRunExec.execFile = (_cmd, _args, _opts, cb) => {
+    claudePostRunExec.execFile = (_cmd, _args, _opts, cb) => {
       cb(
         null,
         JSON.stringify({
@@ -214,7 +214,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
   });
 
   it('rejects non-boolean allow_auto_merge (e.g. JSON null)', async () => {
-    cursorPostRunExec.execFile = (_cmd, _args, _opts, cb) => {
+    claudePostRunExec.execFile = (_cmd, _args, _opts, cb) => {
       cb(
         null,
         JSON.stringify({
@@ -232,7 +232,7 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
   });
 
   it('accepts exact GitHub REST-style boolean shape', async () => {
-    cursorPostRunExec.execFile = (cmd, args, opts, cb) => {
+    claudePostRunExec.execFile = (cmd, args, opts, cb) => {
       assert.equal(cmd, 'gh');
       assert.deepEqual(args.slice(0, 3), ['api', 'repos/acme/widget', '--jq']);
       cb(
@@ -260,20 +260,20 @@ describe('tryGhRepoMergeCapabilities (mocked gh)', () => {
 
 describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
   beforeEach(() => {
-    process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS = '0';
-    process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS = '2000';
+    process.env.CLAUDE_POST_RUN_MERGEABLE_POLL_MS = '0';
+    process.env.CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS = '2000';
   });
 
   afterEach(() => {
     restoreExecFile();
-    delete process.env.CURSOR_POST_RUN_MERGEABLE_POLL_MS;
-    delete process.env.CURSOR_POST_RUN_MERGEABLE_MAX_WAIT_MS;
+    delete process.env.CLAUDE_POST_RUN_MERGEABLE_POLL_MS;
+    delete process.env.CLAUDE_POST_RUN_MERGEABLE_MAX_WAIT_MS;
   });
 
   it('falls back to merge commit when squash is disabled but merge + auto-merge are allowed', async () => {
     /** @type {{ cmd: string, args: string[] }[]} */
     const calls = [];
-    cursorPostRunExec.execFile = (cmd, args, opts, cb) => {
+    claudePostRunExec.execFile = (cmd, args, opts, cb) => {
       calls.push({ cmd, args: [...args] });
       const sub = args[0];
       if (sub === 'api' && String(args[1] || '').startsWith('repos/')) {
@@ -312,7 +312,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     withFastMergeablePoll(async () => {
       /** @type {{ cmd: string, args: string[] }[]} */
       const calls = [];
-      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+      claudePostRunExec.execFile = (cmd, args, _opts, cb) => {
         calls.push({ cmd, args: [...args] });
         if (replyMergeableReady(cmd, args, _opts, cb)) return;
         if (args[0] === 'api') {
@@ -354,7 +354,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
       /** @type {{ cmd: string, args: string[] }[]} */
       const calls = [];
       let mergeAttempts = 0;
-      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+      claudePostRunExec.execFile = (cmd, args, _opts, cb) => {
         calls.push({ cmd, args: [...args] });
         if (replyMergeableReady(cmd, args, _opts, cb)) return;
         if (args[0] === 'api' && String(args[1] || '').startsWith('repos/') && !args.includes('-X')) {
@@ -411,7 +411,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     withFastMergeablePoll(async () => {
       let viewPolls = 0;
       let mergeAttempts = 0;
-      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+      claudePostRunExec.execFile = (cmd, args, _opts, cb) => {
         if (args[0] === 'api' && !args.includes('-X')) {
           cb(
             null,
@@ -474,7 +474,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     'retries after transient not-mergeable error once mergeability is ready',
     withFastMergeablePoll(async () => {
       let mergeAttempts = 0;
-      cursorPostRunExec.execFile = (cmd, args, _opts, cb) => {
+      claudePostRunExec.execFile = (cmd, args, _opts, cb) => {
         if (replyMergeableReady(cmd, args, _opts, cb)) return;
         if (args[0] === 'api' && !args.includes('-X')) {
           cb(
@@ -519,7 +519,7 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
     withFastMergeablePoll(async () => {
       /** @type {{ cmd: string, args: string[] }[]} */
       const calls = [];
-      cursorPostRunExec.execFile = (cmd, args, opts, cb) => {
+      claudePostRunExec.execFile = (cmd, args, opts, cb) => {
         calls.push({ cmd, args: [...args] });
         if (replyMergeableReady(cmd, args, opts, cb)) return;
         const sub = args[0];

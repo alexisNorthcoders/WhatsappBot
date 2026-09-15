@@ -24,9 +24,9 @@ const BAILEYS_AUTH_DIR = path.join(
 );
 import { initializeLightCache } from './hue/index.js';
 import {
-  readPendingCursorRun,
-  clearPendingCursorRun,
-} from './whatsapp/agents/cursorCliPending.js';
+  readPendingClaudeRun,
+  clearPendingClaudeRun,
+} from './whatsapp/agents/claudeCliPending.js';
 import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
 import {
@@ -150,20 +150,20 @@ async function startSock() {
         });
       }
       (async () => {
-        const pending = await readPendingCursorRun();
+        const pending = await readPendingClaudeRun();
         if (pending?.sender && pending?.logPath) {
           try {
             const ws = pending.workspaceRoot ? `\nWorkspace: ${pending.workspaceRoot}\n` : '';
             await sock.sendMessage(pending.sender, {
               text:
-                'Previous Cursor agent run was interrupted before the bot could send the completion message (for example `pm2 restart` while the agent was still running).' +
+                'Previous Claude agent run was interrupted before the bot could send the completion message (for example `pm2 restart` while the agent was still running).' +
                 ws +
                 'Inspect the run on the Pi:\n' +
                 pending.logPath,
             });
-            await clearPendingCursorRun();
+            await clearPendingClaudeRun();
           } catch (e) {
-            logger.warn({ err: e }, 'pending Cursor run notice failed');
+            logger.warn({ err: e }, 'pending Claude run notice failed');
           }
         }
       })();

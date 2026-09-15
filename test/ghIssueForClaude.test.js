@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { githubCliErrorLooksTransient } from '../whatsapp/agents/ghIssueForCursor.js';
+import { githubCliErrorLooksTransient } from '../whatsapp/agents/ghIssueForClaude.js';
 
 describe('githubCliErrorLooksTransient', () => {
   it('detects GraphQL gateway timeout from gh', () => {

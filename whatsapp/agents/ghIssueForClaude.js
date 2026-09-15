@@ -77,7 +77,7 @@ const REPO_SLUG_RE = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 function parseIssueRepoMap() {
   /** @type {Map<string, string>} */
   const out = new Map();
-  const s = String(process.env.CURSOR_ISSUE_REPO_MAP || '').trim();
+  const s = String(process.env.CLAUDE_ISSUE_REPO_MAP || '').trim();
   if (!s) return out;
   for (const segment of s.split(',')) {
     const p = segment.trim();
@@ -159,7 +159,7 @@ export function resolveIssueRepoSlug() {
 
 /**
  * Resolve which GitHub repo to read for `gh issue view`, in order:
- * 1. `CURSOR_ISSUE_REPO_MAP` entry for `workspaceAlias` (when alias is set)
+ * 1. `CLAUDE_ISSUE_REPO_MAP` entry for `workspaceAlias` (when alias is set)
  * 2. `git remote get-url origin` under `workspaceRoot` (GitHub URLs only)
  * 3. `GH_ISSUE_REPO` or default `alexisNorthcoders/WhatsappBot`
  *
@@ -172,7 +172,7 @@ export async function resolveIssueRepoSlugForWorkspace(workspaceRoot, workspaceA
   const alias = workspaceAlias?.trim() || null;
   if (alias && map.has(alias)) {
     const v = map.get(alias).trim();
-    return assertValidRepoSlug(v, `CURSOR_ISSUE_REPO_MAP entry for "${alias}"`);
+    return assertValidRepoSlug(v, `CLAUDE_ISSUE_REPO_MAP entry for "${alias}"`);
   }
 
   const fromGit = await tryOwnerRepoFromGitOrigin(workspaceRoot);

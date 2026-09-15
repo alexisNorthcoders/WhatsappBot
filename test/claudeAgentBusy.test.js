@@ -1,20 +1,20 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isCursorAgentBusy,
+  isClaudeAgentBusy,
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
-} from '../whatsapp/agents/cursorAgentBusy.js';
+} from '../whatsapp/agents/claudeAgentBusy.js';
 
-describe('cursorAgentBusy lock', () => {
+describe('claudeAgentBusy lock', () => {
   beforeEach(() => {
     releaseAgentBusyLock();
   });
 
-  it('isCursorAgentBusy is false when idle, true when held', () => {
-    assert.equal(isCursorAgentBusy(), false);
+  it('isClaudeAgentBusy is false when idle, true when held', () => {
+    assert.equal(isClaudeAgentBusy(), false);
     assert.equal(tryAcquireAgentBusyLock(), true);
-    assert.equal(isCursorAgentBusy(), true);
+    assert.equal(isClaudeAgentBusy(), true);
   });
 
   it('allows one holder and refuses a second', () => {

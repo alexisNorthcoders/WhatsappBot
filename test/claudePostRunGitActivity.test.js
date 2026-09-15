@@ -9,7 +9,7 @@ import {
   getPostRunReviewDiffText,
   getRepoHeadShaFull,
   maybeCommitReviewEmail,
-} from '../whatsapp/agents/cursorPostRun.js';
+} from '../whatsapp/agents/claudePostRun.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -40,7 +40,7 @@ async function initBareRepoWithMain() {
 describe('getPostRunReviewDiffText', () => {
   it('clean + HEAD moved: aggregates multiple commits vs base (not only git show HEAD)', async () => {
     const repo = await initBareRepoWithMain();
-    await git(repo, ['checkout', '-b', 'cursor/issue-35-work']);
+    await git(repo, ['checkout', '-b', 'claude/issue-35-work']);
     await writeFile(join(repo, 'a.txt'), 'a\n', 'utf8');
     await git(repo, ['add', 'a.txt']);
     await git(repo, ['commit', '-m', 'add a']);
@@ -50,7 +50,7 @@ describe('getPostRunReviewDiffText', () => {
     const pre = await git(repo, ['rev-parse', 'HEAD~2']);
     const diff = await getPostRunReviewDiffText(
       repo,
-      { prBase: 'main', branchName: 'cursor/issue-35-work' },
+      { prBase: 'main', branchName: 'claude/issue-35-work' },
       { dirty: false, headMoved: true },
       pre,
       true
@@ -78,22 +78,22 @@ describe('maybeCommitReviewEmail git gating', () => {
 
   beforeEach(() => {
     for (const k of [
-      'CURSOR_POST_RUN',
-      'CURSOR_POST_RUN_PUSH',
-      'CURSOR_POST_RUN_PR',
-      'CURSOR_POST_RUN_POLL_MS',
-      'CURSOR_POST_RUN_MAX_WAIT_MS',
-      'CURSOR_POST_RUN_LOG',
+      'CLAUDE_POST_RUN',
+      'CLAUDE_POST_RUN_PUSH',
+      'CLAUDE_POST_RUN_PR',
+      'CLAUDE_POST_RUN_POLL_MS',
+      'CLAUDE_POST_RUN_MAX_WAIT_MS',
+      'CLAUDE_POST_RUN_LOG',
       'OPENAI_API_KEY',
     ]) {
       saved[k] = process.env[k];
     }
-    process.env.CURSOR_POST_RUN = '1';
-    process.env.CURSOR_POST_RUN_PUSH = '0';
-    process.env.CURSOR_POST_RUN_PR = '0';
-    process.env.CURSOR_POST_RUN_LOG = '0';
-    process.env.CURSOR_POST_RUN_POLL_MS = '0';
-    process.env.CURSOR_POST_RUN_MAX_WAIT_MS = '40';
+    process.env.CLAUDE_POST_RUN = '1';
+    process.env.CLAUDE_POST_RUN_PUSH = '0';
+    process.env.CLAUDE_POST_RUN_PR = '0';
+    process.env.CLAUDE_POST_RUN_LOG = '0';
+    process.env.CLAUDE_POST_RUN_POLL_MS = '0';
+    process.env.CLAUDE_POST_RUN_MAX_WAIT_MS = '40';
     delete process.env.OPENAI_API_KEY;
   });
 

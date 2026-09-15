@@ -137,10 +137,10 @@ export function createProductionPorts(deps) {
           return { handled: false };
         }
 
-        if (command === 'cursor' && !isAllowedActor(m.actorId)) {
+        if (command === 'claude' && !isAllowedActor(m.actorId)) {
           await sock.sendMessage(m.chatId, {
             text:
-              `Not allowed to run the Cursor agent from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CURSOR_AGENT_EXTRA_JIDS.)`,
+              `Not allowed to run the Claude agent from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
           });
           return { handled: true };
         }
@@ -169,7 +169,7 @@ export function createProductionPorts(deps) {
           if (!isAllowedActor(m.actorId)) {
             await sock.sendMessage(m.chatId, {
               text:
-                `Not allowed to restart this bot from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CURSOR_AGENT_EXTRA_JIDS.)`,
+                `Not allowed to restart this bot from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
             });
           } else {
             await restartCommand(sock, m.chatId);

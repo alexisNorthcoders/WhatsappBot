@@ -2,27 +2,27 @@ import {
   listOpenGithubIssues,
   resolveIssueRepoSlug,
   resolveIssueRepoSlugForWorkspace,
-} from './ghIssueForCursor.js';
-import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias } from '../cursorWorkspaces.js';
+} from './ghIssueForClaude.js';
+import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias } from '../claudeWorkspaces.js';
 import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
-  isCursorAgentBusy,
-} from './cursorAgentBusy.js';
+  isClaudeAgentBusy,
+} from './claudeAgentBusy.js';
 import {
   readCronPerRepoLastStarted,
   writeCronPerRepoLastStartedEntry,
 } from './cronLastStartedIssue.js';
 import {
   runIssueFetchAndGitPrep,
-  runCursorAgentWithPost,
+  runClaudeAgentWithPost,
   cronShouldPersistLastStarted,
   errorMessageFromUnknown,
-} from './cursorIssuePipeline.js';
+} from './claudeIssuePipeline.js';
 
 const DEFAULT_MS = 10 * 60 * 1000;
 
-/** Must match the allowlisted `CURSOR_WORKSPACE_MAP` key for the secondary repo. */
+/** Must match the allowlisted `CLAUDE_WORKSPACE_MAP` key for the secondary repo. */
 const CRON_PLATFORMER_WORKSPACE_ALIAS = (() => {
   const t = (process.env.CRON_PLATFORMER_WORKSPACE_ALIAS || 'platformer').trim();
   return t || 'platformer';
@@ -82,16 +82,16 @@ function truncateErrorSummary(err, max = 1500) {
  *   writeCronPerRepoLastStartedEntry?: typeof writeCronPerRepoLastStartedEntry,
  *   tryAcquireAgentBusyLock?: typeof tryAcquireAgentBusyLock,
  *   releaseAgentBusyLock?: typeof releaseAgentBusyLock,
- *   isCursorAgentBusy?: typeof isCursorAgentBusy,
+ *   isClaudeAgentBusy?: typeof isClaudeAgentBusy,
  *   runIssueFetchAndGitPrep?: typeof runIssueFetchAndGitPrep,
- *   runCursorAgentWithPost?: typeof runCursorAgentWithPost,
+ *   runClaudeAgentWithPost?: typeof runClaudeAgentWithPost,
  *   cronPlatformerAlias?: string,
  * }} CronIssueTracerTickDeps
  */
 
 /**
  * One cron evaluation cycle (exported for tests; production uses `startCronIssueTracer`).
- * Persists last-started per GitHub repo only after `runCursorAgentWithPost` completes with
+ * Persists last-started per GitHub repo only after `runClaudeAgentWithPost` completes with
  * lasting progress (agent ok and not an empty/no-git-change run). Crashes, failed exits, and
  * empty “success” runs do not suppress retries for the same open issue in that repo.
  *
@@ -110,9 +110,9 @@ export async function runCronIssueTracerTick(deps = {}) {
   const writePerRepo = deps.writeCronPerRepoLastStartedEntry ?? writeCronPerRepoLastStartedEntry;
   const tryLock = deps.tryAcquireAgentBusyLock ?? tryAcquireAgentBusyLock;
   const releaseLock = deps.releaseAgentBusyLock ?? releaseAgentBusyLock;
-  const agentBusy = deps.isCursorAgentBusy ?? isCursorAgentBusy;
+  const agentBusy = deps.isClaudeAgentBusy ?? isClaudeAgentBusy;
   const runPrep = deps.runIssueFetchAndGitPrep ?? runIssueFetchAndGitPrep;
-  const runAgent = deps.runCursorAgentWithPost ?? runCursorAgentWithPost;
+  const runAgent = deps.runClaudeAgentWithPost ?? runClaudeAgentWithPost;
   const platformerAlias = (deps.cronPlatformerAlias ?? CRON_PLATFORMER_WORKSPACE_ALIAS).trim() || 'platformer';
 
   let phase = 'initial checks';
@@ -144,7 +144,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       issueNumForMsg = next.number;
 
       const startText = [
-        'Cron: starting the Cursor *issue* workflow (same as `cursor issue:` from WhatsApp).',
+        'Cron: starting the Claude *issue* workflow (same as `claude issue:` from WhatsApp).',
         '',
         `*Repo:* ${gitRepo}`,
         `*Issue:* #${next.number}`,
@@ -174,7 +174,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       }
 
       const issueMatch = { issueNumber: next.number, extraInstructions: '' };
-      phase = 'cursor agent run and post-run automation';
+      phase = 'claude agent run and post-run automation';
       try {
         const agentResult = await runAgent({
           sock,
@@ -211,7 +211,7 @@ export async function runCronIssueTracerTick(deps = {}) {
         try {
           await sock.sendMessage(ownerJid, {
             text: [
-              `Cron (${cronLabel}): the Cursor run for \`${gitRepo}\` issue #${next.number} failed during: ${phase}.`,
+              `Cron (${cronLabel}): the Claude run for \`${gitRepo}\` issue #${next.number} failed during: ${phase}.`,
               '',
               truncateErrorSummary(e),
             ].join('\n'),
@@ -309,9 +309,9 @@ export async function runCronIssueTracerTick(deps = {}) {
 }
 
 /**
- * Interval job: if the Cursor agent is free, find the next eligible open issue, preferring
+ * Interval job: if the Claude agent is free, find the next eligible open issue, preferring
  * this bot’s repo, then a secondary (Platformer) allowlisted workspace with matching issue-repo map.
- * Runs the same pipeline as manual `cursor issue:…` (fetch, git prep, agent, post-run automation).
+ * Runs the same pipeline as manual `claude issue:…` (fetch, git prep, agent, post-run automation).
  * @param {{
  *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
  *   getOwnerJid: () => string | null | undefined,

@@ -1,11 +1,11 @@
-/** Process-wide: only one manual WhatsApp `cursor` agent run at a time. */
+/** Process-wide: only one manual WhatsApp `claude` agent run at a time. */
 
 let busy = false;
 
 /**
- * @returns {boolean} whether a Cursor issue/freeform run is in progress
+ * @returns {boolean} whether a Claude issue/freeform run is in progress
  */
-export function isCursorAgentBusy() {
+export function isClaudeAgentBusy() {
   return busy;
 }
 

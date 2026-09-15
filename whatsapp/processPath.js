@@ -6,9 +6,8 @@ export function augmentedPathEnv() {
   const home = homedir();
   const prefixes = [
     join(home, '.local', 'bin'),
-    join(home, '.cursor', 'bin'),
+    join(home, '.claude', 'local'),
     '/usr/local/bin',
-    '/opt/cursor/bin',
   ].filter(Boolean);
   const extra = prefixes.join(':');
   const base = process.env.PATH || '';

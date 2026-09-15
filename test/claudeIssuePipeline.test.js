@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { errorMessageFromUnknown } from '../whatsapp/agents/cursorIssuePipeline.js';
+import { errorMessageFromUnknown } from '../whatsapp/agents/claudeIssuePipeline.js';
 
 describe('errorMessageFromUnknown', () => {
   it('uses Error.message', () => {

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
-  isCursorAgentBusy,
-} from '../whatsapp/agents/cursorAgentBusy.js';
-import cursorCommand from '../whatsapp/commands/cursor.js';
+  isClaudeAgentBusy,
+} from '../whatsapp/agents/claudeAgentBusy.js';
+import claudeCommand from '../whatsapp/commands/claude.js';
 
 const SENDER = '15551234567@s.whatsapp.net';
 
@@ -24,16 +24,16 @@ function productionLikeGroupMsg() {
   };
 }
 
-describe('cursor command (manual)', () => {
+describe('claude command (manual)', () => {
   beforeEach(() => {
     process.env.MY_PHONE = '15551234567';
-    if (isCursorAgentBusy()) {
+    if (isClaudeAgentBusy()) {
       releaseAgentBusyLock();
     }
   });
 
   afterEach(() => {
-    if (isCursorAgentBusy()) {
+    if (isClaudeAgentBusy()) {
       releaseAgentBusyLock();
     }
   });
@@ -48,17 +48,17 @@ describe('cursor command (manual)', () => {
 
     assert.equal(tryAcquireAgentBusyLock(), true);
     try {
-      await cursorCommand(sock, SENDER, 'cursor fix the bug in auth', { key: {} });
+      await claudeCommand(sock, SENDER, 'claude fix the bug in auth', { key: {} });
 
       assert.equal(sent.length, 1);
       assert.match(sent[0].text, /busy/i);
-      assert.equal(isCursorAgentBusy(), true);
+      assert.equal(isClaudeAgentBusy(), true);
     } finally {
       releaseAgentBusyLock();
     }
   });
 
-  it('rejects busy for cursor issue:… shape with production-like msg metadata (before pipeline)', async () => {
+  it('rejects busy for claude issue:… shape with production-like msg metadata (before pipeline)', async () => {
     const sent = [];
     const sock = {
       sendMessage: async (/** @type {string} */ jid, /** @type {{ text?: string }} */ content) => {
@@ -68,11 +68,11 @@ describe('cursor command (manual)', () => {
 
     assert.equal(tryAcquireAgentBusyLock(), true);
     try {
-      await cursorCommand(sock, GROUP_JID, 'cursor issue:88 add regression coverage', productionLikeGroupMsg());
+      await claudeCommand(sock, GROUP_JID, 'claude issue:88 add regression coverage', productionLikeGroupMsg());
 
       assert.equal(sent.length, 1);
       assert.match(sent[0].text, /busy/i);
-      assert.equal(isCursorAgentBusy(), true);
+      assert.equal(isClaudeAgentBusy(), true);
     } finally {
       releaseAgentBusyLock();
     }

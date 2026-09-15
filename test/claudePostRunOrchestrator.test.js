@@ -6,11 +6,11 @@ import {
   autoMergeAllowedByReviewGate,
   pickPrResultAfterGhFlow,
   normalizePrReviewComment,
-} from '../whatsapp/agents/cursorPostRunDecisionLogic.js';
-import { pollGithubIssueClosedOrTimeout } from '../whatsapp/agents/cursorPostRunIssuePoll.js';
-import { runPostReviewAutofixMergeFlow } from '../whatsapp/agents/cursorPostRunReviewFollowUp.js';
+} from '../whatsapp/agents/claudePostRunDecisionLogic.js';
+import { pollGithubIssueClosedOrTimeout } from '../whatsapp/agents/claudePostRunIssuePoll.js';
+import { runPostReviewAutofixMergeFlow } from '../whatsapp/agents/claudePostRunReviewFollowUp.js';
 
-describe('cursorPostRun decision logic', () => {
+describe('claudePostRun decision logic', () => {
   it('VERDICT: APPROVE with successful review enables auto-merge gate without autofix', () => {
     assert.equal(
       autoMergeAllowedByReviewGate({

@@ -1,7 +1,7 @@
 /**
- * Who may run privileged bot actions (Cursor agent, !restart, etc.).
+ * Who may run privileged bot actions (Claude agent, !restart, etc.).
  * Matches MY_PHONE / SECOND_PHONE with @c.us vs @s.whatsapp.net, digit match for PN JIDs,
- * and CURSOR_AGENT_EXTRA_JIDS for @lid / other exact JIDs.
+ * and CLAUDE_AGENT_EXTRA_JIDS for @lid / other exact JIDs.
  */
 
 function digitsOnly(s) {
@@ -36,7 +36,7 @@ function allowedPhoneDigitsSet() {
 }
 
 function extraAllowedJids() {
-  const raw = process.env.CURSOR_AGENT_EXTRA_JIDS?.trim();
+  const raw = process.env.CLAUDE_AGENT_EXTRA_JIDS?.trim();
   if (!raw) return [];
   return raw.split(',').map((j) => j.trim()).filter(Boolean);
 }
@@ -75,9 +75,9 @@ export function isAllowedActor(actorJid) {
   return allowedJidsExact().includes(actorJid);
 }
 
-/** Hint for denied @lid senders (same env as Cursor agent). */
+/** Hint for denied @lid senders (same env as Claude agent). */
 export function lidExtraJidsHint(actorJid) {
   return actorJid?.endsWith('@lid')
-    ? `\n\nAdd to .env:\nCURSOR_AGENT_EXTRA_JIDS=${actorJid}`
+    ? `\n\nAdd to .env:\nCLAUDE_AGENT_EXTRA_JIDS=${actorJid}`
     : '';
 }

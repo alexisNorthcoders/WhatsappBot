@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
-import { getCursorCliRepoRoot } from './cursorCliAgent.js';
+import { getClaudeCliRepoRoot } from './claudeCliAgent.js';
 
 const FILE = 'cron-last-started-issue.json';
 
@@ -49,9 +49,9 @@ export function cronLastStartedIssuePath() {
   const fromEnv = process.env.CRON_LAST_STARTED_ISSUE_FILE?.trim();
   if (fromEnv) return fromEnv;
   return join(
-    getCursorCliRepoRoot(),
+    getClaudeCliRepoRoot(),
     'logs',
-    'cursor-agent',
+    'claude-agent',
     FILE
   );
 }

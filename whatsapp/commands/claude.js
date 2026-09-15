@@ -1,15 +1,15 @@
 import dotenv from 'dotenv';
-import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias, resolveWorkspaceFromUserPath } from '../cursorWorkspaces.js';
+import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias, resolveWorkspaceFromUserPath } from '../claudeWorkspaces.js';
 import {
   runIssueFetchAndGitPrep,
-  runCursorAgentWithPost,
-} from '../agents/cursorIssuePipeline.js';
+  runClaudeAgentWithPost,
+} from '../agents/claudeIssuePipeline.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
 import { actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
 import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
-} from '../agents/cursorAgentBusy.js';
+} from '../agents/claudeAgentBusy.js';
 
 dotenv.config();
 
@@ -19,7 +19,7 @@ const JOPLIN_NOTEBOOK =
 const JOPLIN_PREFIX_RE = /^joplin:\s*(.+)/is;
 
 /**
- * After the leading `cursor` command, detect optional workspace prefix.
+ * After the leading `claude` command, detect optional workspace prefix.
  * @returns {{ kind: 'default', rest: string } | { kind: 'alias', alias: string, rest: string } | { kind: 'path', path: string, rest: string }}
  */
 function parseWorkspacePrefix(remainder) {
@@ -110,30 +110,30 @@ async function fetchJoplinNote(noteQuery) {
   return joplinAPI.getNoteInNotebook(best.id, JOPLIN_NOTEBOOK);
 }
 
-export default async function cursorCommand(sock, sender, text, msg) {
+export default async function claudeCommand(sock, sender, text, msg) {
   const actor = actorJid(msg, sender);
   if (!isAllowedActor(actor)) {
     await sock.sendMessage(sender, {
       text:
-        `Not allowed to run the Cursor agent from this identity.${lidExtraJidsHint(actor)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CURSOR_AGENT_EXTRA_JIDS.)`,
+        `Not allowed to run the Claude agent from this identity.${lidExtraJidsHint(actor)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
     });
     return;
   }
 
-  const afterCursor = text.replace(/^cursor\s*/i, '').trim();
-  if (!afterCursor) {
+  const afterClaude = text.replace(/^claude\s*/i, '').trim();
+  if (!afterClaude) {
     await sock.sendMessage(sender, {
       text:
-        'Usage:\ncursor <instructions>\ncursor <alias>: <instructions>\ncursor <absolute-path> <instructions>\ncursor issue:<n> [extra instructions]\ncursor issue:<alias>:<n> [extra instructions]\ncursor joplin:<note title or id>\n\nExamples:\ncursor add a README section about deployment.\ncursor dots: fix the scoring bug\ncursor /home/user/Projects/my-app add tests\ncursor issue:42\ncursor issue:platformer:123 add unit tests\ncursor issue:3 add unit tests\ncursor joplin:refactor-plan',
+        'Usage:\nclaude <instructions>\nclaude <alias>: <instructions>\nclaude <absolute-path> <instructions>\nclaude issue:<n> [extra instructions]\nclaude issue:<alias>:<n> [extra instructions]\nclaude joplin:<note title or id>\n\nExamples:\nclaude add a README section about deployment.\nclaude dots: fix the scoring bug\nclaude /home/user/Projects/my-app add tests\nclaude issue:42\nclaude issue:platformer:123 add unit tests\nclaude issue:3 add unit tests\nclaude joplin:refactor-plan',
     });
     return;
   }
 
-  const ws = parseWorkspacePrefix(afterCursor);
+  const ws = parseWorkspacePrefix(afterClaude);
   const rawPrompt = ws.rest;
   if (!rawPrompt) {
     await sock.sendMessage(sender, {
-      text: 'Usage: after the workspace prefix, add instructions, issue:…, or joplin:…\nExample: cursor dots: fix the bug',
+      text: 'Usage: after the workspace prefix, add instructions, issue:…, or joplin:…\nExample: claude dots: fix the bug',
     });
     return;
   }
@@ -141,7 +141,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
   if (!tryAcquireAgentBusyLock()) {
     await sock.sendMessage(sender, {
       text:
-        'The Cursor agent is busy (another run is in progress — issue or freeform). Try again later.',
+        'The Claude agent is busy (another run is in progress — issue or freeform). Try again later.',
     });
     return;
   }
@@ -157,7 +157,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
       }
     } catch (e) {
       await sock.sendMessage(sender, {
-        text: `Cursor workspace: ${e.message || String(e)}`,
+        text: `Claude workspace: ${e.message || String(e)}`,
       });
       return;
     }
@@ -174,7 +174,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
         workspaceRoot = await resolveWorkspaceFromAlias(issueMatch.issueAlias);
       } catch (e) {
         await sock.sendMessage(sender, {
-          text: `Cursor workspace: ${e.message || String(e)}`,
+          text: `Claude workspace: ${e.message || String(e)}`,
         });
         return;
       }
@@ -205,7 +205,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
           const body = (note.body || '').trim();
           if (!body) {
             await sock.sendMessage(sender, {
-              text: `Joplin note "${note.title}" (${note.id}) has an empty body — nothing to send to Cursor.`,
+              text: `Joplin note "${note.title}" (${note.id}) has an empty body — nothing to send to Claude.`,
             });
             return;
           }
@@ -220,7 +220,7 @@ export default async function cursorCommand(sock, sender, text, msg) {
       }
     }
 
-    await runCursorAgentWithPost({
+    await runClaudeAgentWithPost({
       sock,
       recipientJid: sender,
       prompt,

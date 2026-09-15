@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
-import { getCursorCliRepoRoot } from '../agents/cursorCliAgent.js';
+import { getClaudeCliRepoRoot } from '../agents/claudeCliAgent.js';
 
 const FILE = 'reminders.json';
 const SCHEMA_VERSION = 2;
@@ -277,7 +277,7 @@ export function clearAllReminderDeliveryInFlightForTests() {
 export function remindersStorePath() {
   const fromEnv = process.env.REMINDERS_STORE_FILE?.trim();
   if (fromEnv) return fromEnv;
-  return join(getCursorCliRepoRoot(), 'logs', 'reminders', FILE);
+  return join(getClaudeCliRepoRoot(), 'logs', 'reminders', FILE);
 }
 
 /**
