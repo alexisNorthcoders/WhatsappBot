@@ -10,13 +10,7 @@ import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
 } from '../agents/claudeAgentBusy.js';
-import {
-  pauseAgentForWorkspace,
-  resumeAgentForWorkspace,
-  getAgentPauseForWorkspace,
-  parsePauseArgs,
-  formatDurationSeconds,
-} from '../agents/claudeAgentPause.js';
+import { getAgentPauseForWorkspace, formatDurationSeconds } from '../agents/claudeAgentPause.js';
 
 dotenv.config();
 
@@ -118,8 +112,6 @@ async function fetchJoplinNote(noteQuery) {
 }
 
 export default async function claudeCommand(sock, sender, text, msg, deps = {}) {
-  const pauseForWorkspace = deps.pauseAgentForWorkspace ?? pauseAgentForWorkspace;
-  const resumeForWorkspace = deps.resumeAgentForWorkspace ?? resumeAgentForWorkspace;
   const getPauseForWorkspace = deps.getAgentPauseForWorkspace ?? getAgentPauseForWorkspace;
 
   const actor = actorJid(msg, sender);
@@ -135,7 +127,7 @@ export default async function claudeCommand(sock, sender, text, msg, deps = {}) 
   if (!afterClaude) {
     await sock.sendMessage(sender, {
       text:
-        'Usage:\nclaude <instructions>\nclaude <alias>: <instructions>\nclaude <absolute-path> <instructions>\nclaude issue:<n> [extra instructions]\nclaude issue:<alias>:<n> [extra instructions]\nclaude joplin:<note title or id>\nclaude pause [duration] [reason]\nclaude resume\n\nExamples:\nclaude add a README section about deployment.\nclaude dots: fix the scoring bug\nclaude /home/user/Projects/my-app add tests\nclaude issue:42\nclaude issue:platformer:123 add unit tests\nclaude issue:3 add unit tests\nclaude joplin:refactor-plan\nclaude pause 2h working on issue 90 by hand\nclaude dots: pause 30m\nclaude resume',
+        'Usage:\nclaude <instructions>\nclaude <alias>: <instructions>\nclaude <absolute-path> <instructions>\nclaude issue:<n> [extra instructions]\nclaude issue:<alias>:<n> [extra instructions]\nclaude joplin:<note title or id>\n\nExamples:\nclaude add a README section about deployment.\nclaude dots: fix the scoring bug\nclaude /home/user/Projects/my-app add tests\nclaude issue:42\nclaude issue:platformer:123 add unit tests\nclaude issue:3 add unit tests\nclaude joplin:refactor-plan\n\n(To pause/resume a workspace so this and the cron issue tracer leave it alone during manual git work, use `node claudeAgentPauseCli.js pause|resume` on the Pi — see .env.example.)',
     });
     return;
   }
@@ -144,47 +136,8 @@ export default async function claudeCommand(sock, sender, text, msg, deps = {}) 
   const rawPrompt = ws.rest;
   if (!rawPrompt) {
     await sock.sendMessage(sender, {
-      text: 'Usage: after the workspace prefix, add instructions, issue:…, joplin:…, pause, or resume.\nExample: claude dots: fix the bug',
+      text: 'Usage: after the workspace prefix, add instructions, issue:…, or joplin:…\nExample: claude dots: fix the bug',
     });
-    return;
-  }
-
-  // `pause`/`resume` manage the workspace flag that gates both this command and the cron issue
-  // tracer — they are not agent runs, so they bypass the single-flight busy lock entirely.
-  const pauseMatch = /^pause(?:\s+(.*))?$/is.exec(rawPrompt);
-  const isResumeCommand = /^resume$/is.test(rawPrompt);
-  if (pauseMatch || isResumeCommand) {
-    let workspaceRoot;
-    try {
-      if (ws.kind === 'alias') {
-        workspaceRoot = await resolveWorkspaceFromAlias(ws.alias);
-      } else if (ws.kind === 'path') {
-        workspaceRoot = await resolveWorkspaceFromUserPath(ws.path);
-      } else {
-        workspaceRoot = await getDefaultWorkspaceRoot();
-      }
-    } catch (e) {
-      await sock.sendMessage(sender, {
-        text: `Claude workspace: ${e.message || String(e)}`,
-      });
-      return;
-    }
-
-    if (pauseMatch) {
-      const { ttlSeconds, reason } = parsePauseArgs(pauseMatch[1] || '');
-      const state = await pauseForWorkspace({ workspaceRoot, reason, ttlSeconds });
-      const resumeHint = ws.kind === 'alias' ? `claude ${ws.alias}: resume` : 'claude resume';
-      await sock.sendMessage(sender, {
-        text: `Claude agent paused for \`${workspaceRoot}\` for ${formatDurationSeconds(state.ttlSeconds)} (${state.reason}).\nManual runs and the cron issue tracer will refuse to touch this workspace until it's resumed or the pause expires.\nSend \`${resumeHint}\` to lift it early.`,
-      });
-    } else {
-      const cleared = await resumeForWorkspace({ workspaceRoot });
-      await sock.sendMessage(sender, {
-        text: cleared
-          ? `Claude agent resumed for \`${workspaceRoot}\`.`
-          : `No active pause found for \`${workspaceRoot}\`.`,
-      });
-    }
     return;
   }
 
@@ -233,12 +186,11 @@ export default async function claudeCommand(sock, sender, text, msg, deps = {}) 
 
     const activePause = await getPauseForWorkspace({ workspaceRoot });
     if (activePause) {
-      const resumeHint = workspaceAliasForRepo ? `claude ${workspaceAliasForRepo}: resume` : 'claude resume';
       const expiry = activePause.ttlRemainingSeconds
         ? `, resumes automatically in ${formatDurationSeconds(activePause.ttlRemainingSeconds)}`
         : '';
       await sock.sendMessage(sender, {
-        text: `Claude agent is paused for \`${workspaceRoot}\` (${activePause.reason}${expiry}).\nSend \`${resumeHint}\` to lift it now.`,
+        text: `Claude agent is paused for \`${workspaceRoot}\` (${activePause.reason}${expiry}).\nRun \`node claudeAgentPauseCli.js resume\` on the Pi to lift it now.`,
       });
       return;
     }
