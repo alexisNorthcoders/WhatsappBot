@@ -153,6 +153,15 @@ const REPO = 'alexisNorthcoders/WhatsappBot';
 const REPO_P = 'alexisNorthcoders/Platformer';
 const OWNER = '123@s.whatsapp.net';
 
+/**
+ * Runs a tick with a hermetic "nothing is paused" fake for `getAgentPauseForWorkspace` by
+ * default (so this suite never touches a real Redis), overridable per test.
+ * @param {import('../whatsapp/agents/cronIssueTracer.js').CronIssueTracerTickDeps} overrides
+ */
+function tick(overrides) {
+  return runCronIssueTracerTick({ getAgentPauseForWorkspace: async () => null, ...overrides });
+}
+
 describe('runCronIssueTracerTick', () => {
   beforeEach(() => {
     if (isClaudeAgentBusy()) {
@@ -166,7 +175,7 @@ describe('runCronIssueTracerTick', () => {
     let listCalls = 0;
     let prepCalls = 0;
     let agentCalls = 0;
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       isClaudeAgentBusy: () => true,
@@ -189,9 +198,93 @@ describe('runCronIssueTracerTick', () => {
     assert.equal(isClaudeAgentBusy(), false, 'cron early-return must not mutate the real busy lock');
   });
 
+  it('skips WhatsappBot silently when its workspace is paused (no eligible Platformer work either)', async () => {
+    const sock = makeMockSock();
+    let prepCalls = 0;
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async ({ repo }) => {
+        if (repo === REPO) return [{ number: 1, title: 'Task', labels: ['ready-for-agent'] }];
+        if (repo === REPO_P) return [];
+        throw new Error(`unexpected repo list ${repo}`);
+      },
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      resolveWorkspaceFromAlias: async () => '/plat/root',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getAgentPauseForWorkspace: async ({ workspaceRoot }) =>
+        workspaceRoot === '/tmp/ws' ? { pausedAt: '2026-01-01T00:00:00Z', reason: 'manual work', ttlRemainingSeconds: 120 } : null,
+      runIssueFetchAndGitPrep: async () => {
+        prepCalls++;
+        return null;
+      },
+    });
+    assert.equal(prepCalls, 0, 'a paused workspace must not reach issue fetch / git prep');
+    assert.equal(sock.sent.length, 0, 'a paused skip should not spam the owner');
+    assert.equal(isClaudeAgentBusy(), false, 'the busy lock must be released after a paused skip');
+  });
+
+  it('falls through to Platformer when WhatsappBot is paused but Platformer is not', async () => {
+    const sock = makeMockSock();
+    let prepInfo = /** @type {null | { workspaceRoot: string, issueNumber: number }} */ (null);
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async ({ repo }) => {
+        if (repo === REPO) return [{ number: 1, title: 'WA task', labels: ['ready-for-agent'] }];
+        if (repo === REPO_P) return [{ number: 2, title: 'Plat task', labels: ['ready-for-agent'] }];
+        throw new Error(`unexpected repo list ${repo}`);
+      },
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      resolveWorkspaceFromAlias: async () => '/plat/root',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getAgentPauseForWorkspace: async ({ workspaceRoot }) =>
+        workspaceRoot === '/tmp/ws' ? { pausedAt: '2026-01-01T00:00:00Z', reason: 'manual work', ttlRemainingSeconds: 120 } : null,
+      runIssueFetchAndGitPrep: async (p) => {
+        prepInfo = { workspaceRoot: p.workspaceRoot, issueNumber: p.issueNumber };
+        return { prompt: 'p', issueSource: { number: 2, repo: REPO_P, title: 'Plat task' } };
+      },
+      runClaudeAgentWithPost: async () => {},
+    });
+    assert.ok(prepInfo, 'Platformer should still be tried when only WhatsappBot is paused');
+    assert.equal(prepInfo.workspaceRoot, '/plat/root');
+    assert.equal(prepInfo.issueNumber, 2);
+  });
+
+  it('skips Platformer silently when its workspace is paused', async () => {
+    const sock = makeMockSock();
+    let prepCalls = 0;
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async ({ repo }) => {
+        if (repo === REPO) return [{ number: 1, title: 'x', labels: ['needs-triage'] }];
+        if (repo === REPO_P) return [{ number: 2, title: 'Plat task', labels: ['ready-for-agent'] }];
+        throw new Error(`unexpected repo list ${repo}`);
+      },
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      resolveWorkspaceFromAlias: async () => '/plat/root',
+      resolveIssueRepoSlugForWorkspace: async () => REPO_P,
+      getAgentPauseForWorkspace: async ({ workspaceRoot }) =>
+        workspaceRoot === '/plat/root' ? { pausedAt: '2026-01-01T00:00:00Z', reason: 'manual work', ttlRemainingSeconds: 60 } : null,
+      runIssueFetchAndGitPrep: async () => {
+        prepCalls++;
+        return null;
+      },
+    });
+    assert.equal(prepCalls, 0, 'a paused Platformer workspace must not reach issue fetch / git prep');
+    assert.equal(sock.sent.length, 0, 'a paused skip should not spam the owner');
+    assert.equal(isClaudeAgentBusy(), false, 'the busy lock must be released after a paused skip');
+  });
+
   it('releases the agent busy lock when issue fetch / git prep returns null', async () => {
     const sock = makeMockSock();
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async () => [{ number: 1, title: 'Task', labels: ['ready-for-agent'] }],
@@ -210,7 +303,7 @@ describe('runCronIssueTracerTick', () => {
     const sock = makeMockSock();
     /** @type {unknown[]} */
     const writes = [];
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async () => [{ number: 2, title: 'Task', labels: ['ready-for-agent'] }],
@@ -237,7 +330,7 @@ describe('runCronIssueTracerTick', () => {
   it('does not call prep when persisted last-started matches the same open eligible issue', async () => {
     const sock = makeMockSock();
     let prepCalls = 0;
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
@@ -281,7 +374,7 @@ describe('runCronIssueTracerTick', () => {
       post: { ran: true },
     });
 
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: listBoth,
@@ -300,7 +393,7 @@ describe('runCronIssueTracerTick', () => {
     assert.equal(prepCalls, 1);
     assert.equal(persisted.get(REPO), 7);
 
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: listBoth,
@@ -320,7 +413,7 @@ describe('runCronIssueTracerTick', () => {
     });
     assert.equal(prepCalls, 1);
 
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: listBoth,
@@ -352,7 +445,7 @@ describe('runCronIssueTracerTick', () => {
       throw new Error(`unexpected list ${repo}`);
     };
 
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: listBoth,
@@ -384,7 +477,7 @@ describe('runCronIssueTracerTick', () => {
     );
 
     // Next tick can start the same issue again
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: listBoth,
@@ -415,7 +508,7 @@ describe('runCronIssueTracerTick', () => {
   it('prefers WhatsappBot over Platformer when both have eligible issues (repo priority)', async () => {
     const sock = makeMockSock();
     let platListed = false;
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
@@ -451,7 +544,7 @@ describe('runCronIssueTracerTick', () => {
     let listCalls = 0;
     let platRootCalls = 0;
     let prepFor = /** @type {string | null} */ (null);
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
@@ -484,7 +577,7 @@ describe('runCronIssueTracerTick', () => {
     const sock = makeMockSock();
     let prepInfo = /** @type {null | { workspaceRoot: string, issueNumber: number }} */ (null);
     let listCalls = 0;
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
@@ -521,7 +614,7 @@ describe('runCronIssueTracerTick', () => {
     let prepInfo = /** @type {null | { workspaceRoot: string, issueNumber: number, alias: string | null }} */ (
       null
     );
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       cronPlatformerAlias: 'platformer',
@@ -563,7 +656,7 @@ describe('runCronIssueTracerTick', () => {
   it('does not start Platformer when no open Platformer issue is labeled ready-for-agent', async () => {
     const sock = makeMockSock();
     let prepCalls = 0;
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {
@@ -596,7 +689,7 @@ describe('runCronIssueTracerTick', () => {
   it('starts work on a different eligible issue when last-started was another number in that repo', async () => {
     const sock = makeMockSock();
     let prepFor = /** @type {number | null} */ (null);
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async () => [{ number: 20, title: 'New', labels: ['ready-for-agent'] }],
@@ -623,7 +716,7 @@ describe('runCronIssueTracerTick', () => {
       [REPO, 7],
       [REPO_P, 2],
     ]);
-    await runCronIssueTracerTick({
+    await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
       listOpenGithubIssues: async ({ repo }) => {

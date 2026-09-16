@@ -5,6 +5,7 @@ import {
   releaseAgentBusyLock,
   isClaudeAgentBusy,
 } from '../whatsapp/agents/claudeAgentBusy.js';
+import { resolveWorkspaceFromAlias, clearWorkspaceAllowlistCache } from '../whatsapp/claudeWorkspaces.js';
 import claudeCommand from '../whatsapp/commands/claude.js';
 
 const SENDER = '15551234567@s.whatsapp.net';
@@ -75,6 +76,73 @@ describe('claude command (manual)', () => {
       assert.equal(isClaudeAgentBusy(), true);
     } finally {
       releaseAgentBusyLock();
+    }
+  });
+});
+
+// Pausing itself is set/cleared with `node claudeAgentPauseCli.js pause|resume` (or raw
+// redis-cli) on the Pi, not through WhatsApp — see claudeAgentPauseCli.js. This command only
+// needs to *check* the flag and refuse to run against a paused workspace.
+describe('claude command (refuses a paused workspace)', () => {
+  beforeEach(() => {
+    process.env.MY_PHONE = '15551234567';
+    if (isClaudeAgentBusy()) {
+      releaseAgentBusyLock();
+    }
+  });
+
+  afterEach(() => {
+    if (isClaudeAgentBusy()) {
+      releaseAgentBusyLock();
+    }
+  });
+
+  function makeSock() {
+    const sent = [];
+    return {
+      sent,
+      sendMessage: async (jid, content) => {
+        sent.push({ jid, text: String(content?.text ?? '') });
+      },
+    };
+  }
+
+  it('refuses a freeform run when the resolved workspace is paused, without holding the busy lock', async () => {
+    const sock = makeSock();
+    await claudeCommand(sock, SENDER, 'claude fix the bug in auth', { key: {} }, {
+      getAgentPauseForWorkspace: async () => ({
+        pausedAt: '2026-01-01T00:00:00Z',
+        reason: 'manual git surgery',
+        ttlRemainingSeconds: 300,
+      }),
+    });
+
+    assert.equal(sock.sent.length, 1);
+    assert.match(sock.sent[0].text, /paused/i);
+    assert.match(sock.sent[0].text, /manual git surgery/);
+    assert.match(sock.sent[0].text, /claudeAgentPauseCli\.js resume/);
+    assert.equal(isClaudeAgentBusy(), false, 'a paused refusal must release the busy lock');
+  });
+
+  it('respects an alias-resolved workspace when checking the pause flag', async () => {
+    const root = process.cwd();
+    process.env.CLAUDE_WORKSPACE_MAP = `testalias=${root}`;
+    clearWorkspaceAllowlistCache();
+    try {
+      const sock = makeSock();
+      const expectedRoot = await resolveWorkspaceFromAlias('testalias');
+      let checkedRoot = null;
+      await claudeCommand(sock, SENDER, 'claude testalias: fix the bug', { key: {} }, {
+        getAgentPauseForWorkspace: async ({ workspaceRoot }) => {
+          checkedRoot = workspaceRoot;
+          return { pausedAt: '2026-01-01T00:00:00Z', reason: 'manual git surgery', ttlRemainingSeconds: null };
+        },
+      });
+      assert.equal(checkedRoot, expectedRoot);
+      assert.match(sock.sent[0].text, /paused/i);
+    } finally {
+      delete process.env.CLAUDE_WORKSPACE_MAP;
+      clearWorkspaceAllowlistCache();
     }
   });
 });

@@ -26,7 +26,10 @@
     "test": "node --test ./test/**/*.test.js",
     "eval:summarize": "node eval/summarize/run.mjs",
     "start": "node --no-deprecation whatsapp.js",
-    "start:joplin": "node --no-deprecation test-joplin.js"
+    "start:joplin": "node --no-deprecation test-joplin.js",
+    "claude:pause": "node claudeAgentPauseCli.js pause",
+    "claude:resume": "node claudeAgentPauseCli.js resume",
+    "claude:pause:status": "node claudeAgentPauseCli.js status"
   },
   "keywords": [],
   "author": "",

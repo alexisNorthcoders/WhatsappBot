@@ -10,6 +10,7 @@ import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
 } from '../agents/claudeAgentBusy.js';
+import { getAgentPauseForWorkspace, formatDurationSeconds } from '../agents/claudeAgentPause.js';
 
 dotenv.config();
 
@@ -110,7 +111,9 @@ async function fetchJoplinNote(noteQuery) {
   return joplinAPI.getNoteInNotebook(best.id, JOPLIN_NOTEBOOK);
 }
 
-export default async function claudeCommand(sock, sender, text, msg) {
+export default async function claudeCommand(sock, sender, text, msg, deps = {}) {
+  const getPauseForWorkspace = deps.getAgentPauseForWorkspace ?? getAgentPauseForWorkspace;
+
   const actor = actorJid(msg, sender);
   if (!isAllowedActor(actor)) {
     await sock.sendMessage(sender, {
@@ -124,7 +127,7 @@ export default async function claudeCommand(sock, sender, text, msg) {
   if (!afterClaude) {
     await sock.sendMessage(sender, {
       text:
-        'Usage:\nclaude <instructions>\nclaude <alias>: <instructions>\nclaude <absolute-path> <instructions>\nclaude issue:<n> [extra instructions]\nclaude issue:<alias>:<n> [extra instructions]\nclaude joplin:<note title or id>\n\nExamples:\nclaude add a README section about deployment.\nclaude dots: fix the scoring bug\nclaude /home/user/Projects/my-app add tests\nclaude issue:42\nclaude issue:platformer:123 add unit tests\nclaude issue:3 add unit tests\nclaude joplin:refactor-plan',
+        'Usage:\nclaude <instructions>\nclaude <alias>: <instructions>\nclaude <absolute-path> <instructions>\nclaude issue:<n> [extra instructions]\nclaude issue:<alias>:<n> [extra instructions]\nclaude joplin:<note title or id>\n\nExamples:\nclaude add a README section about deployment.\nclaude dots: fix the scoring bug\nclaude /home/user/Projects/my-app add tests\nclaude issue:42\nclaude issue:platformer:123 add unit tests\nclaude issue:3 add unit tests\nclaude joplin:refactor-plan\n\n(To pause/resume a workspace so this and the cron issue tracer leave it alone during manual git work, use `node claudeAgentPauseCli.js pause|resume` on the Pi — see .env.example.)',
     });
     return;
   }
@@ -179,6 +182,17 @@ export default async function claudeCommand(sock, sender, text, msg) {
         return;
       }
       workspaceAliasForRepo = issueMatch.issueAlias;
+    }
+
+    const activePause = await getPauseForWorkspace({ workspaceRoot });
+    if (activePause) {
+      const expiry = activePause.ttlRemainingSeconds
+        ? `, resumes automatically in ${formatDurationSeconds(activePause.ttlRemainingSeconds)}`
+        : '';
+      await sock.sendMessage(sender, {
+        text: `Claude agent is paused for \`${workspaceRoot}\` (${activePause.reason}${expiry}).\nRun \`node claudeAgentPauseCli.js resume\` on the Pi to lift it now.`,
+      });
+      return;
     }
 
     if (issueMatch) {

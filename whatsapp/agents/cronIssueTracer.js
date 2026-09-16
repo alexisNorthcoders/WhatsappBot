@@ -19,6 +19,7 @@ import {
   cronShouldPersistLastStarted,
   errorMessageFromUnknown,
 } from './claudeIssuePipeline.js';
+import { getAgentPauseForWorkspace } from './claudeAgentPause.js';
 
 const DEFAULT_MS = 10 * 60 * 1000;
 
@@ -93,6 +94,7 @@ function truncateErrorSummary(err, max = 1500) {
  *   isClaudeAgentBusy?: typeof isClaudeAgentBusy,
  *   runIssueFetchAndGitPrep?: typeof runIssueFetchAndGitPrep,
  *   runClaudeAgentWithPost?: typeof runClaudeAgentWithPost,
+ *   getAgentPauseForWorkspace?: typeof getAgentPauseForWorkspace,
  *   cronPlatformerAlias?: string,
  * }} CronIssueTracerTickDeps
  */
@@ -121,6 +123,7 @@ export async function runCronIssueTracerTick(deps = {}) {
   const agentBusy = deps.isClaudeAgentBusy ?? isClaudeAgentBusy;
   const runPrep = deps.runIssueFetchAndGitPrep ?? runIssueFetchAndGitPrep;
   const runAgent = deps.runClaudeAgentWithPost ?? runClaudeAgentWithPost;
+  const getPause = deps.getAgentPauseForWorkspace ?? getAgentPauseForWorkspace;
   const platformerAlias = (deps.cronPlatformerAlias ?? CRON_PLATFORMER_WORKSPACE_ALIAS).trim() || 'platformer';
 
   let phase = 'initial checks';
@@ -228,11 +231,6 @@ export async function runCronIssueTracerTick(deps = {}) {
     const nextWh = pickNextRunnableIssueForRepo(whRows, whRepo, lastByRepo);
 
     if (nextWh != null) {
-      if (!tryLock()) {
-        return;
-      }
-      acquired = true;
-
       let workspaceRoot;
       phase = 'resolving default workspace';
       try {
@@ -245,8 +243,23 @@ export async function runCronIssueTracerTick(deps = {}) {
         return;
       }
 
-      await runCronIssueJob('WhatsappBot', whRepo, nextWh, workspaceRoot, null);
-      return;
+      phase = 'checking agent pause (WhatsappBot)';
+      const whPause = await getPause({ workspaceRoot });
+      if (whPause) {
+        // Fall through to Platformer instead of returning — pausing this workspace shouldn't
+        // block cron from working an unrelated repo.
+        logger?.info(
+          { workspaceRoot, reason: whPause.reason },
+          'cron issue tracer: skipping WhatsappBot — workspace paused'
+        );
+      } else {
+        if (!tryLock()) {
+          return;
+        }
+        acquired = true;
+        await runCronIssueJob('WhatsappBot', whRepo, nextWh, workspaceRoot, null);
+        return;
+      }
     }
 
     phase = 'resolving secondary repo (Platformer)';
@@ -262,6 +275,17 @@ export async function runCronIssueTracerTick(deps = {}) {
       logger?.warn({ err: e }, `cron issue tracer: Platformer not available: ${msg}`);
       return;
     }
+
+    phase = 'checking agent pause (Platformer)';
+    const platPause = await getPause({ workspaceRoot: platRoot });
+    if (platPause) {
+      logger?.info(
+        { workspaceRoot: platRoot, reason: platPause.reason },
+        'cron issue tracer: skipping Platformer — workspace paused'
+      );
+      return;
+    }
+
     phase = 'listing open GitHub issues (Platformer)';
     const pRows = await listIssues({ repo: platGitRepo });
     const nextPlat = pickNextRunnableIssueForRepo(pRows, platGitRepo, lastByRepo);
