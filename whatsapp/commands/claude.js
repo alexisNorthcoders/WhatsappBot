@@ -189,7 +189,6 @@ export default async function claudeCommand(sock, sender, text, msg) {
         extraInstructions: issueMatch.extraInstructions,
         workspaceRoot,
         workspaceAlias: workspaceAliasForRepo,
-        sendProgressMessages: true,
       });
       if (!prepped) return;
       prompt = prepped.prompt;
@@ -228,7 +227,6 @@ export default async function claudeCommand(sock, sender, text, msg) {
       issueMatch,
       issueSource,
       joplinSource,
-      sendProgressMessages: true,
     });
   } finally {
     releaseAgentBusyLock();

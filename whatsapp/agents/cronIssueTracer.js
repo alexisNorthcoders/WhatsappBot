@@ -50,7 +50,10 @@ export function pickNextEligibleIssue(rows) {
 
 /**
  * Lowest `ready-for-agent`-labeled eligible issue for `gitRepo` that is not suppressed by
- * per-repo last-started.
+ * per-repo last-started. Excludes the last-started issue itself from consideration (rather than
+ * bailing out entirely when it happens to be the lowest-numbered eligible issue) so a completed
+ * run whose issue wasn't auto-closed (e.g. a merged PR that didn't reference "Closes #N") can't
+ * permanently block every other queued issue in the same repo.
  *
  * @param {{ number: number, title: string, labels?: string[] }[]} rows
  * @param {string} gitRepo
@@ -58,10 +61,9 @@ export function pickNextEligibleIssue(rows) {
  * @returns {{ number: number, title: string, labels?: string[] } | null}
  */
 export function pickNextRunnableIssueForRepo(rows, gitRepo, lastByRepo) {
-  const next = pickNextEligibleIssue(rows);
-  if (next == null) return null;
-  if (lastByRepo.get(gitRepo) === next.number) return null;
-  return next;
+  const lastStarted = lastByRepo.get(gitRepo);
+  const candidates = lastStarted == null ? rows : rows.filter((r) => r.number !== lastStarted);
+  return pickNextEligibleIssue(candidates);
 }
 
 /**
@@ -149,18 +151,6 @@ export async function runCronIssueTracerTick(deps = {}) {
       repoForMsg = gitRepo;
       issueNumForMsg = next.number;
 
-      const startText = [
-        'Cron: starting the Claude *issue* workflow (same as `claude issue:` from WhatsApp).',
-        '',
-        `*Repo:* ${gitRepo}`,
-        `*Issue:* #${next.number}`,
-        `*Title:* ${next.title}`,
-        '',
-        'Fetching issue and preparing the workspace next…',
-      ].join('\n');
-      phase = 'sending start notification to owner';
-      await sock.sendMessage(ownerJid, { text: startText });
-
       phase = 'issue fetch / git prep';
       const prepped = await runPrep({
         sock,
@@ -169,7 +159,6 @@ export async function runCronIssueTracerTick(deps = {}) {
         extraInstructions: '',
         workspaceRoot,
         workspaceAlias,
-        sendProgressMessages: false,
       });
 
       if (!prepped) {
@@ -190,7 +179,6 @@ export async function runCronIssueTracerTick(deps = {}) {
           issueMatch,
           issueSource: prepped.issueSource,
           joplinSource: null,
-          sendProgressMessages: false,
         });
         if (!cronShouldPersistLastStarted(agentResult)) {
           const skip = agentResult?.post?.skipReason;

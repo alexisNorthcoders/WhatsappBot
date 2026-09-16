@@ -33,58 +33,26 @@ export function errorMessageFromUnknown(err) {
 }
 
 /**
+ * Truncates to a single WhatsApp message (the caller sends exactly one message per run, so
+ * this clips instead of chunking into several).
  * @param {string} text
  * @param {number} [maxLen]
- * @returns {string[]}
+ * @returns {string}
  */
-function splitWhatsAppChunks(text, maxLen = WA_TEXT_MAX) {
-  if (!text || text.length <= maxLen) return text ? [text] : ['(no output)'];
-  const parts = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLen) {
-      parts.push(remaining);
-      break;
-    }
-    let chunk = remaining.slice(0, maxLen);
-    const nl = chunk.lastIndexOf('\n');
-    if (nl > Math.floor(maxLen * 0.5)) chunk = chunk.slice(0, nl + 1);
-    parts.push(chunk.replace(/\s+$/, ''));
-    remaining = remaining.slice(chunk.length);
-  }
-  return parts;
+function truncateForWhatsApp(text, maxLen = WA_TEXT_MAX) {
+  if (!text) return '(no output)';
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen - 15).trimEnd()}\n…(truncated)`;
 }
 
-/** @param {Record<string, unknown> & { logPath?: string, spawnError?: string, timedOut?: boolean, exitCode?: number|null, signal?: string|null, ok?: boolean, stdout?: string, stderr?: string }} result */
-function formatAgentResult(result) {
-  const lines = [];
-  if (result.logPath) {
-    lines.push(`Log file: ${result.logPath}`);
-    lines.push('');
-  }
-  if (result.spawnError) {
-    lines.push(`Spawn error: ${result.spawnError}`);
-    return lines.join('\n');
-  }
-  if (result.timedOut) {
-    lines.push(
-      `Timed out (exit ${result.exitCode ?? 'n/a'}, signal ${result.signal ?? 'n/a'}).`
-    );
-  } else {
-    lines.push(`Exit code: ${result.exitCode ?? 'n/a'}`);
-  }
-  if (result.stdout?.trim()) {
-    lines.push('--- stdout ---');
-    lines.push(result.stdout.trimEnd());
-  }
-  if (result.stderr?.trim()) {
-    lines.push('--- stderr ---');
-    lines.push(result.stderr.trimEnd());
-  }
-  if (lines.length === 1 && lines[0].startsWith('Exit code:')) {
-    lines.push('(no stdout/stderr captured)');
-  }
-  return lines.join('\n');
+/**
+ * One-line reason the agent process itself didn't succeed (spawn/timeout/non-zero exit).
+ * @param {{ spawnError?: string, timedOut?: boolean, signal?: string|null, exitCode?: number|null }} result
+ */
+function agentFailureReason(result) {
+  if (result?.spawnError) return `failed to start (${result.spawnError})`;
+  if (result?.timedOut) return `timed out (signal ${result?.signal ?? 'n/a'})`;
+  return `exited with code ${result?.exitCode ?? 'n/a'}`;
 }
 
 /**
@@ -98,27 +66,13 @@ function formatAgentResult(result) {
  *   extraInstructions: string,
  *   workspaceRoot: string,
  *   workspaceAlias: string | null,
- *   sendProgressMessages?: boolean,
  * }} p
  * @returns {Promise<{ prompt: string, issueSource: { number: number, repo: string, title: string } } | null>}
  */
 export async function runIssueFetchAndGitPrep(p) {
-  const {
-    sock,
-    recipientJid,
-    issueNumber,
-    extraInstructions,
-    workspaceRoot,
-    workspaceAlias,
-    sendProgressMessages = true,
-  } = p;
+  const { sock, recipientJid, issueNumber, extraInstructions, workspaceRoot, workspaceAlias } = p;
 
   try {
-    if (sendProgressMessages) {
-      await sock.sendMessage(recipientJid, {
-        text: `Fetching GitHub issue #${issueNumber} …`,
-      });
-    }
     const fetched = await fetchGhIssuePromptText(issueNumber, {
       extraInstructions,
       workspaceRoot,
@@ -132,11 +86,6 @@ export async function runIssueFetchAndGitPrep(p) {
     };
 
     try {
-      if (sendProgressMessages) {
-        await sock.sendMessage(recipientJid, {
-          text: `Preparing git in ${workspaceRoot}: checkout latest default branch, pull from origin, create issue branch …`,
-        });
-      }
       const prep = await prepareWorkspaceForGithubIssue(
         workspaceRoot,
         issueNumber,
@@ -157,13 +106,6 @@ export async function runIssueFetchAndGitPrep(p) {
         ]
           .filter((l) => l !== '')
           .join('\n');
-      }
-      if (sendProgressMessages) {
-        await sock.sendMessage(recipientJid, {
-          text: prep.resumed
-            ? `Resuming existing branch \`${prep.branchName}\` (synced from \`${prep.defaultBranch}\`).`
-            : `Ready on branch \`${prep.branchName}\` (synced from \`${prep.defaultBranch}\`).`,
-        });
       }
     } catch (prepErr) {
       await sock.sendMessage(recipientJid, {
@@ -213,7 +155,6 @@ export function cronShouldPersistLastStarted(agentResult) {
  *   issueMatch: { issueNumber: number } | null,
  *   issueSource: { number: number, repo: string, title: string } | null,
  *   joplinSource: { title: string, id: string } | null,
- *   sendProgressMessages?: boolean,
  * }} p
  * @returns {Promise<{
  *   agentRunOk: boolean,
@@ -221,16 +162,7 @@ export function cronShouldPersistLastStarted(agentResult) {
  * }>}
  */
 export async function runClaudeAgentWithPost(p) {
-  const {
-    sock,
-    recipientJid,
-    prompt,
-    repo,
-    issueMatch,
-    issueSource,
-    joplinSource,
-    sendProgressMessages = true,
-  } = p;
+  const { sock, recipientJid, prompt, repo, issueMatch, issueSource, joplinSource } = p;
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const logPath = join(repo, 'logs', 'claude-agent', `${runId}.log`);
@@ -251,18 +183,6 @@ export async function runClaudeAgentWithPost(p) {
   let preAgentHeadSha = null;
 
   try {
-    const sourceHint = issueSource
-      ? `\nSource: GitHub issue #${issueSource.number} (${issueSource.repo}) — ${issueSource.title || '(no title)'}`
-      : joplinSource
-        ? `\nSource: Joplin note "${joplinSource.title}" (${joplinSource.id})`
-        : '';
-    if (sendProgressMessages) {
-      await sock.sendMessage(recipientJid, {
-        text:
-          `Running Claude agent in ${repo} …${sourceHint}\n\nLive log (on the Pi):\n${logPath}\n\ntail -f ${logRel}`,
-      });
-    }
-
     if (issueMatch) {
       try {
         preAgentHeadSha = await getRepoHeadShaFull(repo);
@@ -303,46 +223,41 @@ export async function runClaudeAgentWithPost(p) {
   );
   /** @type {{ ran?: boolean, note?: string, skipReason?: string } | null} */
   let post = null;
+  let postErrMessage = '';
 
   try {
-    const body = formatAgentResult(result);
-    const chunks = splitWhatsAppChunks(body);
-    for (const chunk of chunks) {
-      await sock.sendMessage(recipientJid, { text: chunk });
-    }
+    post = await maybeCommitReviewEmail({
+      repo,
+      userPrompt: prompt,
+      agentRunOk,
+      issueMode: issueMatch ? { number: issueMatch.issueNumber } : null,
+      preAgentHeadSha,
+    });
+  } catch (postErr) {
+    postErrMessage = errorMessageFromUnknown(postErr);
+    post = { ran: false, note: '', skipReason: 'post_run_threw' };
+  }
 
-    try {
-      post = await maybeCommitReviewEmail({
-        repo,
-        userPrompt: prompt,
-        agentRunOk,
-        issueMode: issueMatch ? { number: issueMatch.issueNumber } : null,
-        preAgentHeadSha,
-      });
-      if (post.note) {
-        await sock.sendMessage(recipientJid, { text: post.note });
-      }
-    } catch (postErr) {
-      post = {
-        ran: false,
-        note: '',
-        skipReason: 'post_run_threw',
-      };
-      await sock.sendMessage(recipientJid, {
-        text: `Post-run commit/PR pipeline failed: ${errorMessageFromUnknown(postErr)}`,
-      });
-    }
+  const sourceLabel = issueSource
+    ? `issue #${issueSource.number} (${issueSource.repo})`
+    : joplinSource
+      ? `Joplin note "${joplinSource.title}"`
+      : `${repo}`;
 
+  const lines = [
+    agentRunOk
+      ? `Claude agent finished on ${sourceLabel}.`
+      : `Claude agent on ${sourceLabel} ${agentFailureReason(result)} — needs a look.`,
+  ];
+  if (post.note) lines.push(post.note);
+  if (postErrMessage) lines.push(`Post-run commit/PR pipeline failed: ${postErrMessage}`);
+  lines.push(`Log: ${logPath} (tail -f ${logRel})`);
+
+  try {
+    await sock.sendMessage(recipientJid, { text: truncateForWhatsApp(lines.join('\n\n')) });
     delivered = true;
-  } catch (sendErr) {
-    try {
-      await sock.sendMessage(recipientJid, {
-        text: `Could not send full Claude result (${errorMessageFromUnknown(sendErr)}). Log: ${result?.logPath ?? logPath}`,
-      });
-      delivered = true;
-    } catch {
-      /* keep pending file for startup notice */
-    }
+  } catch {
+    /* keep pending file for startup notice */
   } finally {
     if (delivered) await clearPendingClaudeRun();
   }

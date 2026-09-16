@@ -121,6 +121,21 @@ describe('pickNextRunnableIssueForRepo', () => {
     );
     assert.deepEqual(r, { number: 5, title: 'Open', labels: ['ready-for-agent'] });
   });
+
+  it('advances to the next-lowest eligible issue when the lowest is the last-started one still open', () => {
+    // e.g. its PR merged without an auto-closing "Closes #N" reference, so the issue is still open.
+    const last = new Map([[REPO, 77]]);
+    const r = pickNextRunnableIssueForRepo(
+      [
+        { number: 77, title: 'Already done, PR merged but issue not closed', labels: ['ready-for-agent'] },
+        { number: 79, title: 'Next in queue', labels: ['ready-for-agent'] },
+        { number: 78, title: 'Actually next in queue', labels: ['ready-for-agent'] },
+      ],
+      REPO,
+      last
+    );
+    assert.deepEqual(r, { number: 78, title: 'Actually next in queue', labels: ['ready-for-agent'] });
+  });
 });
 
 function makeMockSock() {
