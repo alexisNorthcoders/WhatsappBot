@@ -13,5 +13,8 @@
     "@inquirer/prompts": "^5.4.0",
     "openai": "^4.58.1"
   },
+  "overrides": {
+    "tmp": "^0.2.6"
+  },
   "type": "module"
 }
