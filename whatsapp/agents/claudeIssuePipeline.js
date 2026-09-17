@@ -244,17 +244,17 @@ export async function runClaudeAgentWithPost(p) {
       ? `Joplin note "${joplinSource.title}"`
       : `${repo}`;
 
-  const lines = [
-    agentRunOk
-      ? `Claude agent finished on ${sourceLabel}.`
-      : `Claude agent on ${sourceLabel} ${agentFailureReason(result)} — needs a look.`,
-  ];
+  const lines = [];
+  if (!agentRunOk) {
+    lines.push(`Claude agent on ${sourceLabel} ${agentFailureReason(result)} — needs a look.`);
+  }
   if (post.note) lines.push(post.note);
   if (postErrMessage) lines.push(`Post-run commit/PR pipeline failed: ${postErrMessage}`);
-  lines.push(`Log: ${logPath} (tail -f ${logRel})`);
 
   try {
-    await sock.sendMessage(recipientJid, { text: truncateForWhatsApp(lines.join('\n\n')) });
+    if (lines.length > 0) {
+      await sock.sendMessage(recipientJid, { text: truncateForWhatsApp(lines.join('\n\n')) });
+    }
     delivered = true;
   } catch {
     /* keep pending file for startup notice */
