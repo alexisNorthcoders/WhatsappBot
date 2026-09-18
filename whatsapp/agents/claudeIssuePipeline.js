@@ -155,6 +155,7 @@ export function cronShouldPersistLastStarted(agentResult) {
  *   issueMatch: { issueNumber: number } | null,
  *   issueSource: { number: number, repo: string, title: string } | null,
  *   joplinSource: { title: string, id: string } | null,
+ *   trigger?: 'cron' | 'manual',
  * }} p
  * @returns {Promise<{
  *   agentRunOk: boolean,
@@ -162,7 +163,7 @@ export function cronShouldPersistLastStarted(agentResult) {
  * }>}
  */
 export async function runClaudeAgentWithPost(p) {
-  const { sock, recipientJid, prompt, repo, issueMatch, issueSource, joplinSource } = p;
+  const { sock, recipientJid, prompt, repo, issueMatch, issueSource, joplinSource, trigger = 'manual' } = p;
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const logPath = join(repo, 'logs', 'claude-agent', `${runId}.log`);
@@ -198,6 +199,12 @@ export async function runClaudeAgentWithPost(p) {
       // skill has `disable-model-invocation: true`, so freeform WhatsApp prompts and Joplin-note
       // runs (issueMatch is null for both) never trigger it.
       leadingCommand: issueMatch ? '/implement' : undefined,
+      meta: {
+        trigger,
+        kind: issueMatch ? 'issue' : 'freeform',
+        repo: issueSource?.repo ?? null,
+        issueNumber: issueMatch?.issueNumber ?? null,
+      },
     });
     if (result.timedOut) outcome = 'timeout';
     else if (result.spawnError) outcome = 'spawn_error';

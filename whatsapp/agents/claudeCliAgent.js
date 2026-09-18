@@ -5,6 +5,8 @@ import { homedir } from 'os';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { augmentedPathEnv } from '../processPath.js';
+import { createStreamAccumulator } from './claudeStreamParser.js';
+import { createRunTracker } from './claudeRunTelemetry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
@@ -71,7 +73,7 @@ Never run shell commands that restart or stop the Node.js process that spawned t
 ${userPrompt}`;
 }
 
-function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingCommand) {
+function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingCommand, meta) {
   return new Promise((resolve) => {
     const cwd = workspaceRoot;
     const bin = getAgentBin();
@@ -81,6 +83,8 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
 
     let logStream = null;
     let timer = null;
+    const stream = createStreamAccumulator();
+    const tracker = createRunTracker({ runId, workspaceRoot, logPath, meta });
 
     const closeLog = () => {
       if (logStream) {
@@ -105,6 +109,14 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
         }
       }
       closeLog();
+      const outcome = payload.timedOut
+        ? 'timeout'
+        : payload.spawnError
+          ? 'spawn_error'
+          : payload.ok
+            ? 'success'
+            : `exit_${payload.exitCode}`;
+      void tracker.finish({ outcome, exitCode: payload.exitCode ?? null, snapshot: stream.snapshot() });
       resolve({ ...payload, logPath, runId });
     };
 
@@ -127,13 +139,19 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
         return;
       }
 
-      const child = spawn(bin, ['-p', '--dangerously-skip-permissions', fullPrompt], {
-        cwd,
-        env: { ...process.env, PATH: augmentedPathEnv() },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      // stream-json gives live activity + exact model/token/cost data (see claudeStreamParser.js);
+      // the log file gets a readable line per event and `stdout` below is the final result text.
+      const child = spawn(
+        bin,
+        ['-p', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', fullPrompt],
+        {
+          cwd,
+          env: { ...process.env, PATH: augmentedPathEnv() },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      );
+      void tracker.start(child.pid);
 
-      let outBuf = Buffer.alloc(0);
       let errBuf = Buffer.alloc(0);
       let timedOut = false;
 
@@ -153,12 +171,12 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
         }, 5000).unref();
       }, timeoutMs);
 
+      const logLines = (lines) => {
+        if (logStream) for (const l of lines) logStream.write(`[out] ${l}\n`);
+      };
       child.stdout.on('data', (d) => {
-        outBuf = appendCapped(outBuf, d, MAX_CAPTURE_BYTES);
-        if (logStream) {
-          logStream.write('[out] ');
-          logStream.write(d);
-        }
+        logLines(stream.push(d));
+        void tracker.update(stream.snapshot());
       });
       child.stderr.on('data', (d) => {
         errBuf = appendCapped(errBuf, d, MAX_CAPTURE_BYTES);
@@ -184,7 +202,9 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
       });
 
       child.on('close', (code, signal) => {
-        const stdout = outBuf.toString('utf8');
+        logLines(stream.flush());
+        const snap = stream.snapshot();
+        const stdout = snap.result?.text || snap.assistantText;
         const stderr = errBuf.toString('utf8');
         if (timedOut) {
           finish({
@@ -213,16 +233,17 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
 /**
  * Run Claude Code headless CLI once (queued). Uses same user env as the bot (CLI login).
  * @param {string} prompt
- * @param {{ runId?: string, workspaceRoot?: string, leadingCommand?: string }} [options]
+ * @param {{ runId?: string, workspaceRoot?: string, leadingCommand?: string, meta?: import('./claudeRunTelemetry.js').RunMeta }} [options]
  */
 export function runClaudeCliAgent(prompt, options = {}) {
   const runId =
     options.runId ?? new Date().toISOString().replace(/[:.]/g, '-');
   const workspaceRoot = options.workspaceRoot ?? REPO_ROOT;
   const leadingCommand = options.leadingCommand;
+  const meta = options.meta ?? {};
   const next = runQueue.then(
-    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot, leadingCommand),
-    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot, leadingCommand)
+    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot, leadingCommand, meta),
+    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot, leadingCommand, meta)
   );
   runQueue = next.then(
     () => undefined,

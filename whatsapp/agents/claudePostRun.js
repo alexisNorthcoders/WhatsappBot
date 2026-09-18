@@ -1580,7 +1580,11 @@ async function runSinglePostReviewAutofix({
 
   let agentResult;
   try {
-    agentResult = await runClaudeCliAgent(prompt, { runId: autofixRunId, workspaceRoot: repo });
+    agentResult = await runClaudeCliAgent(prompt, {
+      runId: autofixRunId,
+      workspaceRoot: repo,
+      meta: { kind: 'autofix', issueNumber: issueNum ?? null },
+    });
   } catch (e) {
     const msg = e?.message || String(e);
     logPost('post-review autofix: agent threw', msg);

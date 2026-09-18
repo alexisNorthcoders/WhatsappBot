@@ -21,6 +21,7 @@ import {
   errorMessageFromUnknown,
 } from './claudeIssuePipeline.js';
 import { getAgentPauseForWorkspace } from './claudeAgentPause.js';
+import { writeCronStarted, writeCronTick } from './claudeRunTelemetry.js';
 
 const DEFAULT_MS = 10 * 60 * 1000;
 
@@ -173,6 +174,7 @@ function truncateErrorSummary(err, max = 1500) {
  * empty “success” runs do not suppress retries for the same open issue in that repo.
  *
  * @param {CronIssueTracerTickDeps} [deps]
+ * @returns {Promise<import('./claudeRunTelemetry.js').CronTickOutcome>} what this tick did, for observability
  */
 export async function runCronIssueTracerTick(deps = {}) {
   const getSocket = deps.getSocket ?? (() => null);
@@ -200,16 +202,21 @@ export async function runCronIssueTracerTick(deps = {}) {
   /** @type {number | null} */
   let issueNumForMsg = null;
 
+  /** @type {import('./claudeRunTelemetry.js').CronTickOutcome} */
+  let outcome = { kind: 'no_eligible' };
+  /** @type {string[]} */
+  const pausedWorkspaces = [];
+
   let acquired = false;
   try {
     if (agentBusy()) {
-      return;
+      return (outcome = { kind: 'busy' });
     }
 
     const sock = getSocket();
-    if (!sock) return;
+    if (!sock) return (outcome = { kind: 'no_socket' });
     const ownerJid = (getOwnerJid() || '').trim();
-    if (!ownerJid) return;
+    if (!ownerJid) return (outcome = { kind: 'no_socket', note: 'no owner JID' });
 
     /**
      * @param {string} cronLabel
@@ -221,6 +228,7 @@ export async function runCronIssueTracerTick(deps = {}) {
     const runCronIssueJob = async (cronLabel, gitRepo, next, workspaceRoot, workspaceAlias) => {
       repoForMsg = gitRepo;
       issueNumForMsg = next.number;
+      outcome = { kind: 'ran', repo: gitRepo, issue: next.number, result: 'failed' };
 
       phase = 'issue fetch / git prep';
       const prepped = await runPrep({
@@ -233,6 +241,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       });
 
       if (!prepped) {
+        outcome.result = 'prep_failed';
         await sock.sendMessage(ownerJid, {
           text: `Cron (${cronLabel}): could not start work on #${next.number} in \`${gitRepo}\` (step: issue fetch or git prep failed; see the message above if one was sent).`,
         });
@@ -250,8 +259,10 @@ export async function runCronIssueTracerTick(deps = {}) {
           issueMatch,
           issueSource: prepped.issueSource,
           joplinSource: null,
+          trigger: 'cron',
         });
         if (!cronShouldPersistLastStarted(agentResult)) {
+          outcome.result = 'no_progress';
           const skip = agentResult?.post?.skipReason;
           const why =
             skip === 'clean_after_wait'
@@ -271,8 +282,10 @@ export async function runCronIssueTracerTick(deps = {}) {
         }
         phase = 'persisting last-started issue';
         await writePerRepo({ repo: gitRepo, number: next.number });
+        outcome.result = 'progress';
       } catch (runErr) {
         const e = errorMessageFromUnknown(runErr);
+        outcome.note = truncateErrorSummary(e, 200);
         try {
           await sock.sendMessage(ownerJid, {
             text: [
@@ -318,17 +331,18 @@ export async function runCronIssueTracerTick(deps = {}) {
       if (whPause) {
         // Fall through to the secondary repos instead of returning — pausing this workspace
         // shouldn't block cron from working an unrelated repo.
+        pausedWorkspaces.push(workspaceRoot);
         logger?.info(
           { workspaceRoot, reason: whPause.reason },
           'cron issue tracer: skipping WhatsappBot — workspace paused'
         );
       } else {
         if (!tryLock()) {
-          return;
+          return (outcome = { kind: 'busy' });
         }
         acquired = true;
         await runCronIssueJob('WhatsappBot', whRepo, nextWh, workspaceRoot, null);
-        return;
+        return outcome;
       }
     }
 
@@ -350,6 +364,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       phase = `checking agent pause (${alias})`;
       const secPause = await getPause({ workspaceRoot: secRoot });
       if (secPause) {
+        pausedWorkspaces.push(secRoot);
         logger?.info(
           { workspaceRoot: secRoot, reason: secPause.reason },
           `cron issue tracer: skipping ${alias} — workspace paused`
@@ -366,15 +381,17 @@ export async function runCronIssueTracerTick(deps = {}) {
         continue;
       }
       if (!tryLock()) {
-        return;
+        return (outcome = { kind: 'busy' });
       }
       acquired = true;
 
       await runCronIssueJob(alias, secGitRepo, nextSec, secRoot, alias);
-      return;
+      return outcome;
     }
+    return outcome;
   } catch (e) {
     const err = errorMessageFromUnknown(e);
+    outcome = { kind: 'error', note: `${phase}: ${truncateErrorSummary(err, 200)}` };
     logger?.warn({ err: e }, `cron issue tracer: ${err}`);
     const sock = getSocket();
     const ownerJid = (getOwnerJid() || '').trim();
@@ -394,7 +411,9 @@ export async function runCronIssueTracerTick(deps = {}) {
         );
       }
     }
+    return outcome;
   } finally {
+    if (pausedWorkspaces.length && outcome.kind === 'no_eligible') outcome.pausedWorkspaces = pausedWorkspaces;
     if (acquired) {
       releaseLock();
     }
@@ -432,13 +451,16 @@ export function startCronIssueTracer(opts) {
   const tick = async () => {
     if (inFlight) return;
     inFlight = true;
+    const startedAt = Date.now();
     try {
-      await runCronIssueTracerTick({ getSocket, getOwnerJid, logger });
+      const outcome = await runCronIssueTracerTick({ getSocket, getOwnerJid, logger });
+      await writeCronTick({ outcome, intervalMs, startedAt });
     } finally {
       inFlight = false;
     }
   };
 
+  void writeCronStarted({ intervalMs });
   intervalId = setInterval(() => {
     void tick();
   }, intervalMs);

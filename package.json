@@ -29,7 +29,11 @@
     "start:joplin": "node --no-deprecation test-joplin.js",
     "claude:pause": "node claudeAgentPauseCli.js pause",
     "claude:resume": "node claudeAgentPauseCli.js resume",
-    "claude:pause:status": "node claudeAgentPauseCli.js status"
+    "claude:pause:status": "node claudeAgentPauseCli.js status",
+    "agent": "node agentctl.js",
+    "agent:watch": "node agentctl.js watch",
+    "agent:history": "node agentctl.js history",
+    "agent:logs": "node agentctl.js logs"
   },
   "keywords": [],
   "author": "",
