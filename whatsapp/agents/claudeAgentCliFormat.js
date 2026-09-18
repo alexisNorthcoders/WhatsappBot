@@ -1,7 +1,7 @@
 import { basename } from 'path';
 
 /**
- * Pure text rendering for the `agentctl.js` terminal CLI (no I/O, no dependencies).
+ * Pure text rendering for the `claudeAgentCli.js` terminal CLI (no I/O, no dependencies).
  * `c` is a colorizer ({ dim, green, red, yellow, bold, cyan }) so tests can pass identity functions.
  */
 

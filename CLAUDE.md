@@ -140,12 +140,12 @@ This is the most complex subsystem, spread across `whatsapp/agents/claude*.js` a
   timeout, or empty (no-git-change) run does *not* count as progress, so it will retry rather than
   silently skip a stuck issue. Runs only when the agent-busy lock is free.
 
-- **Observability** (`agentctl.js`, `whatsapp/agents/claudeRunTelemetry.js`, `claudeStreamParser.js`,
-  `agentctlFormat.js`): the agent is spawned with `--output-format stream-json --verbose`; the parser
+- **Observability** (`claudeAgentCli.js`, `whatsapp/agents/claudeRunTelemetry.js`, `claudeStreamParser.js`,
+  `claudeAgentCliFormat.js`): the agent is spawned with `--output-format stream-json --verbose`; the parser
   turns the event stream into a readable `logs/claude-agent/<runId>.log`, live state
   (`logs/claude-agent/active/<runId>.json`), a history line per run (`runs.jsonl`: model, tokens,
   cost) and cron tick state (`cron-state.json`) — all under the bot repo regardless of target
-  workspace. `npm run agent` (status) / `agent:watch` / `agent:history` / `agent:logs` read them from
+  workspace. `npm run claude:status` / `claude:watch` / `claude:history` / `claude:logs` read them from
   a separate process and flag `orphaned`/`stale` runs when the bot process died. `stdout` returned by
   `runClaudeCliAgent` is the final `result` text, unchanged for callers.
 

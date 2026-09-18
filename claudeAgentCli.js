@@ -9,22 +9,22 @@ import {
   readRunHistory,
   pidAlive,
 } from './whatsapp/agents/claudeRunTelemetry.js';
-import { ansi, plain, renderStatus, renderHistoryLines } from './whatsapp/agents/agentctlFormat.js';
+import { ansi, plain, renderStatus, renderHistoryLines } from './whatsapp/agents/claudeAgentCliFormat.js';
 import { getAgentPauseForWorkspace } from './whatsapp/agents/claudeAgentPause.js';
 import { getWorkspaceAllowlist } from './whatsapp/claudeWorkspaces.js';
 
 const c = process.stdout.isTTY && !process.env.NO_COLOR ? ansi() : plain;
 
 function printUsage() {
-  console.log(`agentctl — observability for the Claude CLI agent and its cron cycles (think "pm2 status")
+  console.log(`claudeAgentCli.js — observability for the Claude CLI agent and its cron cycles (think "pm2 status")
 
 Usage:
-  node agentctl.js [status] [--json]      snapshot: cron, running agents, pauses, spend, recent runs
-  node agentctl.js watch [seconds]        live view, refreshed every N seconds (default 2)
-  node agentctl.js history [-n 20] [--json]   finished runs with model, tokens, cost
-  node agentctl.js logs [runId|latest] [-f]   print (or follow) an agent run log
+  node claudeAgentCli.js [status] [--json]      snapshot: cron, running agents, pauses, spend, recent runs
+  node claudeAgentCli.js watch [seconds]        live view, refreshed every N seconds (default 2)
+  node claudeAgentCli.js history [-n 20] [--json]   finished runs with model, tokens, cost
+  node claudeAgentCli.js logs [runId|latest] [-f]   print (or follow) an agent run log
 
-Also available as: npm run agent | agent:watch | agent:history | agent:logs`);
+Also available as: npm run claude:status | claude:watch | claude:history | claude:logs`);
 }
 
 const PAUSE_LOOKUP_TIMEOUT_MS = 1500;

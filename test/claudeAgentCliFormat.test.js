@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDuration, formatTokens, formatCost, shortModel, renderStatus } from '../whatsapp/agents/agentctlFormat.js';
+import { formatDuration, formatTokens, formatCost, shortModel, renderStatus } from '../whatsapp/agents/claudeAgentCliFormat.js';
 
-describe('agentctlFormat', () => {
+describe('claudeAgentCliFormat', () => {
   it('formats units', () => {
     assert.equal(formatDuration(45_000), '45s');
     assert.equal(formatDuration(125_000), '2m05s');

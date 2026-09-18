@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 /**
  * File-based observability for Claude CLI agent runs and cron cycles. The bot process writes;
- * the `agentctl.js` terminal CLI (a separate process) reads. Everything lives under the bot
+ * the `claudeAgentCli.js` terminal CLI (a separate process) reads. Everything lives under the bot
  * repo's `logs/claude-agent/` regardless of which workspace a run targets, so one place shows all.
  *
  *   active/<runId>.json   one file per in-flight run, rewritten as it progresses, removed at exit
