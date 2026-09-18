@@ -2,6 +2,7 @@ import {
   listOpenGithubIssues,
   resolveIssueRepoSlug,
   resolveIssueRepoSlugForWorkspace,
+  getGithubIssueBlockedByCount,
 } from './ghIssueForClaude.js';
 import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias } from '../claudeWorkspaces.js';
 import {
@@ -26,10 +27,23 @@ const DEFAULT_MS = 10 * 60 * 1000;
 /** Only issues carrying this label are eligible for cron pickup. */
 const READY_FOR_AGENT_LABEL = 'ready-for-agent';
 
-/** Must match the allowlisted `CLAUDE_WORKSPACE_MAP` key for the secondary repo. */
-const CRON_PLATFORMER_WORKSPACE_ALIAS = (() => {
-  const t = (process.env.CRON_PLATFORMER_WORKSPACE_ALIAS || 'platformer').trim();
-  return t || 'platformer';
+/**
+ * Secondary repos tried (in order, after this bot's own repo) each tick, one issue per tick
+ * across the whole cron run. Each alias must exist in `CLAUDE_WORKSPACE_MAP`.
+ * `CRON_SECONDARY_WORKSPACE_ALIASES` (comma-separated) is preferred; the older single-alias
+ * `CRON_PLATFORMER_WORKSPACE_ALIAS` is still honored when the list var is unset.
+ */
+const CRON_SECONDARY_WORKSPACE_ALIASES = (() => {
+  const raw = process.env.CRON_SECONDARY_WORKSPACE_ALIASES?.trim();
+  if (raw) {
+    const list = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (list.length) return list;
+  }
+  const legacy = (process.env.CRON_PLATFORMER_WORKSPACE_ALIAS || 'platformer').trim();
+  return legacy ? [legacy] : [];
 })();
 
 let intervalId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
@@ -37,14 +51,22 @@ let inFlight = false;
 
 /**
  * @param {{ number: number, title: string, labels?: string[] }[]} rows
- * @returns {{ number: number, title: string, labels?: string[] } | null} lowest OPEN issue labeled `ready-for-agent`
+ * @returns {{ number: number, title: string, labels?: string[] }[]}
  */
-export function pickNextEligibleIssue(rows) {
-  const eligible = rows.filter(
+function filterReadyForAgentRows(rows) {
+  return rows.filter(
     (r) =>
       Array.isArray(r.labels) &&
       r.labels.some((l) => String(l).trim().toLowerCase() === READY_FOR_AGENT_LABEL)
   );
+}
+
+/**
+ * @param {{ number: number, title: string, labels?: string[] }[]} rows
+ * @returns {{ number: number, title: string, labels?: string[] } | null} lowest OPEN issue labeled `ready-for-agent`
+ */
+export function pickNextEligibleIssue(rows) {
+  const eligible = filterReadyForAgentRows(rows);
   if (eligible.length === 0) return null;
   return eligible.reduce((a, b) => (a.number < b.number ? a : b));
 }
@@ -62,9 +84,53 @@ export function pickNextEligibleIssue(rows) {
  * @returns {{ number: number, title: string, labels?: string[] } | null}
  */
 export function pickNextRunnableIssueForRepo(rows, gitRepo, lastByRepo) {
+  const sorted = sortedEligibleIssuesForRepo(rows, gitRepo, lastByRepo);
+  return sorted.length ? sorted[0] : null;
+}
+
+/**
+ * Same eligibility filter as `pickNextRunnableIssueForRepo` (ready-for-agent labeled, excluding
+ * the repo's last-started issue), but returns every candidate in ascending issue-number order
+ * instead of just the lowest — lets a dependency-blocked check skip forward within the same repo.
+ *
+ * @param {{ number: number, title: string, labels?: string[] }[]} rows
+ * @param {string} gitRepo
+ * @param {Map<string, number>} lastByRepo
+ * @returns {{ number: number, title: string, labels?: string[] }[]}
+ */
+export function sortedEligibleIssuesForRepo(rows, gitRepo, lastByRepo) {
   const lastStarted = lastByRepo.get(gitRepo);
   const candidates = lastStarted == null ? rows : rows.filter((r) => r.number !== lastStarted);
-  return pickNextEligibleIssue(candidates);
+  return filterReadyForAgentRows(candidates)
+    .slice()
+    .sort((a, b) => a.number - b.number);
+}
+
+/**
+ * Like `pickNextRunnableIssueForRepo`, but skips any candidate that GitHub's native issue
+ * dependencies report as currently blocked (`issue_dependencies_summary.blocked_by > 0` — see
+ * docs/agents/issue-tracker.md's "Blocking" convention), trying the next-lowest eligible issue in
+ * the same repo before giving up on it. A lookup failure is treated as blocked (fail-safe) rather
+ * than risking work on a dependency we couldn't actually confirm is resolved.
+ *
+ * @param {{ number: number, title: string, labels?: string[] }[]} rows
+ * @param {string} gitRepo
+ * @param {Map<string, number>} lastByRepo
+ * @param {{ getBlockedByCount: (repo: string, issueNumber: number) => Promise<number> }} deps
+ * @returns {Promise<{ number: number, title: string, labels?: string[] } | null>}
+ */
+export async function pickNextRunnableUnblockedIssueForRepo(rows, gitRepo, lastByRepo, deps) {
+  const candidates = sortedEligibleIssuesForRepo(rows, gitRepo, lastByRepo);
+  for (const candidate of candidates) {
+    let blockedByCount;
+    try {
+      blockedByCount = await deps.getBlockedByCount(gitRepo, candidate.number);
+    } catch {
+      blockedByCount = 1;
+    }
+    if (!blockedByCount) return candidate;
+  }
+  return null;
 }
 
 /**
@@ -95,7 +161,8 @@ function truncateErrorSummary(err, max = 1500) {
  *   runIssueFetchAndGitPrep?: typeof runIssueFetchAndGitPrep,
  *   runClaudeAgentWithPost?: typeof runClaudeAgentWithPost,
  *   getAgentPauseForWorkspace?: typeof getAgentPauseForWorkspace,
- *   cronPlatformerAlias?: string,
+ *   cronSecondaryWorkspaceAliases?: string[],
+ *   getGithubIssueBlockedByCount?: typeof getGithubIssueBlockedByCount,
  * }} CronIssueTracerTickDeps
  */
 
@@ -124,7 +191,8 @@ export async function runCronIssueTracerTick(deps = {}) {
   const runPrep = deps.runIssueFetchAndGitPrep ?? runIssueFetchAndGitPrep;
   const runAgent = deps.runClaudeAgentWithPost ?? runClaudeAgentWithPost;
   const getPause = deps.getAgentPauseForWorkspace ?? getAgentPauseForWorkspace;
-  const platformerAlias = (deps.cronPlatformerAlias ?? CRON_PLATFORMER_WORKSPACE_ALIAS).trim() || 'platformer';
+  const secondaryAliases = deps.cronSecondaryWorkspaceAliases ?? CRON_SECONDARY_WORKSPACE_ALIASES;
+  const getBlockedByCount = deps.getGithubIssueBlockedByCount ?? getGithubIssueBlockedByCount;
 
   let phase = 'initial checks';
   /** @type {string | null} */
@@ -144,7 +212,7 @@ export async function runCronIssueTracerTick(deps = {}) {
     if (!ownerJid) return;
 
     /**
-     * @param {'WhatsappBot' | 'Platformer'} cronLabel
+     * @param {string} cronLabel
      * @param {string} gitRepo
      * @param {{ number: number, title: string }} next
      * @param {string} workspaceRoot
@@ -228,7 +296,9 @@ export async function runCronIssueTracerTick(deps = {}) {
     phase = 'listing open GitHub issues (WhatsappBot)';
     const whRepo = resolveRepo();
     const whRows = await listIssues({ repo: whRepo });
-    const nextWh = pickNextRunnableIssueForRepo(whRows, whRepo, lastByRepo);
+    const nextWh = await pickNextRunnableUnblockedIssueForRepo(whRows, whRepo, lastByRepo, {
+      getBlockedByCount,
+    });
 
     if (nextWh != null) {
       let workspaceRoot;
@@ -246,8 +316,8 @@ export async function runCronIssueTracerTick(deps = {}) {
       phase = 'checking agent pause (WhatsappBot)';
       const whPause = await getPause({ workspaceRoot });
       if (whPause) {
-        // Fall through to Platformer instead of returning — pausing this workspace shouldn't
-        // block cron from working an unrelated repo.
+        // Fall through to the secondary repos instead of returning — pausing this workspace
+        // shouldn't block cron from working an unrelated repo.
         logger?.info(
           { workspaceRoot, reason: whPause.reason },
           'cron issue tracer: skipping WhatsappBot — workspace paused'
@@ -262,42 +332,47 @@ export async function runCronIssueTracerTick(deps = {}) {
       }
     }
 
-    phase = 'resolving secondary repo (Platformer)';
-    /** @type {string} */
-    let platRoot;
-    /** @type {string} */
-    let platGitRepo;
-    try {
-      platRoot = await resolvePlatRoot(platformerAlias);
-      platGitRepo = await resolveForWs(platRoot, platformerAlias);
-    } catch (e) {
-      const msg = errorMessageFromUnknown(e);
-      logger?.warn({ err: e }, `cron issue tracer: Platformer not available: ${msg}`);
-      return;
-    }
+    for (const alias of secondaryAliases) {
+      phase = `resolving secondary repo (${alias})`;
+      /** @type {string} */
+      let secRoot;
+      /** @type {string} */
+      let secGitRepo;
+      try {
+        secRoot = await resolvePlatRoot(alias);
+        secGitRepo = await resolveForWs(secRoot, alias);
+      } catch (e) {
+        const msg = errorMessageFromUnknown(e);
+        logger?.warn({ err: e }, `cron issue tracer: "${alias}" not available: ${msg}`);
+        continue;
+      }
 
-    phase = 'checking agent pause (Platformer)';
-    const platPause = await getPause({ workspaceRoot: platRoot });
-    if (platPause) {
-      logger?.info(
-        { workspaceRoot: platRoot, reason: platPause.reason },
-        'cron issue tracer: skipping Platformer — workspace paused'
-      );
-      return;
-    }
+      phase = `checking agent pause (${alias})`;
+      const secPause = await getPause({ workspaceRoot: secRoot });
+      if (secPause) {
+        logger?.info(
+          { workspaceRoot: secRoot, reason: secPause.reason },
+          `cron issue tracer: skipping ${alias} — workspace paused`
+        );
+        continue;
+      }
 
-    phase = 'listing open GitHub issues (Platformer)';
-    const pRows = await listIssues({ repo: platGitRepo });
-    const nextPlat = pickNextRunnableIssueForRepo(pRows, platGitRepo, lastByRepo);
-    if (nextPlat == null) {
-      return;
-    }
-    if (!tryLock()) {
-      return;
-    }
-    acquired = true;
+      phase = `listing open GitHub issues (${alias})`;
+      const secRows = await listIssues({ repo: secGitRepo });
+      const nextSec = await pickNextRunnableUnblockedIssueForRepo(secRows, secGitRepo, lastByRepo, {
+        getBlockedByCount,
+      });
+      if (nextSec == null) {
+        continue;
+      }
+      if (!tryLock()) {
+        return;
+      }
+      acquired = true;
 
-    await runCronIssueJob('Platformer', platGitRepo, nextPlat, platRoot, platformerAlias);
+      await runCronIssueJob(alias, secGitRepo, nextSec, secRoot, alias);
+      return;
+    }
   } catch (e) {
     const err = errorMessageFromUnknown(e);
     logger?.warn({ err: e }, `cron issue tracer: ${err}`);
@@ -328,7 +403,8 @@ export async function runCronIssueTracerTick(deps = {}) {
 
 /**
  * Interval job: if the Claude agent is free, find the next eligible open issue, preferring
- * this bot’s repo, then a secondary (Platformer) allowlisted workspace with matching issue-repo map.
+ * this bot’s repo, then each secondary allowlisted workspace in `CRON_SECONDARY_WORKSPACE_ALIASES`
+ * order, stopping at the first one with a runnable issue.
  * Runs the same pipeline as manual `claude issue:…` (fetch, git prep, agent, post-run automation).
  * @param {{
  *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,

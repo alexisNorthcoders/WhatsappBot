@@ -282,6 +282,32 @@ export async function fetchGhIssuePromptText(issueNumber, opts = {}) {
 }
 
 /**
+ * Live count of currently-open blockers on an issue, via GitHub's native issue-dependencies
+ * feature (`issue_dependencies_summary.blocked_by`) — see docs/agents/issue-tracker.md's
+ * "Blocking" convention. GitHub recomputes this itself as blockers close; nothing here caches it.
+ * @param {string} repo owner/repo
+ * @param {number} issueNumber
+ * @returns {Promise<number>}
+ */
+export async function getGithubIssueBlockedByCount(repo, issueNumber) {
+  const validRepo = assertValidRepoSlug(repo, 'repo');
+  const bin = resolveGhExecutable();
+  const args = [
+    'api',
+    `repos/${validRepo}/issues/${issueNumber}`,
+    '--jq',
+    '.issue_dependencies_summary.blocked_by // 0',
+  ];
+  const { stdout } = await execGhWithRetry(bin, args, {
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024,
+    env: { ...process.env, PATH: augmentedPathEnv() },
+  });
+  const n = parseInt(String(stdout).trim(), 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+/**
  * Open issues in the given repo (GitHub), via `gh issue list`.
  * @param {{ repo?: string }} [opts]
  * @returns {Promise<{ number: number, title: string, labels: string[] }[]>}

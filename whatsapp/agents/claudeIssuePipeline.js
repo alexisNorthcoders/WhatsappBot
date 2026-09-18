@@ -191,7 +191,14 @@ export async function runClaudeAgentWithPost(p) {
       }
     }
 
-    result = await runClaudeCliAgent(prompt, { runId, workspaceRoot: repo });
+    result = await runClaudeCliAgent(prompt, {
+      runId,
+      workspaceRoot: repo,
+      // Only GitHub-issue pickups (manual `claude issue:n` or cron) invoke /implement — the
+      // skill has `disable-model-invocation: true`, so freeform WhatsApp prompts and Joplin-note
+      // runs (issueMatch is null for both) never trigger it.
+      leadingCommand: issueMatch ? '/implement' : undefined,
+    });
     if (result.timedOut) outcome = 'timeout';
     else if (result.spawnError) outcome = 'spawn_error';
     else if (result.ok) outcome = 'success';

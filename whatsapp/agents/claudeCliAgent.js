@@ -54,10 +54,16 @@ function appendCapped(buf, chunk, maxBytes) {
   return next.slice(-maxBytes);
 }
 
-/** Prepended so the agent does not kill the parent Node process before the bot can send a completion message. */
-function buildPromptForAgent(userPrompt) {
-  if (process.env.CLAUDE_AGENT_SKIP_CONSTRAINTS === '1') return userPrompt;
-  return `[Invocation from WhatsApp bot — read carefully]
+/**
+ * Prepended so the agent does not kill the parent Node process before the bot can send a
+ * completion message. `leadingCommand` (e.g. `/implement`) must be the very first characters of
+ * the CLI message for Claude Code to recognize it as a slash-command invocation, so it goes
+ * before everything else, including the PM2 safety notice.
+ */
+function buildPromptForAgent(userPrompt, leadingCommand) {
+  const lead = leadingCommand ? `${leadingCommand}\n\n` : '';
+  if (process.env.CLAUDE_AGENT_SKIP_CONSTRAINTS === '1') return `${lead}${userPrompt}`;
+  return `${lead}[Invocation from WhatsApp bot — read carefully]
 Never run shell commands that restart or stop the Node.js process that spawned this CLI (the WhatsApp bot under PM2). Forbidden examples: \`pm2 restart\`, \`pm2 reload\`, \`pm2 delete\` for this app, \`killall node\`, or restarting the unit that runs this bot. The parent waits for this process to exit so it can send a completion message on WhatsApp; restarting the bot aborts that. If the app must be restarted, say so in your summary and let the user run PM2 manually after they read the result.
 
 ---
@@ -65,13 +71,13 @@ Never run shell commands that restart or stop the Node.js process that spawned t
 ${userPrompt}`;
 }
 
-function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot) {
+function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingCommand) {
   return new Promise((resolve) => {
     const cwd = workspaceRoot;
     const bin = getAgentBin();
     const timeoutMs = getTimeoutMs();
     const logPath = join(workspaceRoot, 'logs', 'claude-agent', `${runId}.log`);
-    const fullPrompt = buildPromptForAgent(userPrompt);
+    const fullPrompt = buildPromptForAgent(userPrompt, leadingCommand);
 
     let logStream = null;
     let timer = null;
@@ -207,15 +213,16 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot) {
 /**
  * Run Claude Code headless CLI once (queued). Uses same user env as the bot (CLI login).
  * @param {string} prompt
- * @param {{ runId?: string, workspaceRoot?: string }} [options]
+ * @param {{ runId?: string, workspaceRoot?: string, leadingCommand?: string }} [options]
  */
 export function runClaudeCliAgent(prompt, options = {}) {
   const runId =
     options.runId ?? new Date().toISOString().replace(/[:.]/g, '-');
   const workspaceRoot = options.workspaceRoot ?? REPO_ROOT;
+  const leadingCommand = options.leadingCommand;
   const next = runQueue.then(
-    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot),
-    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot)
+    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot, leadingCommand),
+    () => runClaudeCliAgentUnqueued(prompt, runId, workspaceRoot, leadingCommand)
   );
   runQueue = next.then(
     () => undefined,

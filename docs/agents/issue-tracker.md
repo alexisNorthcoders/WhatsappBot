@@ -13,6 +13,25 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
 
+## Cron picker: cross-repo dependency ordering
+
+The cron issue tracer (`whatsapp/agents/cronIssueTracer.js`) skips a `ready-for-agent`-labeled
+issue when GitHub's native issue dependencies (see "Blocking" below) report an open blocker
+(`issue_dependencies_summary.blocked_by > 0`), trying the next-lowest eligible issue in the same
+repo before falling through to the next configured repo (`CRON_SECONDARY_WORKSPACE_ALIASES`). A
+lookup failure is treated as blocked, not as unblocked — the tracer will not guess.
+
+To block issue `B` on issue `A` (cross-repo works fine — the edge stores the blocker by its
+global database id, not by repo+number):
+
+```
+gh api --method POST repos/<owner-of-B>/<repo-of-B>/issues/<B>/dependencies/blocked_by \
+  -F issue_id=$(gh api repos/<owner-of-A>/<repo-of-A>/issues/<A> --jq .id)
+```
+
+The block clears itself once `A` closes — GitHub recomputes `issue_dependencies_summary` live, so
+nothing in this repo needs to update or remove it.
+
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_

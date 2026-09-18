@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   pickNextEligibleIssue,
   pickNextRunnableIssueForRepo,
+  pickNextRunnableUnblockedIssueForRepo,
   runCronIssueTracerTick,
 } from '../whatsapp/agents/cronIssueTracer.js';
 import { cronShouldPersistLastStarted } from '../whatsapp/agents/claudeIssuePipeline.js';
@@ -138,6 +139,69 @@ describe('pickNextRunnableIssueForRepo', () => {
   });
 });
 
+describe('pickNextRunnableUnblockedIssueForRepo', () => {
+  it('returns the lowest eligible issue when nothing is blocked', async () => {
+    const r = await pickNextRunnableUnblockedIssueForRepo(
+      [
+        { number: 5, title: 'A', labels: ['ready-for-agent'] },
+        { number: 2, title: 'B', labels: ['ready-for-agent'] },
+      ],
+      REPO,
+      new Map(),
+      { getBlockedByCount: async () => 0 }
+    );
+    assert.deepEqual(r, { number: 2, title: 'B', labels: ['ready-for-agent'] });
+  });
+
+  it('skips a blocked lower-numbered issue in favor of the next eligible one in the same repo', async () => {
+    const calls = [];
+    const r = await pickNextRunnableUnblockedIssueForRepo(
+      [
+        { number: 2, title: 'Blocked', labels: ['ready-for-agent'] },
+        { number: 5, title: 'Unblocked', labels: ['ready-for-agent'] },
+      ],
+      REPO,
+      new Map(),
+      {
+        getBlockedByCount: async (repo, n) => {
+          calls.push(n);
+          return n === 2 ? 1 : 0;
+        },
+      }
+    );
+    assert.deepEqual(r, { number: 5, title: 'Unblocked', labels: ['ready-for-agent'] });
+    assert.deepEqual(calls, [2, 5]);
+  });
+
+  it('returns null when every eligible issue is blocked', async () => {
+    const r = await pickNextRunnableUnblockedIssueForRepo(
+      [{ number: 1, title: 'Blocked', labels: ['ready-for-agent'] }],
+      REPO,
+      new Map(),
+      { getBlockedByCount: async () => 2 }
+    );
+    assert.equal(r, null);
+  });
+
+  it('treats a lookup failure as blocked rather than risking unresolved work', async () => {
+    const r = await pickNextRunnableUnblockedIssueForRepo(
+      [
+        { number: 1, title: 'Lookup fails', labels: ['ready-for-agent'] },
+        { number: 2, title: 'Fine', labels: ['ready-for-agent'] },
+      ],
+      REPO,
+      new Map(),
+      {
+        getBlockedByCount: async (repo, n) => {
+          if (n === 1) throw new Error('gh api boom');
+          return 0;
+        },
+      }
+    );
+    assert.deepEqual(r, { number: 2, title: 'Fine', labels: ['ready-for-agent'] });
+  });
+});
+
 function makeMockSock() {
   /** @type {{ jid: string, text: string }[]} */
   const sent = [];
@@ -154,12 +218,20 @@ const REPO_P = 'alexisNorthcoders/Platformer';
 const OWNER = '123@s.whatsapp.net';
 
 /**
- * Runs a tick with a hermetic "nothing is paused" fake for `getAgentPauseForWorkspace` by
- * default (so this suite never touches a real Redis), overridable per test.
+ * Runs a tick with a hermetic "nothing is paused" fake for `getAgentPauseForWorkspace`, a fixed
+ * single-alias secondary list (so this suite is independent of the real `.env`'s
+ * `CRON_SECONDARY_WORKSPACE_ALIASES`, which dotenv loads as a side effect of importing
+ * `cronIssueTracer.js`), and an "nothing is blocked" fake for `getGithubIssueBlockedByCount`
+ * (so this suite never shells out to the real `gh` CLI). All overridable per test.
  * @param {import('../whatsapp/agents/cronIssueTracer.js').CronIssueTracerTickDeps} overrides
  */
 function tick(overrides) {
-  return runCronIssueTracerTick({ getAgentPauseForWorkspace: async () => null, ...overrides });
+  return runCronIssueTracerTick({
+    getAgentPauseForWorkspace: async () => null,
+    cronSecondaryWorkspaceAliases: ['platformer'],
+    getGithubIssueBlockedByCount: async () => 0,
+    ...overrides,
+  });
 }
 
 describe('runCronIssueTracerTick', () => {
@@ -617,7 +689,6 @@ describe('runCronIssueTracerTick', () => {
     await tick({
       getSocket: () => sock,
       getOwnerJid: () => OWNER,
-      cronPlatformerAlias: 'platformer',
       listOpenGithubIssues: async ({ repo }) => {
         if (repo === REPO) {
           return [{ number: 5, title: 'x', labels: ['needs-triage'] }];
@@ -686,6 +757,41 @@ describe('runCronIssueTracerTick', () => {
     );
   });
 
+  it('skips a dependency-blocked issue in favor of the next eligible one in the same repo, before ever trying a secondary alias', async () => {
+    const sock = makeMockSock();
+    let prepFor = /** @type {number | null} */ (null);
+    let platListed = false;
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async ({ repo }) => {
+        if (repo === REPO) {
+          return [
+            { number: 3, title: 'Blocked on go-server', labels: ['ready-for-agent'] },
+            { number: 9, title: 'Independent', labels: ['ready-for-agent'] },
+          ];
+        }
+        platListed = true;
+        return [];
+      },
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      getGithubIssueBlockedByCount: async (repo, n) => (repo === REPO && n === 3 ? 1 : 0),
+      runIssueFetchAndGitPrep: async (p) => {
+        prepFor = p.issueNumber;
+        return {
+          prompt: 'p',
+          issueSource: { number: p.issueNumber, repo: REPO, title: 'Independent' },
+        };
+      },
+      runClaudeAgentWithPost: async () => {},
+      writeCronPerRepoLastStartedEntry: async () => {},
+    });
+    assert.equal(prepFor, 9, 'the blocked issue #3 must be skipped in favor of #9 in the same repo');
+    assert.equal(platListed, false, 'a secondary alias must not be consulted while WhatsappBot still has runnable work');
+  });
+
   it('starts work on a different eligible issue when last-started was another number in that repo', async () => {
     const sock = makeMockSock();
     let prepFor = /** @type {number | null} */ (null);
@@ -707,6 +813,59 @@ describe('runCronIssueTracerTick', () => {
       writeCronPerRepoLastStartedEntry: async () => {},
     });
     assert.equal(prepFor, 20);
+  });
+
+  it('falls through multiple secondary aliases in order, skipping a paused one and one with no eligible issue', async () => {
+    const sock = makeMockSock();
+    const REPO_A = 'alexisNorthcoders/snake-phaser';
+    const REPO_B = 'alexisNorthcoders/snake-colyseus';
+    const REPO_C = 'alexisNorthcoders/go-server';
+    /** @type {string[]} */
+    const listedRepos = [];
+    let prepInfo = /** @type {null | { workspaceRoot: string, issueNumber: number, alias: string }} */ (
+      null
+    );
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      cronSecondaryWorkspaceAliases: ['chess-trainer', 'snake-phaser', 'snake-colyseus', 'go-server'],
+      listOpenGithubIssues: async ({ repo }) => {
+        listedRepos.push(repo);
+        if (repo === REPO) return [];
+        if (repo === REPO_A) return []; // no eligible issue — should fall through
+        if (repo === REPO_B) return [{ number: 6, title: 'Colyseus task', labels: ['ready-for-agent'] }];
+        if (repo === REPO_C) throw new Error('go-server should never be reached');
+        throw new Error(`unexpected repo list ${repo}`);
+      },
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      resolveWorkspaceFromAlias: async (alias) => {
+        if (alias === 'chess-trainer') return '/repos/chess-trainer';
+        if (alias === 'snake-phaser') return '/repos/snake-phaser';
+        if (alias === 'snake-colyseus') return '/repos/snake-colyseus';
+        throw new Error(`unexpected alias ${alias}`);
+      },
+      resolveIssueRepoSlugForWorkspace: async (root) => {
+        if (root === '/repos/chess-trainer') return 'alexisNorthcoders/chess-trainer';
+        if (root === '/repos/snake-phaser') return REPO_A;
+        if (root === '/repos/snake-colyseus') return REPO_B;
+        throw new Error(`unexpected root ${root}`);
+      },
+      getAgentPauseForWorkspace: async ({ workspaceRoot }) =>
+        workspaceRoot === '/repos/chess-trainer'
+          ? { pausedAt: '2026-01-01T00:00:00Z', reason: 'manual work', ttlRemainingSeconds: 60 }
+          : null,
+      runIssueFetchAndGitPrep: async (p) => {
+        prepInfo = { workspaceRoot: p.workspaceRoot, issueNumber: p.issueNumber, alias: p.workspaceAlias };
+        return { prompt: 'p', issueSource: { number: 6, repo: REPO_B, title: 'Colyseus task' } };
+      },
+      runClaudeAgentWithPost: async () => {},
+    });
+    assert.ok(prepInfo, 'the third alias (snake-colyseus) should have run prep');
+    assert.equal(prepInfo.workspaceRoot, '/repos/snake-colyseus');
+    assert.equal(prepInfo.alias, 'snake-colyseus');
+    assert.equal(prepInfo.issueNumber, 6);
+    assert.deepEqual(listedRepos, [REPO, REPO_A, REPO_B], 'go-server must not be listed once an earlier alias wins');
   });
 
   it('a Platformer last-started entry does not block a different issue number in that repo', async () => {
