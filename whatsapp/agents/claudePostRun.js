@@ -15,6 +15,7 @@ import {
   normalizePrReviewComment,
   autoMergeAllowedByReviewGate,
   pickPrResultAfterGhFlow,
+  parseAutofixNoChanges,
 } from './claudePostRunDecisionLogic.js';
 import { pollGithubIssueClosedOrTimeout } from './claudePostRunIssuePoll.js';
 import { runPostReviewAutofixMergeFlow } from './claudePostRunReviewFollowUp.js';
@@ -1539,6 +1540,7 @@ function buildPostReviewAutofixPrompt({ bodyMarkdown, originalUserPrompt, issueN
     '- Stay on the **current git branch**; do not create a new branch or a second PR.',
     '- Make focused edits; do not revert unrelated work.',
     '- Do not run destructive git commands (no hard reset, no force-push).',
+    '- If, after reading the code, you conclude none of the feedback is valid or actionable, make no edits and end your reply with a line `AUTOFIX_NO_CHANGES: <your reasoning>`. Do not use it if you changed anything.',
     prUrl ? `- The open PR is: ${prUrl}` : '',
     issueNum ? `- Linked issue: #${issueNum}` : '',
     '',
@@ -1550,7 +1552,7 @@ function buildPostReviewAutofixPrompt({ bodyMarkdown, originalUserPrompt, issueN
 
 /**
  * Exactly one Claude CLI pass after REQUEST_CHANGES, then optional commit+push on the same branch.
- * @returns {Promise<{ ok: boolean, mergeBlocked: boolean, detail: string, commit?: { ok: boolean, sha?: string, message?: string }, pushResult?: { ok: boolean, error?: string }, agentOutcome?: string }>}
+ * @returns {Promise<{ ok: boolean, mergeBlocked: boolean, noChanges?: boolean, noChangesReason?: string, detail: string, commit?: { ok: boolean, sha?: string, message?: string }, pushResult?: { ok: boolean, error?: string }, agentOutcome?: string }>}
  */
 async function runSinglePostReviewAutofix({
   repo,
@@ -1617,6 +1619,18 @@ async function runSinglePostReviewAutofix({
 
   const wait = await waitForAgentGitActivity(repo, preAgentHeadSha || null);
   if (!wait.dirty && !wait.headMoved) {
+    const noChangesReason = parseAutofixNoChanges(agentResult?.stdout);
+    if (noChangesReason) {
+      logPost('post-review autofix: agent declined (AUTOFIX_NO_CHANGES)', { autofixRunId });
+      return {
+        ok: false,
+        mergeBlocked: true,
+        noChanges: true,
+        noChangesReason,
+        detail: `Autofix agent reviewed the feedback and made **no changes**:\n\n${truncate(noChangesReason, 3000)}`,
+        agentOutcome,
+      };
+    }
     logPost('post-review autofix: no dirty tree and HEAD unchanged after agent', {
       waitedMs: wait.waitedMs,
       polls: wait.polls,

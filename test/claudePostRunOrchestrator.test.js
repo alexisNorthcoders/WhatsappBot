@@ -6,6 +6,7 @@ import {
   autoMergeAllowedByReviewGate,
   pickPrResultAfterGhFlow,
   normalizePrReviewComment,
+  parseAutofixNoChanges,
 } from '../whatsapp/agents/claudePostRunDecisionLogic.js';
 import { pollGithubIssueClosedOrTimeout } from '../whatsapp/agents/claudePostRunIssuePoll.js';
 import { runPostReviewAutofixMergeFlow } from '../whatsapp/agents/claudePostRunReviewFollowUp.js';
@@ -192,6 +193,40 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
     assert.ok(tryGhPrReviewComment.mock.callCount() >= 1);
   });
 
+  it('autofix declining with noChanges posts reasoning, not a failure, and holds merge', async () => {
+    const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
+    const tryGhPrReviewComment = mock.fn(async () => ({ ok: true }));
+    await runPostReviewAutofixMergeFlow({
+      repo: '/tmp/repo',
+      issueNum: 2,
+      userPrompt: 'x',
+      prResult: { ok: true, url: 'https://github.com/o/r/pull/2' },
+      reviewOutcome: 'success',
+      reviewVerdict: VERDICT_REQUEST_CHANGES,
+      reviewBodyMarkdown: 'x',
+      postReviewAutofixEnabled: () => true,
+      prAutoMergeAfterReviewEnabled: () => true,
+      prAfterPushEnabled: () => true,
+      commitOk: true,
+      pushResultOk: true,
+      runSinglePostReviewAutofix: async () => ({
+        ok: false,
+        mergeBlocked: true,
+        noChanges: true,
+        detail: 'made **no changes**: false positive',
+      }),
+      tryGhPrReviewComment,
+      tryGhPrQueueAutoMerge,
+      waitForGithubIssueClosed: async () => ({}),
+      logPost: () => {},
+    });
+    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 0);
+    const body = tryGhPrReviewComment.mock.calls[0].arguments[2];
+    assert.match(body, /made no changes/);
+    assert.match(body, /Human decision needed/);
+    assert.doesNotMatch(body, /autofix failed/);
+  });
+
   it('APPROVE runs auto-merge without calling autofix', async () => {
     const runSinglePostReviewAutofix = mock.fn(async () => ({ ok: true, mergeBlocked: false, detail: '' }));
     const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
@@ -225,5 +260,21 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
 
     assert.equal(runSinglePostReviewAutofix.mock.callCount(), 0);
     assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 1);
+  });
+});
+
+describe('parseAutofixNoChanges', () => {
+  it('returns the reason after the sentinel', () => {
+    assert.equal(
+      parseAutofixNoChanges('I checked.\n\nAUTOFIX_NO_CHANGES: the mask is already correct.\nSecond line.'),
+      'the mask is already correct.\nSecond line.'
+    );
+  });
+  it('tolerates markdown decoration', () => {
+    assert.equal(parseAutofixNoChanges('**AUTOFIX_NO_CHANGES:** false positive'), 'false positive');
+  });
+  it('returns null when absent', () => {
+    assert.equal(parseAutofixNoChanges('Pushed a fix.'), null);
+    assert.equal(parseAutofixNoChanges(undefined), null);
   });
 });

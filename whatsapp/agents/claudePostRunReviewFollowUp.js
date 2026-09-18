@@ -42,13 +42,21 @@ export async function runPostReviewAutofixMergeFlow({
         originalUserPrompt: userPrompt,
       });
       if (postReviewAutofix.mergeBlocked && prResult.ok) {
-        const gateBody = [
-          '**WhatsApp bot — automated autofix failed**',
-          '',
-          postReviewAutofix.detail,
-          '',
-          '**Do not merge** this PR until the review feedback is addressed (manually or with another `claude issue:…` run).',
-        ].join('\n');
+        const gateBody = postReviewAutofix.noChanges
+          ? [
+              '**WhatsApp bot — automated autofix made no changes**',
+              '',
+              postReviewAutofix.detail,
+              '',
+              '**Human decision needed:** if you agree the review feedback is a false positive, merge manually; otherwise address it (manually or with another `claude issue:…` run). Auto-merge is held.',
+            ].join('\n')
+          : [
+              '**WhatsApp bot — automated autofix failed**',
+              '',
+              postReviewAutofix.detail,
+              '',
+              '**Do not merge** this PR until the review feedback is addressed (manually or with another `claude issue:…` run).',
+            ].join('\n');
         const gateComment = await tryGhPrReviewComment(repo, prResult.url, gateBody);
         logPost('post-review autofix merge-gate PR comment', gateComment);
       }
