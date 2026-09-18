@@ -53,6 +53,25 @@ export function autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, pos
 }
 
 /**
+ * The autofix agent ends its reply with `AUTOFIX_NO_CHANGES: <reason>` when it judges the review
+ * feedback wrong or not actionable and deliberately edits nothing.
+ * @param {string} stdout agent output
+ * @returns {string | null} the reason (text after the last sentinel), or null
+ */
+export function parseAutofixNoChanges(stdout) {
+  const text = String(stdout || '');
+  const marker = 'AUTOFIX_NO_CHANGES:';
+  const at = text.lastIndexOf(marker);
+  if (at === -1) return null;
+  const reason = text
+    .slice(at + marker.length)
+    .replace(/^[\s*_`]+/, '')
+    .replace(/\n--- process end[\s\S]*$/, '')
+    .trim();
+  return reason || '(no reason given)';
+}
+
+/**
  * Ensure the GitHub PR comment starts with an exact verdict line (automation-parseable).
  * @param {string} raw model output
  * @returns {{ verdict: typeof VERDICT_APPROVE | typeof VERDICT_REQUEST_CHANGES, bodyMarkdown: string, fullComment: string }}
