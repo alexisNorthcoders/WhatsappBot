@@ -3,7 +3,11 @@ import {
   resolveIssueRepoSlug,
   resolveIssueRepoSlugForWorkspace,
   getGithubIssueBlockedByCount,
+  listOpenAgentPrsByIssue,
+  getGithubBranchHeadSha,
 } from './ghIssueForClaude.js';
+import { readCronPrAttempts, writeCronPrAttempt, prAttemptStateKey } from './cronPrAttempts.js';
+import { classifyGithubPrMergeability } from './claudePostRun.js';
 import { getDefaultWorkspaceRoot, resolveWorkspaceFromAlias } from '../claudeWorkspaces.js';
 import {
   tryAcquireAgentBusyLock,
@@ -49,6 +53,40 @@ const CRON_SECONDARY_WORKSPACE_ALIASES = (() => {
 
 let intervalId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 let inFlight = false;
+
+/** `repo#issue@stateKey` of parked PRs the owner has already been told about (once per process). */
+const notifiedParkedPr = new Set();
+
+/**
+ * Splits issues that already have an open agent PR: one whose current state (head commit + base
+ * tip, see `prAttemptStateKey`) was already attempted is parked — re-running the agent on an
+ * unchanged, blocked PR only produces empty runs every tick. Any other open-PR issue stays
+ * eligible: the run resumes its branch, merges the base in on a conflict, and re-runs the
+ * review / merge gate on the PR (see `buildOpenPrResumeNote` and `maybeCommitReviewEmail`).
+ *
+ * @param {{ number: number, title: string, labels?: string[] }[]} rows
+ * @param {string} gitRepo
+ * @param {Map<number, import('./ghIssueForClaude.js').OpenAgentPr>} openPrs
+ * @param {Map<string, string>} baseShaByBranch base branch name → tip sha
+ * @param {Map<string, string>} attempted `repo#issue` → last attempted state key
+ * @returns {{ rows: { number: number, title: string, labels?: string[] }[], parked: { number: number, url: string, state: string, stateKey: string }[] }}
+ */
+export function partitionIssuesWithOpenPr(rows, gitRepo, openPrs, baseShaByBranch, attempted) {
+  const eligible = new Set(filterReadyForAgentRows(rows).map((r) => r.number));
+  /** @type {{ number: number, url: string, state: string, stateKey: string }[]} */
+  const parked = [];
+  const kept = rows.filter((r) => {
+    const pr = openPrs.get(r.number);
+    if (!pr) return true;
+    const stateKey = prAttemptStateKey(pr, baseShaByBranch.get(pr.baseRefName) || '');
+    if (attempted.get(`${gitRepo}#${r.number}`) !== stateKey) return true;
+    if (eligible.has(r.number)) {
+      parked.push({ number: r.number, url: pr.url, state: classifyGithubPrMergeability(pr), stateKey });
+    }
+    return false;
+  });
+  return { rows: kept, parked };
+}
 
 /**
  * @param {{ number: number, title: string, labels?: string[] }[]} rows
@@ -164,6 +202,10 @@ function truncateErrorSummary(err, max = 1500) {
  *   getAgentPauseForWorkspace?: typeof getAgentPauseForWorkspace,
  *   cronSecondaryWorkspaceAliases?: string[],
  *   getGithubIssueBlockedByCount?: typeof getGithubIssueBlockedByCount,
+ *   listOpenAgentPrsByIssue?: typeof listOpenAgentPrsByIssue,
+ *   getGithubBranchHeadSha?: typeof getGithubBranchHeadSha,
+ *   readCronPrAttempts?: typeof readCronPrAttempts,
+ *   writeCronPrAttempt?: typeof writeCronPrAttempt,
  * }} CronIssueTracerTickDeps
  */
 
@@ -195,6 +237,10 @@ export async function runCronIssueTracerTick(deps = {}) {
   const getPause = deps.getAgentPauseForWorkspace ?? getAgentPauseForWorkspace;
   const secondaryAliases = deps.cronSecondaryWorkspaceAliases ?? CRON_SECONDARY_WORKSPACE_ALIASES;
   const getBlockedByCount = deps.getGithubIssueBlockedByCount ?? getGithubIssueBlockedByCount;
+  const listOpenPrs = deps.listOpenAgentPrsByIssue ?? listOpenAgentPrsByIssue;
+  const getBranchSha = deps.getGithubBranchHeadSha ?? getGithubBranchHeadSha;
+  const readPrAttempts = deps.readCronPrAttempts ?? readCronPrAttempts;
+  const writePrAttempt = deps.writeCronPrAttempt ?? writeCronPrAttempt;
 
   let phase = 'initial checks';
   /** @type {string | null} */
@@ -300,6 +346,81 @@ export async function runCronIssueTracerTick(deps = {}) {
             'cron issue tracer: failed to notify owner of run error'
           );
         }
+      } finally {
+        await recordPrStateAfterRun(gitRepo, next.number);
+      }
+    };
+
+    /**
+     * Open agent PRs of `gitRepo` with the tip of each base branch they target.
+     * @param {string} gitRepo
+     */
+    const loadOpenPrs = async (gitRepo) => {
+      const openPrs = await listOpenPrs(gitRepo);
+      /** @type {Map<string, string>} */
+      const baseShaByBranch = new Map();
+      for (const pr of openPrs.values()) {
+        if (!baseShaByBranch.has(pr.baseRefName)) {
+          baseShaByBranch.set(pr.baseRefName, await getBranchSha(gitRepo, pr.baseRefName));
+        }
+      }
+      return { openPrs, baseShaByBranch };
+    };
+
+    /**
+     * Issues of `gitRepo` minus those whose open PR is parked (owner told once per PR state).
+     * A failed lookup keeps every issue: better one empty run than a stalled cron.
+     * @param {string} cronLabel
+     * @param {string} gitRepo
+     * @param {{ number: number, title: string, labels?: string[] }[]} rows
+     */
+    const skipParkedPrIssues = async (cronLabel, gitRepo, rows) => {
+      let loaded;
+      let attempted;
+      try {
+        loaded = await loadOpenPrs(gitRepo);
+        attempted = await readPrAttempts();
+      } catch (e) {
+        logger?.warn({ err: errorMessageFromUnknown(e) }, `cron issue tracer: open PR lookup failed for ${gitRepo}`);
+        return rows;
+      }
+      const { rows: kept, parked } = partitionIssuesWithOpenPr(
+        rows,
+        gitRepo,
+        loaded.openPrs,
+        loaded.baseShaByBranch,
+        attempted
+      );
+      for (const p of parked) {
+        const key = `${gitRepo}#${p.number}@${p.stateKey}`;
+        if (notifiedParkedPr.has(key)) continue;
+        notifiedParkedPr.add(key);
+        const why =
+          p.state === 'conflict'
+            ? 'it still conflicts with the default branch'
+            : 'the review / merge gate did not let it merge';
+        await sock.sendMessage(ownerJid, {
+          text: `Cron (${cronLabel}): parking \`${gitRepo}\` #${p.number} — its PR is still open and ${why}: ${p.url}\nIt will be retried when the PR branch or the default branch changes; or merge / close it yourself.`,
+        });
+      }
+      return kept;
+    };
+
+    /**
+     * After any cron run, remember the state its PR (if one is open now) was left in, so an
+     * unchanged blocked PR is parked instead of re-run next tick.
+     * @param {string} gitRepo
+     * @param {number} issueNumber
+     */
+    const recordPrStateAfterRun = async (gitRepo, issueNumber) => {
+      try {
+        const { openPrs, baseShaByBranch } = await loadOpenPrs(gitRepo);
+        const pr = openPrs.get(issueNumber);
+        if (!pr) return;
+        const stateKey = prAttemptStateKey(pr, baseShaByBranch.get(pr.baseRefName) || '');
+        await writePrAttempt({ repo: gitRepo, number: issueNumber, stateKey });
+      } catch (e) {
+        logger?.warn({ err: errorMessageFromUnknown(e) }, `cron issue tracer: could not record PR state for ${gitRepo}#${issueNumber}`);
       }
     };
 
@@ -308,7 +429,7 @@ export async function runCronIssueTracerTick(deps = {}) {
 
     phase = 'listing open GitHub issues (WhatsappBot)';
     const whRepo = resolveRepo();
-    const whRows = await listIssues({ repo: whRepo });
+    const whRows = await skipParkedPrIssues('WhatsappBot', whRepo, await listIssues({ repo: whRepo }));
     const nextWh = await pickNextRunnableUnblockedIssueForRepo(whRows, whRepo, lastByRepo, {
       getBlockedByCount,
     });
@@ -373,7 +494,7 @@ export async function runCronIssueTracerTick(deps = {}) {
       }
 
       phase = `listing open GitHub issues (${alias})`;
-      const secRows = await listIssues({ repo: secGitRepo });
+      const secRows = await skipParkedPrIssues(alias, secGitRepo, await listIssues({ repo: secGitRepo }));
       const nextSec = await pickNextRunnableUnblockedIssueForRepo(secRows, secGitRepo, lastByRepo, {
         getBlockedByCount,
       });

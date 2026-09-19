@@ -138,7 +138,12 @@ This is the most complex subsystem, spread across `whatsapp/agents/claude*.js` a
   fetch→prep→agent→post-run pipeline unattended, and tracks per-repo "last started issue"
   (`cronLastStartedIssue.js`) so it doesn't hammer the same issue every tick — but a failed run,
   timeout, or empty (no-git-change) run does *not* count as progress, so it will retry rather than
-  silently skip a stuck issue. Runs only when the agent-busy lock is free.
+  silently skip a stuck issue. An issue that already has an open agent PR (`claude/issue-<n>-…`
+  head) is worked to get that PR merged (the resume prompt has the agent merge the base in on a
+  conflict, then post-run re-runs the review / merge gate), but only once per PR state — PR head +
+  base tip, persisted in `cron-pr-attempts.json` (`cronPrAttempts.js`). A PR still blocked in the
+  same state is parked (owner told once) until either side moves. Runs only when the agent-busy
+  lock is free.
 
 - **Observability** (`claudeAgentCli.js`, `whatsapp/agents/claudeRunTelemetry.js`, `claudeStreamParser.js`,
   `claudeAgentCliFormat.js`): the agent is spawned with `--output-format stream-json --verbose`; the parser

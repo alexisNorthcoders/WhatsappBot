@@ -5,8 +5,10 @@ import {
   pickNextRunnableIssueForRepo,
   pickNextRunnableUnblockedIssueForRepo,
   runCronIssueTracerTick,
+  partitionIssuesWithOpenPr,
 } from '../whatsapp/agents/cronIssueTracer.js';
-import { cronShouldPersistLastStarted } from '../whatsapp/agents/claudeIssuePipeline.js';
+import { cronShouldPersistLastStarted, buildOpenPrResumeNote } from '../whatsapp/agents/claudeIssuePipeline.js';
+import { issueNumberFromAgentBranch } from '../whatsapp/agents/ghIssueForClaude.js';
 import {
   isClaudeAgentBusy,
   releaseAgentBusyLock,
@@ -230,6 +232,10 @@ function tick(overrides) {
     getAgentPauseForWorkspace: async () => null,
     cronSecondaryWorkspaceAliases: ['platformer'],
     getGithubIssueBlockedByCount: async () => 0,
+    listOpenAgentPrsByIssue: async () => new Map(),
+    getGithubBranchHeadSha: async () => 'base0',
+    readCronPrAttempts: async () => new Map(),
+    writeCronPrAttempt: async () => {},
     ...overrides,
   });
 }
@@ -899,5 +905,165 @@ describe('runCronIssueTracerTick', () => {
       runClaudeAgentWithPost: async () => {},
     });
     assert.equal(pLists, 1);
+  });
+
+  it('works an open-PR issue once per PR state, parks it while nothing changes, and retries when the base moves', async () => {
+    const sock = makeMockSock();
+    /** @type {number[]} */
+    const prepped = [];
+    const PR = 'https://github.com/alexisNorthcoders/WhatsappBot/pull/46';
+    /** @type {Map<string, string>} */
+    const attempts = new Map();
+    let baseSha = 'main1';
+    const deps = {
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async () => [
+        { number: 39, title: 'PR blocked', labels: ['ready-for-agent'] },
+        { number: 41, title: 'Next', labels: ['ready-for-agent'] },
+      ],
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      listOpenAgentPrsByIssue: async () =>
+        new Map([
+          [39, { url: PR, headSha: 'head1', baseRefName: 'main', mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }],
+        ]),
+      getGithubBranchHeadSha: async () => baseSha,
+      readCronPrAttempts: async () => new Map(attempts),
+      writeCronPrAttempt: async (/** @type {{ repo: string, number: number, stateKey: string }} */ r) => {
+        attempts.set(`${r.repo}#${r.number}`, r.stateKey);
+      },
+      runIssueFetchAndGitPrep: async (/** @type {{ issueNumber: number }} */ p) => {
+        prepped.push(p.issueNumber);
+        return { prompt: 'p', issueSource: { number: p.issueNumber, repo: REPO, title: 't' } };
+      },
+      runClaudeAgentWithPost: async () => ({ agentRunOk: true, post: { ran: true } }),
+      writeCronPerRepoLastStartedEntry: async () => {},
+    };
+    await tick(deps);
+    assert.deepEqual(prepped, [39], 'a never-attempted open PR gets one go (merge the base in, re-review)');
+    assert.equal(attempts.get(`${REPO}#39`), 'head1:main1', 'the state the run left the PR in is recorded');
+
+    await tick(deps);
+    await tick(deps);
+    assert.deepEqual(prepped, [39, 41, 41], 'unchanged and still blocked: parked, the next issue runs');
+    const parkedNotes = sock.sent.filter((m) => m.text.includes('parking'));
+    assert.equal(parkedNotes.length, 1, 'the owner hears about the parked PR once, not every tick');
+    assert.ok(parkedNotes[0].text.includes(PR));
+
+    baseSha = 'main2';
+    await tick(deps);
+    assert.deepEqual(prepped, [39, 41, 41, 39], 'the base branch moved, so the PR gets another attempt');
+  });
+
+  it('records the state of a PR a fresh run just opened, so a blocked one is not re-run next tick', async () => {
+    const sock = makeMockSock();
+    /** @type {{ repo: string, number: number, stateKey: string }[]} */
+    const written = [];
+    let prOpen = false;
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async () => [{ number: 5, title: 'T', labels: ['ready-for-agent'] }],
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      listOpenAgentPrsByIssue: async () =>
+        prOpen
+          ? new Map([[5, { url: 'u', headSha: 'h', baseRefName: 'main', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN' }]])
+          : new Map(),
+      writeCronPrAttempt: async (/** @type {{ repo: string, number: number, stateKey: string }} */ r) => {
+        written.push(r);
+      },
+      runIssueFetchAndGitPrep: async (/** @type {{ issueNumber: number }} */ p) => ({
+        prompt: 'p',
+        issueSource: { number: p.issueNumber, repo: REPO, title: 'T' },
+      }),
+      runClaudeAgentWithPost: async () => {
+        prOpen = true;
+        return { agentRunOk: true, post: { ran: true } };
+      },
+      writeCronPerRepoLastStartedEntry: async () => {},
+    });
+    assert.deepEqual(written, [{ repo: REPO, number: 5, stateKey: 'h:base0' }]);
+  });
+
+  it('keeps every issue eligible when the open PR lookup fails', async () => {
+    const sock = makeMockSock();
+    let prepFor = /** @type {number | null} */ (null);
+    await tick({
+      getSocket: () => sock,
+      getOwnerJid: () => OWNER,
+      listOpenGithubIssues: async () => [{ number: 7, title: 'T', labels: ['ready-for-agent'] }],
+      resolveIssueRepoSlug: () => REPO,
+      readCronPerRepoLastStarted: async () => new Map(),
+      getDefaultWorkspaceRoot: async () => '/tmp/ws',
+      listOpenAgentPrsByIssue: async () => {
+        throw new Error('gh down');
+      },
+      runIssueFetchAndGitPrep: async (/** @type {{ issueNumber: number }} */ p) => {
+        prepFor = p.issueNumber;
+        return null;
+      },
+    });
+    assert.equal(prepFor, 7);
+  });
+});
+
+describe('partitionIssuesWithOpenPr', () => {
+  const pr = (/** @type {string} */ url) => ({
+    url,
+    headSha: 'h',
+    baseRefName: 'main',
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+  });
+  const rows = [
+    { number: 1, title: 'a', labels: ['ready-for-agent'] },
+    { number: 2, title: 'b', labels: ['ready-for-agent'] },
+    { number: 3, title: 'c', labels: ['ready-for-agent'] },
+  ];
+  const openPrs = new Map([
+    [1, pr('u1')],
+    [2, pr('u2')],
+  ]);
+  const bases = new Map([['main', 'm']]);
+
+  it('parks only open-PR issues whose current state was already attempted', () => {
+    const attempted = new Map([
+      [`${REPO}#1`, 'h:m'],
+      [`${REPO}#2`, 'h:older-main'],
+    ]);
+    const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, REPO, openPrs, bases, attempted);
+    assert.deepEqual(kept.map((r) => r.number), [2, 3]);
+    assert.deepEqual(parked, [{ number: 1, url: 'u1', state: 'ready', stateKey: 'h:m' }]);
+  });
+
+  it('keeps every open-PR issue that was never attempted', () => {
+    const { rows: kept, parked } = partitionIssuesWithOpenPr(rows, REPO, openPrs, bases, new Map());
+    assert.deepEqual(kept.map((r) => r.number), [1, 2, 3]);
+    assert.deepEqual(parked, []);
+  });
+});
+
+describe('issueNumberFromAgentBranch', () => {
+  it('reads the issue number from agent issue branches only', () => {
+    assert.equal(issueNumberFromAgentBranch('claude/issue-39-lobby-ambience', 'claude/issue'), 39);
+    assert.equal(issueNumberFromAgentBranch('claude/issue-7', 'claude/issue'), 7);
+    assert.equal(issueNumberFromAgentBranch('claude/wa-20260101-abc', 'claude/issue'), null);
+    assert.equal(issueNumberFromAgentBranch('issue/42-short', 'claude/issue'), null);
+    assert.equal(issueNumberFromAgentBranch('claude/issue-x-1', 'claude/issue'), null);
+  });
+});
+
+describe('buildOpenPrResumeNote', () => {
+  it('points the agent at the open PR and, on a conflict, asks for a merge rather than a rebase', () => {
+    const clean = buildOpenPrResumeNote({ url: 'https://x/pull/1', state: 'ready' }, 'main');
+    assert.ok(clean.includes('https://x/pull/1'));
+    assert.doesNotMatch(clean, /conflicts/);
+    const conflict = buildOpenPrResumeNote({ url: 'https://x/pull/1', state: 'conflict' }, 'main');
+    assert.match(conflict, /git merge origin\/main/);
+    assert.match(conflict, /Do not rebase or force-push/);
   });
 });

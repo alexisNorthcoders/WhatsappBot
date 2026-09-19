@@ -7,6 +7,7 @@ import {
   maybeCommitReviewEmail,
   prepareWorkspaceForGithubIssue,
   buildResumeContextSummary,
+  findOpenPrForCurrentBranch,
 } from './claudePostRun.js';
 import { fetchGhIssuePromptText } from './ghIssueForClaude.js';
 
@@ -106,6 +107,8 @@ export async function runIssueFetchAndGitPrep(p) {
         ]
           .filter((l) => l !== '')
           .join('\n');
+        const pr = await findOpenPrForCurrentBranch(workspaceRoot);
+        if (pr) prompt = [prompt, '', buildOpenPrResumeNote(pr, prep.defaultBranch)].join('\n');
       }
     } catch (prepErr) {
       await sock.sendMessage(recipientJid, {
@@ -121,6 +124,31 @@ export async function runIssueFetchAndGitPrep(p) {
     });
     return null;
   }
+}
+
+/**
+ * Resume-prompt section for a branch whose PR is already open but was never merged. A conflict is
+ * resolved by merging (not rebasing) the default branch in, so the fix pushes as a fast-forward.
+ * @param {{ url: string, state: string }} pr
+ * @param {string} defaultBranch
+ * @returns {string}
+ */
+export function buildOpenPrResumeNote(pr, defaultBranch) {
+  const lines = [
+    '## Open pull request',
+    '',
+    `This branch already has an open PR that was not merged: ${pr.url}. Read its review comments ` +
+      '(`gh pr view --comments`) and address any that are valid.',
+  ];
+  if (pr.state === 'conflict') {
+    lines.push(
+      '',
+      `**The PR conflicts with \`${defaultBranch}\`.** Run \`git fetch origin\` and \`git merge origin/${defaultBranch}\`, ` +
+        'resolve the conflicts keeping the behaviour of both sides, run the tests, and commit the merge. ' +
+        'Do not rebase or force-push.'
+    );
+  }
+  return lines.join('\n');
 }
 
 /**

@@ -311,6 +311,23 @@ async function findLocalIssueBranch(repo, prefix, issueNumber) {
 }
 
 /**
+ * Best-effort: bring a resumed issue branch up to its pushed tip (e.g. an earlier run's PR commits,
+ * or a fix pushed by hand) so new commits on top push as a fast-forward. Never rewrites local work:
+ * skipped on a dirty tree, and a diverged branch is left as is.
+ * @param {string} repo
+ * @param {string} branch
+ */
+async function fastForwardIssueBranchFromOrigin(repo, branch) {
+  try {
+    if (!(await hasOriginRemote(repo)) || (await getStatusPorcelain(repo))) return;
+    await execGit(['fetch', 'origin'], repo);
+    await execGit(['merge', '--ff-only', `origin/${branch}`], repo);
+  } catch (e) {
+    logPost('resume: could not fast-forward issue branch from origin (continuing as is)', e.stderr || e.message || String(e));
+  }
+}
+
+/**
  * Before `claude issue:<n>` runs the CLI: require a clean tree, fetch, checkout the default branch,
  * fast-forward pull from origin, then create a dedicated branch for this issue.
  *
@@ -329,6 +346,7 @@ export async function prepareWorkspaceForGithubIssue(repo, issueNumber, issueTit
   const existing = await findLocalIssueBranch(repo, prefix, issueNumber);
 
   if (existing && existing === current) {
+    await fastForwardIssueBranchFromOrigin(repo, current);
     const defaultBranch = (await resolveDefaultBranchName(repo)) || 'main';
     logPost('prepareWorkspaceForGithubIssue: resuming current branch', {
       defaultBranch,
@@ -353,6 +371,7 @@ export async function prepareWorkspaceForGithubIssue(repo, issueNumber, issueTit
       }
     }
     await execGit(['checkout', existing], repo);
+    await fastForwardIssueBranchFromOrigin(repo, existing);
     const defaultBranch = (await resolveDefaultBranchName(repo)) || 'main';
     logPost('prepareWorkspaceForGithubIssue: resuming existing branch', {
       defaultBranch,
@@ -547,6 +566,21 @@ async function tryGhFirstOpenPrUrlForHead(repo, head) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The open PR for the checked-out branch, with its merge readiness
+ * (`classifyGithubPrMergeability`), or null when there is none or the lookup fails.
+ * @param {string} repo
+ * @returns {Promise<{ url: string, branchName: string, state: string } | null>}
+ */
+export async function findOpenPrForCurrentBranch(repo) {
+  const branchName = await getCurrentBranchName(repo).catch(() => '');
+  if (!branchName || branchName === 'HEAD') return null;
+  const url = await tryGhFirstOpenPrUrlForHead(repo, branchName);
+  if (!url) return null;
+  const view = await tryGhPrViewMergeability(repo, url);
+  return { url, branchName, state: view.ok ? classifyGithubPrMergeability(view) : 'waiting' };
 }
 
 /** GitHub caps issue/PR comments well below 64 KiB; stay under with margin. */
@@ -2081,13 +2115,23 @@ export async function maybeCommitReviewEmail(opts) {
     return { ran: false, note: '', skipReason: 'not_issue_mode' };
   }
 
-  const wait = await waitForAgentGitActivity(repo, preAgentHeadSha);
+  let wait = await waitForAgentGitActivity(repo, preAgentHeadSha);
+  /** Set when the agent changed nothing but this branch already has an open PR to finish. */
+  let existingPr = null;
   if (!wait.dirty && !wait.headMoved) {
-    logPost('skip: no dirty tree and HEAD unchanged after wait', {
-      waitedMs: wait.waitedMs,
-      polls: wait.polls,
-    });
-    return { ran: false, note: '', skipReason: 'clean_after_wait' };
+    existingPr = await findOpenPrForCurrentBranch(repo);
+    if (!existingPr) {
+      logPost('skip: no dirty tree and HEAD unchanged after wait', {
+        waitedMs: wait.waitedMs,
+        polls: wait.polls,
+      });
+      return { ran: false, note: '', skipReason: 'clean_after_wait' };
+    }
+    // Earlier work is already committed and in a PR (e.g. one the review gate blocked): review and
+    // merge-gate that PR again instead of reporting an empty run. Treated like an agent commit so
+    // the review diff is the whole branch against the PR base.
+    logPost('no new git activity, but the branch has an open PR; re-reviewing it', existingPr);
+    wait = { ...wait, headMoved: true };
   }
 
   logPost('agent git activity detected', {
@@ -2309,8 +2353,13 @@ export async function maybeCommitReviewEmail(opts) {
   }
 
   const parts = [];
+  if (existingPr) {
+    parts.push(`The agent made no new changes; re-reviewed the open PR ${existingPr.url} (${existingPr.state}).`);
+  }
   if (commit.ok) {
-    if (!wait.dirty && wait.headMoved) {
+    if (existingPr) {
+      /* described above */
+    } else if (!wait.dirty && wait.headMoved) {
       parts.push(
         `Agent already committed \`${commit.sha}\` on \`${workBranch.branchName}\`: ${commit.message}`
       );

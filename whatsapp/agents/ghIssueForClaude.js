@@ -362,3 +362,86 @@ export async function listOpenGithubIssues(opts = {}) {
     }))
     .filter((row) => Number.isFinite(row.number) && row.number > 0);
 }
+
+/**
+ * Issue number encoded in an agent issue branch name (`<prefix>-<n>-<slug>`, see
+ * `prepareWorkspaceForGithubIssue`), or null when the branch is not one.
+ * @param {string} headRefName
+ * @param {string} [prefix]
+ * @returns {number | null}
+ */
+export function issueNumberFromAgentBranch(
+  headRefName,
+  prefix = process.env.CLAUDE_ISSUE_BRANCH_PREFIX?.trim() || 'claude/issue'
+) {
+  const head = String(headRefName || '');
+  if (!head.startsWith(`${prefix}-`)) return null;
+  const m = /^(\d+)(?:-|$)/.exec(head.slice(prefix.length + 1));
+  const n = m ? parseInt(m[1], 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * @typedef {{ url: string, headSha: string, baseRefName: string, mergeable: string, mergeStateStatus: string }} OpenAgentPr
+ */
+
+/**
+ * Open PRs in `repo` whose head is an agent issue branch, keyed by issue number: the pipeline
+ * already produced a PR for these issues, and it is waiting on a merge (or on a human).
+ * @param {string} repo owner/name
+ * @returns {Promise<Map<number, OpenAgentPr>>}
+ */
+export async function listOpenAgentPrsByIssue(repo) {
+  const validRepo = assertValidRepoSlug(repo, 'repo');
+  const bin = resolveGhExecutable();
+  const args = [
+    'pr',
+    'list',
+    '--repo',
+    validRepo,
+    '--state',
+    'open',
+    '--json',
+    'url,headRefName,headRefOid,baseRefName,mergeable,mergeStateStatus',
+    '--limit',
+    '100',
+  ];
+  const { stdout } = await execGhWithRetry(bin, args, {
+    encoding: 'utf8',
+    maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, PATH: augmentedPathEnv() },
+  });
+  const data = JSON.parse(stdout || '[]');
+  /** @type {Map<number, OpenAgentPr>} */
+  const byIssue = new Map();
+  if (!Array.isArray(data)) return byIssue;
+  for (const row of data) {
+    const n = issueNumberFromAgentBranch(row?.headRefName);
+    if (n == null || byIssue.has(n)) continue;
+    byIssue.set(n, {
+      url: String(row.url || ''),
+      headSha: String(row.headRefOid || ''),
+      baseRefName: String(row.baseRefName || ''),
+      mergeable: String(row.mergeable || ''),
+      mergeStateStatus: String(row.mergeStateStatus || ''),
+    });
+  }
+  return byIssue;
+}
+
+/**
+ * Current tip commit of `branch` on GitHub.
+ * @param {string} repo owner/name
+ * @param {string} branch
+ * @returns {Promise<string>}
+ */
+export async function getGithubBranchHeadSha(repo, branch) {
+  const validRepo = assertValidRepoSlug(repo, 'repo');
+  const bin = resolveGhExecutable();
+  const { stdout } = await execGhWithRetry(
+    bin,
+    ['api', `repos/${validRepo}/branches/${encodeURIComponent(branch)}`, '--jq', '.commit.sha'],
+    { encoding: 'utf8', maxBuffer: 1024 * 1024, env: { ...process.env, PATH: augmentedPathEnv() } }
+  );
+  return String(stdout).trim();
+}
