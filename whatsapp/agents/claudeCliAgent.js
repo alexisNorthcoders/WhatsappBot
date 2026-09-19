@@ -45,6 +45,15 @@ function getAgentBin() {
   return resolveAgentBin();
 }
 
+/**
+ * Pinned so the bot's model doesn't silently follow the interactive CLI default in
+ * ~/.claude/settings.json. `sonnet` is a CLI alias that tracks the latest Sonnet; override with
+ * CLAUDE_AGENT_MODEL (alias or full model id).
+ */
+function getAgentModel() {
+  return process.env.CLAUDE_AGENT_MODEL?.trim() || 'sonnet';
+}
+
 function getTimeoutMs() {
   const n = parseInt(process.env.CLAUDE_AGENT_TIMEOUT_MS, 10);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
@@ -143,7 +152,16 @@ function runClaudeCliAgentUnqueued(userPrompt, runId, workspaceRoot, leadingComm
       // the log file gets a readable line per event and `stdout` below is the final result text.
       const child = spawn(
         bin,
-        ['-p', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', fullPrompt],
+        [
+          '-p',
+          '--model',
+          getAgentModel(),
+          '--output-format',
+          'stream-json',
+          '--verbose',
+          '--dangerously-skip-permissions',
+          fullPrompt,
+        ],
         {
           cwd,
           env: { ...process.env, PATH: augmentedPathEnv() },
