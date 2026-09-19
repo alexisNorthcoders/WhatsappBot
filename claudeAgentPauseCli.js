@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import {
   pauseAgentForWorkspace,
   resumeAgentForWorkspace,
@@ -6,7 +7,7 @@ import {
   formatDurationSeconds,
 } from './whatsapp/agents/claudeAgentPause.js';
 import {
-  getDefaultWorkspaceRoot,
+  getWorkspaceAllowlist,
   resolveWorkspaceFromAlias,
   resolveWorkspaceFromUserPath,
 } from './whatsapp/claudeWorkspaces.js';
@@ -20,7 +21,7 @@ function printUsage() {
   console.log(`  node claudeAgentPauseCli.js pause  [--alias <name> | --path <abs-path>] [duration] [reason...]`);
   console.log(`  node claudeAgentPauseCli.js resume [--alias <name> | --path <abs-path>]`);
   console.log(`  node claudeAgentPauseCli.js status [--alias <name> | --path <abs-path>]\n`);
-  console.log(`With no --alias/--path, the workspace defaults to this bot's own repo root.`);
+  console.log(`With no --alias/--path, it applies to every workspace (this bot's repo and every CLAUDE_WORKSPACE_MAP alias).`);
   console.log(`Duration is compact (30m, 2h, 1d); default is ${formatDurationSeconds(7200)} if omitted.\n`);
   console.log(`Examples:`);
   console.log(`  node claudeAgentPauseCli.js pause 2h working on issue 90 by hand`);
@@ -31,26 +32,26 @@ function printUsage() {
 
 /**
  * Pulls a `--alias <name>` or `--path <abs-path>` flag out of `args` (mutating it) and resolves
- * the target workspace root, defaulting to this bot's own repo when neither flag is present.
+ * the target workspace roots: that one workspace, or every allowlisted one when neither flag is present.
  * @param {string[]} args
- * @returns {Promise<string>}
+ * @returns {Promise<string[]>}
  */
-async function resolveWorkspace(args) {
+async function resolveWorkspaces(args) {
   const aliasIdx = args.indexOf('--alias');
   if (aliasIdx !== -1) {
     const alias = args[aliasIdx + 1];
     if (!alias) throw new Error('--alias requires a value');
     args.splice(aliasIdx, 2);
-    return resolveWorkspaceFromAlias(alias);
+    return [await resolveWorkspaceFromAlias(alias)];
   }
   const pathIdx = args.indexOf('--path');
   if (pathIdx !== -1) {
     const path = args[pathIdx + 1];
     if (!path) throw new Error('--path requires a value');
     args.splice(pathIdx, 2);
-    return resolveWorkspaceFromUserPath(path);
+    return [await resolveWorkspaceFromUserPath(path)];
   }
-  return getDefaultWorkspaceRoot();
+  return [...(await getWorkspaceAllowlist()).roots];
 }
 
 async function main() {
@@ -74,43 +75,33 @@ async function main() {
       ? ` --path ${args[args.indexOf('--path') + 1]}`
       : '';
 
-  let workspaceRoot;
+  let workspaceRoots;
   try {
-    workspaceRoot = await resolveWorkspace(args);
+    workspaceRoots = await resolveWorkspaces(args);
   } catch (e) {
     console.error(`Workspace error: ${e.message || e}`);
     process.exit(1);
     return;
   }
 
-  if (cmd === 'status') {
-    const state = await getAgentPauseForWorkspace({ workspaceRoot });
-    if (!state) {
-      console.log(`Not paused: ${workspaceRoot}`);
-    } else {
-      console.log(`Paused: ${workspaceRoot}`);
-      console.log(`Reason: ${state.reason}`);
-      console.log(
-        `Resumes in: ${state.ttlRemainingSeconds ? formatDurationSeconds(state.ttlRemainingSeconds) : 'unknown'}`
-      );
-    }
-    process.exit(0);
-    return;
-  }
-
-  if (cmd === 'resume') {
-    const cleared = await resumeAgentForWorkspace({ workspaceRoot });
-    console.log(cleared ? `Resumed: ${workspaceRoot}` : `Nothing to resume: ${workspaceRoot}`);
-    process.exit(0);
-    return;
-  }
-
   const { ttlSeconds, reason } = parsePauseArgs(args.join(' '));
-  const state = await pauseAgentForWorkspace({ workspaceRoot, ttlSeconds, reason });
-  console.log(`Paused: ${workspaceRoot}`);
-  console.log(`For: ${formatDurationSeconds(state.ttlSeconds)}`);
-  console.log(`Reason: ${state.reason}`);
-  console.log(`Run \`node claudeAgentPauseCli.js resume${resumeSuffix}\` to lift it early.`);
+  for (const workspaceRoot of workspaceRoots) {
+    if (cmd === 'status') {
+      const state = await getAgentPauseForWorkspace({ workspaceRoot });
+      console.log(
+        state
+          ? `Paused: ${workspaceRoot} (${state.reason}; resumes in ${state.ttlRemainingSeconds ? formatDurationSeconds(state.ttlRemainingSeconds) : 'unknown'})`
+          : `Not paused: ${workspaceRoot}`
+      );
+    } else if (cmd === 'resume') {
+      const cleared = await resumeAgentForWorkspace({ workspaceRoot });
+      console.log(cleared ? `Resumed: ${workspaceRoot}` : `Not paused: ${workspaceRoot}`);
+    } else {
+      const state = await pauseAgentForWorkspace({ workspaceRoot, ttlSeconds, reason });
+      console.log(`Paused: ${workspaceRoot} for ${formatDurationSeconds(state.ttlSeconds)} (${state.reason})`);
+    }
+  }
+  if (cmd === 'pause') console.log(`Run \`npm run claude:resume${resumeSuffix ? ` --${resumeSuffix}` : ''}\` to lift it early.`);
   process.exit(0);
 }
 
