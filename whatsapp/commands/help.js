@@ -24,6 +24,7 @@ export default async function helpCommand(sock, sender) {
 • *claude* *alias*: [instructions] — Run in an allowlisted repo (set CLAUDE_WORKSPACE_MAP in .env)
 • *claude* */absolute/path/to/repo* [instructions] — Same, using an absolute path from the allowlist
 • *claude:history* [n] — List the last n (default 10, max 30) GitHub issue runs by the agent: repo, #issue, title, outcome, time ago
+• *claude:status* — Snapshot of the Claude agent: active run (or idle), pauses, last cron tick, last 3 issue runs
 • *claude* joplin:[note] — Use a Joplin note as the prompt (workspace stays default unless you use alias/path before joplin)
 • *claude* issue:[n] [extra] — Use GitHub issue #n as the prompt (repo: git origin of the selected workspace, else GH_ISSUE_REPO, else alexisNorthcoders/WhatsappBot)
 • *claude* issue:[alias]:[n] [extra] — Same, but run in that allowlisted workspace (CLAUDE_WORKSPACE_MAP alias). Repo: CLAUDE_ISSUE_REPO_MAP for that alias, else that workspace’s origin, else GH_ISSUE_REPO / default
