@@ -116,6 +116,7 @@ describe('readIssueRunHistory', () => {
     await finish('c', { kind: 'autofix', issueNumber: 1 });
     await finish('d', { kind: 'issue', repo: 'me/bot', issueNumber: 2 }); // no title, no result
     await recordIssueRunResult({ runId: 'a', result: 'merged', dir });
+    await recordIssueRunResult({ runId: 'missing', result: 'failed', dir }); // unknown run: no-op
 
     const rows = await readIssueRunHistory({ dir });
     assert.deepEqual(rows.map((r) => [r.runId, r.issueTitle, r.result]), [['d', null, null], ['a', 'First', 'merged']]);
