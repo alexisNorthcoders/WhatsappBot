@@ -187,6 +187,26 @@ export async function readActiveRuns({ dir = DEFAULT_DIR, isAlive = pidAlive } =
 }
 
 /**
+ * Delete `stale` active files (bot and agent both dead), e.g. left by a `pm2 restart` mid-run.
+ * `orphaned` runs are kept: their agent is still working and the file is the only trace of it.
+ * @param {{ dir?: string, isAlive?: (pid: number) => boolean }} [opts]
+ * @returns {Promise<string[]>} removed runIds
+ */
+export async function removeStaleActiveRuns({ dir = DEFAULT_DIR, isAlive = pidAlive } = {}) {
+  const removed = [];
+  for (const run of await readActiveRuns({ dir, isAlive })) {
+    if (run.health !== 'stale') continue;
+    try {
+      await fs.unlink(join(dir, 'active', `${run.runId}.json`));
+      removed.push(run.runId);
+    } catch {
+      /* already gone */
+    }
+  }
+  return removed;
+}
+
+/**
  * Finished runs, newest first.
  * @param {{ dir?: string, limit?: number, sinceMs?: number }} [opts]
  */

@@ -27,6 +27,7 @@ import {
   readPendingClaudeRun,
   clearPendingClaudeRun,
 } from './whatsapp/agents/claudeCliPending.js';
+import { removeStaleActiveRuns } from './whatsapp/agents/claudeRunTelemetry.js';
 import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
 import {
@@ -292,6 +293,10 @@ async function initializeApp() {
   try {
     // Initialize light cache first
     await initializeLightCache();
+
+    // Runs killed by the previous process (e.g. pm2 restart) otherwise show as `stale` forever
+    const removed = await removeStaleActiveRuns().catch(() => []);
+    if (removed.length) logger.info({ removed }, 'removed stale Claude agent active files');
     
     // Then start the WhatsApp socket
     await startSock();

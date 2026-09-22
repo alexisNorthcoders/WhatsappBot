@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   createRunTracker,
   readActiveRuns,
+  removeStaleActiveRuns,
   readRunHistory,
   writeCronTick,
   readCronState,
@@ -66,6 +67,16 @@ describe('claudeRunTelemetry', () => {
     const ownerDead = (pid) => pid === 4242;
     assert.equal((await readActiveRuns({ dir, isAlive: ownerDead }))[0].health, 'orphaned');
     assert.equal((await readActiveRuns({ dir, isAlive: () => false }))[0].health, 'stale');
+  });
+
+  it('removes stale active files but keeps runs whose owner or agent is still alive', async () => {
+    for (const [id, pid] of [['orphan', 2], ['dead', 3]]) {
+      await createRunTracker({ runId: id, workspaceRoot: '/ws', logPath: 'x', dir }).start(pid);
+    }
+    const isAlive = (pid) => pid === 2; // owner (this process) treated as gone
+    assert.deepEqual(await removeStaleActiveRuns({ dir, isAlive }), ['dead']);
+    assert.deepEqual((await readActiveRuns({ dir, isAlive })).map((r) => r.runId), ['orphan']);
+    assert.deepEqual(await removeStaleActiveRuns({ dir }), []); // real check: this process is alive
   });
 
   it('history is newest-first, tolerates torn lines and honours limit/since', async () => {
