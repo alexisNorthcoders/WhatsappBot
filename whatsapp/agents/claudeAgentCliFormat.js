@@ -239,3 +239,36 @@ export function renderHistoryLines(rows, now, c = plain) {
 function formatAgo(ms) {
   return `${formatDuration(ms)} ago`;
 }
+
+const ISSUE_RESULT_LABEL = {
+  merged: 'merged',
+  pr_open: 'PR open',
+  pushed: 'pushed',
+  no_changes: 'no changes',
+  timeout: 'timeout',
+  failed: 'failed',
+};
+
+/** Outcome label for an issue run from `readIssueRunHistory` (falls back to the agent exit outcome for old rows). */
+function issueRunOutcomeLabel(run) {
+  if (run.result) return ISSUE_RESULT_LABEL[run.result] ?? run.result;
+  if (run.outcome === 'timeout') return 'timeout';
+  return run.outcome === 'success' ? 'unknown' : 'failed';
+}
+
+/**
+ * Plain-text list (no ANSI, no tables) of issue runs for WhatsApp, one line each:
+ * `repo #n title — outcome, 2h05m ago`. Rows recorded before titles existed show `(title unknown)`.
+ * @param {object[]} rows newest first
+ * @param {number} now
+ * @returns {string}
+ */
+export function renderIssueHistoryText(rows, now) {
+  return rows
+    .map((r) => {
+      const title = r.issueTitle ? r.issueTitle : '(title unknown)';
+      const ago = formatAgo(now - new Date(r.endedAt).getTime());
+      return `${repoLabel(r)} #${r.issueNumber} ${title} — ${issueRunOutcomeLabel(r)}, ${ago}`;
+    })
+    .join('\n');
+}

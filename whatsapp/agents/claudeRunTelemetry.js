@@ -9,6 +9,8 @@ import { fileURLToPath } from 'url';
  *
  *   active/<runId>.json   one file per in-flight run, rewritten as it progresses, removed at exit
  *   runs.jsonl            append-only history, one line per finished run
+ *   issue-outcomes.jsonl  append-only, one line per issue run once post-run knew the result
+ *                         (merged / pr_open / ...); joined to runs.jsonl by runId on read
  *   cron-state.json       last cron tick outcome + interval
  *
  * Telemetry must never break a run: every write swallows its own errors.
@@ -35,6 +37,7 @@ async function writeJsonAtomic(path, data) {
  *   kind?: 'issue' | 'freeform' | 'autofix' | string,
  *   repo?: string | null,
  *   issueNumber?: number | null,
+ *   issueTitle?: string | null,
  * }} RunMeta
  */
 
@@ -66,6 +69,7 @@ export function createRunTracker({ runId, workspaceRoot, logPath, meta = {}, dir
     kind: meta.kind ?? 'freeform',
     repo: meta.repo ?? null,
     issueNumber: meta.issueNumber ?? null,
+    issueTitle: meta.issueTitle ?? null,
     startedAt,
     updatedAt: new Date(now()).toISOString(),
     model: snap?.model ?? null,
@@ -120,6 +124,7 @@ export function createRunTracker({ runId, workspaceRoot, logPath, meta = {}, dir
         kind: meta.kind ?? 'freeform',
         repo: meta.repo ?? null,
         issueNumber: meta.issueNumber ?? null,
+        issueTitle: meta.issueTitle ?? null,
         outcome,
         exitCode,
         model: snapshot?.model ?? null,
@@ -204,6 +209,57 @@ export async function readRunHistory({ dir = DEFAULT_DIR, limit = Infinity, sinc
   rows.reverse();
   const filtered = sinceMs == null ? rows : rows.filter((r) => new Date(r.endedAt).getTime() >= sinceMs);
   return filtered.slice(0, limit);
+}
+
+/**
+ * Record the final result of an issue run (known only after post-run, i.e. after `runs.jsonl` was
+ * written). Never throws.
+ * @param {{ runId: string, result: string, dir?: string, now?: () => number }} p
+ */
+export async function recordIssueRunResult({ runId, result, dir = DEFAULT_DIR, now = Date.now }) {
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    const line = JSON.stringify({ runId, result, recordedAt: new Date(now()).toISOString() });
+    await fs.appendFile(join(dir, 'issue-outcomes.jsonl'), `${line}\n`, 'utf8');
+  } catch {
+    /* telemetry only */
+  }
+}
+
+async function readJsonl(path) {
+  let raw;
+  try {
+    raw = await fs.readFile(path, 'utf8');
+  } catch {
+    return [];
+  }
+  const rows = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      rows.push(JSON.parse(line));
+    } catch {
+      /* skip torn line */
+    }
+  }
+  return rows;
+}
+
+/**
+ * Finished GitHub issue runs (freeform and autofix runs excluded), newest first, each with
+ * `result` from `issue-outcomes.jsonl` (`null` when none was recorded, e.g. older entries).
+ * @param {{ dir?: string, limit?: number }} [opts]
+ */
+export async function readIssueRunHistory({ dir = DEFAULT_DIR, limit = Infinity } = {}) {
+  const [runs, outcomes] = await Promise.all([
+    readRunHistory({ dir }),
+    readJsonl(join(dir, 'issue-outcomes.jsonl')),
+  ]);
+  const resultByRun = new Map(outcomes.map((o) => [o.runId, o.result]));
+  return runs
+    .filter((r) => r.kind === 'issue' && r.issueNumber != null)
+    .slice(0, limit)
+    .map((r) => ({ ...r, result: resultByRun.get(r.runId) ?? null }));
 }
 
 /**
