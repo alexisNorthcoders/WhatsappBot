@@ -1,4 +1,5 @@
 import { join } from 'path';
+import { appendFile } from 'fs/promises';
 import { runClaudeCliAgent } from './claudeCliAgent.js';
 import { setPendingClaudeRun, clearPendingClaudeRun } from './claudeCliPending.js';
 import { logAgentInvocation } from './agentUsageLog.js';
@@ -54,6 +55,64 @@ function agentFailureReason(result) {
   if (result?.spawnError) return `failed to start (${result.spawnError})`;
   if (result?.timedOut) return `timed out (signal ${result?.signal ?? 'n/a'})`;
   return `exited with code ${result?.exitCode ?? 'n/a'}`;
+}
+
+/**
+ * Short WhatsApp message for a finished `claude issue:<n>` run: one `✅` line on success, a short
+ * `⚠️` message naming the problem otherwise, or `null` when there is nothing to report (post-run
+ * disabled or the agent changed nothing). The full narrative (`post.note`) goes to the run log.
+ *
+ * @param {{
+ *   issue: { number: number, title?: string },
+ *   agentRunOk: boolean,
+ *   result?: { spawnError?: string, timedOut?: boolean, signal?: string|null, exitCode?: number|null },
+ *   post: Record<string, any> | null,
+ *   postErrMessage?: string,
+ * }} p
+ * @returns {string | null}
+ */
+export function buildIssueRunWhatsappMessage({ issue, agentRunOk, result, post, postErrMessage = '' }) {
+  const label = `#${issue.number}${issue.title ? ` — ${issue.title}` : ''}`;
+  const attention = (problem) => `⚠️ ${label}: ${problem} — needs a look.`;
+
+  if (!agentRunOk) return attention(`agent ${agentFailureReason(result)}`);
+  if (postErrMessage) return attention(`post-run pipeline failed (${postErrMessage})`);
+  if (!post) return null;
+
+  switch (post.skipReason) {
+    case 'branch_prep_failed':
+      return attention('could not prepare a feature branch');
+    case 'empty_diff':
+      return attention('changes detected but no diff could be read for review');
+    case 'post_run_threw':
+      return attention('post-run pipeline failed');
+  }
+  if (!post.commit) return null; // post-run disabled / no changes: nothing to report
+
+  if (!post.commit.ok) return attention(`auto-commit failed (${post.commit.reason ?? 'unknown'})`);
+  if (post.pushResult && !post.pushResult.ok) {
+    return attention(`push failed (${post.pushResult.error ?? 'unknown error'})`);
+  }
+  if (post.prResult && !post.prResult.ok) {
+    return attention(`PR creation failed (${post.prResult.error ?? 'unknown error'})`);
+  }
+  if (post.postReviewAutofix?.mergeBlocked) return attention('merge blocked by the autofix pass');
+  if (post.postCloseChangesEmail && !post.postCloseChangesEmail.ok) {
+    return attention(`post-close summary email failed (${post.postCloseChangesEmail.step ?? 'unknown step'})`);
+  }
+  if (post.prAutoMergeResult && !post.prAutoMergeResult.ok) {
+    return attention(`auto-merge was not enabled (${post.prAutoMergeResult.error ?? 'unknown error'})`);
+  }
+
+  const url = post.prResult?.url ? ` ${post.prResult.url}` : '';
+  const title = issue.title ? ` — ${issue.title}` : '';
+  const merge = post.prAutoMergeResult;
+  if (merge?.ok && (merge.mergedDirectly || post.issueCloseWait?.closed)) {
+    return `✅ #${issue.number} merged${title}`;
+  }
+  if (merge?.ok) return `✅ #${issue.number} merge queued${title}${url}`;
+  if (post.prResult?.ok) return `✅ #${issue.number} PR open${title}${url}`;
+  return `✅ #${issue.number} pushed${title}`;
 }
 
 /**
@@ -293,9 +352,28 @@ export async function runClaudeAgentWithPost(p) {
   if (post.note) lines.push(post.note);
   if (postErrMessage) lines.push(`Post-run commit/PR pipeline failed: ${postErrMessage}`);
 
-  try {
+  // Issue runs get a short result line on WhatsApp; the full narrative goes to the run log.
+  let message = lines.join('\n\n');
+  if (issueSource && issueMatch) {
+    message = buildIssueRunWhatsappMessage({
+      issue: issueSource,
+      agentRunOk,
+      result,
+      post,
+      postErrMessage,
+    }) ?? '';
     if (lines.length > 0) {
-      await sock.sendMessage(recipientJid, { text: truncateForWhatsApp(lines.join('\n\n')) });
+      try {
+        await appendFile(logPath, `\n\n--- post-run report ---\n${lines.join('\n\n')}\n`);
+      } catch {
+        /* log is best-effort */
+      }
+    }
+  }
+
+  try {
+    if (message) {
+      await sock.sendMessage(recipientJid, { text: truncateForWhatsApp(message) });
     }
     delivered = true;
   } catch {
