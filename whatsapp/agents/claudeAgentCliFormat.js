@@ -272,3 +272,42 @@ export function renderIssueHistoryText(rows, now) {
     })
     .join('\n');
 }
+
+/**
+ * Short plain-text status for WhatsApp: active run(s), pauses, last cron tick, last 3 issue runs.
+ * Uses the same `health` values as the terminal status (`orphaned` / `stale`).
+ * @param {Parameters<typeof renderStatus>[0]} d
+ * @param {object[]} recentIssueRuns newest first, from `readIssueRunHistory`
+ * @returns {string}
+ */
+export function renderStatusText(d, recentIssueRuns = []) {
+  const out = [];
+  if (!d.active.length) out.push('Agent: idle');
+  for (const r of d.active) {
+    const what = r.issueNumber != null ? `#${r.issueNumber} ${r.issueTitle ?? '(title unknown)'}` : issueLabel(r);
+    const elapsed = formatDuration(d.now - new Date(r.startedAt).getTime());
+    out.push(`Agent: ${what} (${repoLabel(r)}) — ${r.health}, ${elapsed}`);
+    if (r.health === 'orphaned') out.push(`⚠ Orphaned: the bot process died but agent pid ${r.pid} is still running; nothing will report its result.`);
+    else if (r.health === 'stale') out.push('⚠ Stale: leftover from a crash (no live process).');
+    else if (r.lastActivity) out.push(`Phase: ${r.lastActivity}`);
+  }
+
+  if (d.pauses == null) out.push('Paused: unknown (Redis unreachable)');
+  else if (!d.pauses.length) out.push('Paused: no');
+  else {
+    const list = d.pauses.map((p) => `${basename(p.workspaceRoot)}${p.reason ? ` (${p.reason})` : ''}`).join(', ');
+    out.push(`Paused: ${list}`);
+  }
+
+  if (!d.cron) out.push('Cron: no state (disabled or not started yet)');
+  else if (!d.cron.lastTickEndedAt) out.push(`Cron: ${describeOutcome(null)}`);
+  else {
+    const ago = formatAgo(d.now - new Date(d.cron.lastTickEndedAt).getTime());
+    out.push(`Cron: last tick ${ago} — ${describeOutcome(d.cron.outcome)}${d.cronAlive ? '' : ' [bot process not running]'}`);
+  }
+
+  out.push('');
+  out.push('Recent:');
+  out.push(recentIssueRuns.length ? renderIssueHistoryText(recentIssueRuns, d.now) : 'no issue runs recorded yet');
+  return out.join('\n');
+}

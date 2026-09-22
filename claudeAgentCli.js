@@ -2,16 +2,9 @@
 import 'dotenv/config';
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
-import {
-  getTelemetryDir,
-  readActiveRuns,
-  readCronState,
-  readRunHistory,
-  pidAlive,
-} from './whatsapp/agents/claudeRunTelemetry.js';
+import { getTelemetryDir, readActiveRuns, readRunHistory } from './whatsapp/agents/claudeRunTelemetry.js';
+import { collectStatus } from './whatsapp/agents/claudeStatusCollect.js';
 import { ansi, plain, renderStatus, renderHistoryLines } from './whatsapp/agents/claudeAgentCliFormat.js';
-import { getAgentPauseForWorkspace } from './whatsapp/agents/claudeAgentPause.js';
-import { getWorkspaceAllowlist } from './whatsapp/claudeWorkspaces.js';
 
 const c = process.stdout.isTTY && !process.env.NO_COLOR ? ansi() : plain;
 
@@ -27,37 +20,7 @@ Usage:
 Also available as: npm run claude:status | claude:watch | claude:history | claude:logs`);
 }
 
-const PAUSE_LOOKUP_TIMEOUT_MS = 1500;
-
-/** Pause flags live in Redis; a down Redis must not make the dashboard hang or fail. */
-async function readPauses() {
-  const lookup = (async () => {
-    const { roots } = await getWorkspaceAllowlist();
-    const found = [];
-    for (const workspaceRoot of roots) {
-      const state = await getAgentPauseForWorkspace({ workspaceRoot });
-      if (state) found.push({ workspaceRoot, ...state });
-    }
-    return found;
-  })();
-  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), PAUSE_LOOKUP_TIMEOUT_MS));
-  try {
-    return await Promise.race([lookup, timeout]);
-  } catch {
-    return null;
-  }
-}
-
-async function collect() {
-  const dir = getTelemetryDir();
-  const [cron, active, history, pauses] = await Promise.all([
-    readCronState({ dir }),
-    readActiveRuns({ dir }),
-    readRunHistory({ dir, sinceMs: Date.now() - 7 * 864e5 }),
-    readPauses(),
-  ]);
-  return { now: Date.now(), cron, cronAlive: cron ? pidAlive(cron.pid) : false, active, history, pauses };
-}
+const collect = () => collectStatus();
 
 async function status({ json }) {
   const data = await collect();
