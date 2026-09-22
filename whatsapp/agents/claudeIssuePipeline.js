@@ -3,6 +3,7 @@ import { appendFile } from 'fs/promises';
 import { runClaudeCliAgent } from './claudeCliAgent.js';
 import { setPendingClaudeRun, clearPendingClaudeRun } from './claudeCliPending.js';
 import { logAgentInvocation } from './agentUsageLog.js';
+import { recordIssueRunResult } from './claudeRunTelemetry.js';
 import {
   getRepoHeadShaFull,
   maybeCommitReviewEmail,
@@ -113,6 +114,36 @@ export function buildIssueRunWhatsappMessage({ issue, agentRunOk, result, post, 
   if (merge?.ok) return `✅ #${issue.number} merge queued${title}${url}`;
   if (post.prResult?.ok) return `✅ #${issue.number} PR open${title}${url}`;
   return `✅ #${issue.number} pushed${title}`;
+}
+
+/**
+ * Final result of an issue run for run history: `merged`, `pr_open` (PR created / merge queued),
+ * `pushed` (branch pushed, no PR), `no_changes`, `timeout` or `failed`.
+ *
+ * @param {{
+ *   agentRunOk: boolean,
+ *   result?: { timedOut?: boolean },
+ *   post: Record<string, any> | null,
+ *   postErrMessage?: string,
+ * }} p
+ * @returns {'merged' | 'pr_open' | 'pushed' | 'no_changes' | 'timeout' | 'failed'}
+ */
+export function classifyIssueRunResult({ agentRunOk, result, post, postErrMessage = '' }) {
+  if (result?.timedOut) return 'timeout';
+  if (!agentRunOk || postErrMessage || !post) return 'failed';
+  if (['branch_prep_failed', 'empty_diff', 'post_run_threw'].includes(post.skipReason)) return 'failed';
+  if (!post.commit) return 'no_changes';
+  if (
+    !post.commit.ok ||
+    (post.pushResult && !post.pushResult.ok) ||
+    (post.prResult && !post.prResult.ok)
+  ) {
+    return 'failed';
+  }
+  const merge = post.prAutoMergeResult;
+  if (merge?.ok && (merge.mergedDirectly || post.issueCloseWait?.closed)) return 'merged';
+  if (merge?.ok || post.prResult?.ok) return 'pr_open';
+  return 'pushed';
 }
 
 /**
@@ -291,6 +322,7 @@ export async function runClaudeAgentWithPost(p) {
         kind: issueMatch ? 'issue' : 'freeform',
         repo: issueSource?.repo ?? null,
         issueNumber: issueMatch?.issueNumber ?? null,
+        issueTitle: issueSource?.title ?? null,
       },
     });
     if (result.timedOut) outcome = 'timeout';
@@ -337,6 +369,13 @@ export async function runClaudeAgentWithPost(p) {
   } catch (postErr) {
     postErrMessage = errorMessageFromUnknown(postErr);
     post = { ran: false, note: '', skipReason: 'post_run_threw' };
+  }
+
+  if (issueMatch) {
+    await recordIssueRunResult({
+      runId,
+      result: classifyIssueRunResult({ agentRunOk, result, post, postErrMessage }),
+    });
   }
 
   const sourceLabel = issueSource

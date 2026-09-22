@@ -8,6 +8,7 @@ import sdxlCommand from './sdxl.js';
 import spriteCommand from './sprite.js';
 import danielCommand from './daniel.js';
 import claudeCommand from './claude.js';
+import claudeHistoryCommand from './claudeHistory.js';
 import summarizeCommand from './summarize.js';
 import * as lightsCommands from './lights.js';
 
@@ -22,6 +23,7 @@ export {
     spriteCommand as sprite,
     danielCommand as daniel,
     claudeCommand as claude,
+    claudeHistoryCommand as 'claude:history',
     summarizeCommand as summarize,
     summarizeCommand as summarise,
 };
