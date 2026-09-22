@@ -25,5 +25,5 @@ export default async function claudeStatusCommand(sock, sender, text, msg, deps 
     collect(),
     readIssueHistory({ dir: getTelemetryDir(), limit: STATUS_RECENT_COUNT }),
   ]);
-  await sock.sendMessage(sender, { text: renderStatusText(data, recent) });
+  await sock.sendMessage(sender, { text: renderStatusText(data, recent.slice(0, STATUS_RECENT_COUNT)) });
 }
