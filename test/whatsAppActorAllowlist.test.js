@@ -2,6 +2,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   actorAltJid,
+  clearOwnerLids,
   isAllowedActor,
   resolveOwnerLids,
 } from '../whatsapp/whatsAppActorAllowlist.js';
@@ -44,18 +45,18 @@ function lidGroupMsg({ participant = OWNER_LID, participantAlt } = {}) {
 
 describe('whatsAppActorAllowlist', () => {
   let saved;
-  beforeEach(async () => {
+  beforeEach(() => {
     saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
     for (const k of ENV_KEYS) delete process.env[k];
     process.env.MY_PHONE = '447700900001';
-    await resolveOwnerLids({}, { logger: silentLogger });
+    clearOwnerLids();
   });
-  afterEach(async () => {
+  afterEach(() => {
     for (const k of ENV_KEYS) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
-    await resolveOwnerLids({}, { logger: silentLogger });
+    clearOwnerLids();
   });
 
   describe('existing behaviour', () => {
@@ -121,6 +122,21 @@ describe('whatsAppActorAllowlist', () => {
       assert.equal(actorAltJid(lidGroupMsg({ participantAlt: OWNER_PN })), OWNER_PN);
       assert.equal(actorAltJid(lidDm()), null);
       assert.equal(actorAltJid(undefined), null);
+    });
+
+    it('actorAltJid reads remoteJidAlt for a DM whose key also carries participant', () => {
+      const msg = lidDm({ remoteJidAlt: OWNER_PN });
+      msg.key.participant = OWNER_LID;
+      assert.equal(actorAltJid(msg), OWNER_PN);
+    });
+
+    it('actorAltJid ignores remoteJidAlt in groups and when the actor is not the DM peer', () => {
+      const group = lidGroupMsg();
+      group.key.remoteJidAlt = OWNER_PN;
+      assert.equal(actorAltJid(group), null);
+      const dm = lidDm({ remoteJidAlt: OWNER_PN });
+      dm.key.participant = STRANGER_LID;
+      assert.equal(actorAltJid(dm), null);
     });
   });
 
@@ -192,6 +208,14 @@ describe('whatsAppActorAllowlist', () => {
         await resolveOwnerLids(sock, { logger: silentLogger });
         assert.equal(isAllowedActor(OWNER_LID), false);
         assert.equal(isAllowedActor(OWNER_PN), true);
+      }
+    });
+
+    it('keeps previously resolved LIDs when reconnecting on a socket with no store', async () => {
+      await resolveOwnerLids(sockWithLidMapping(async () => OWNER_LID), { logger: silentLogger });
+      for (const sock of [{}, { signalRepository: {} }, null]) {
+        await resolveOwnerLids(sock, { logger: silentLogger });
+        assert.equal(isAllowedActor(OWNER_LID), true);
       }
     });
 

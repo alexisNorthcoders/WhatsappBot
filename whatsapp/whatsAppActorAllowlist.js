@@ -9,7 +9,7 @@
  * connect (see resolveOwnerLids). Anything malformed or unresolved denies.
  */
 
-/** User parts of owner @lid ids resolved from the LID mapping store; replaced on each connect. */
+/** User parts of owner @lid ids resolved from the LID mapping store; replaced on each v7 connect. */
 let ownerLidUsers = new Set();
 
 function digitsOnly(s) {
@@ -91,8 +91,19 @@ export function actorJid(msg, remoteJid) {
  */
 export function actorAltJid(msg) {
   const key = /** @type {Record<string, unknown> | undefined} */ (msg?.key);
-  const alt = key?.participant ? key?.participantAlt : key?.remoteJidAlt;
+  if (!key) return null;
+  const { remoteJid, participant } = key;
+  // A DM is decided by the chat id, not by `participant` (some DM keys carry it too). The
+  // remoteJidAlt only describes the actor when the actor is the chat peer.
+  const isDm = typeof remoteJid === 'string' && isDmJid(remoteJid);
+  const actorIsPeer = !participant || participant === remoteJid;
+  const alt = isDm && actorIsPeer ? key.remoteJidAlt : participant ? key.participantAlt : null;
   return typeof alt === 'string' && alt ? alt : null;
+}
+
+/** One-to-one chat ids (phone or LID); groups, broadcasts and newsletters are not DMs. */
+function isDmJid(jid) {
+  return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us') || jid.endsWith('@lid');
 }
 
 function matchesAllowedJid(jid) {
@@ -114,13 +125,13 @@ export function isAllowedActor(actorJid, altJid) {
 
 /**
  * Resolve the owner's LIDs from MY_PHONE / SECOND_PHONE via `sock.signalRepository.lidMapping`
- * (Baileys 7.x only; feature-detected). Replaces any previously resolved set, so a failed or
- * empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent: no-op.
+ * (Baileys 7.x only; feature-detected). A lookup pass replaces any previously resolved set, so a
+ * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
+ * no-op, and any previously resolved set is kept.
  * @param {any} sock
  * @param {{ logger?: { warn: Function, info: Function } }} [opts]
  */
 export async function resolveOwnerLids(sock, { logger } = {}) {
-  ownerLidUsers = new Set();
   const lidMapping = sock?.signalRepository?.lidMapping;
   if (typeof lidMapping?.getLIDForPN !== 'function') return;
 
@@ -137,6 +148,11 @@ export async function resolveOwnerLids(sock, { logger } = {}) {
   }
   ownerLidUsers = next;
   if (next.size) logger?.info({ count: next.size }, 'Resolved owner LIDs for the actor allowlist');
+}
+
+/** Forget resolved owner LIDs (tests). */
+export function clearOwnerLids() {
+  ownerLidUsers = new Set();
 }
 
 /** Hint for denied @lid senders (same env as Claude agent). */
