@@ -19,6 +19,9 @@
  * @param {(text: string) => boolean} deps.shouldTryEmailAgent
  * @param {(text: string) => Promise<string>} deps.runEmailAgent
  * @param {string} deps.EMAIL_AGENT_SKIP
+ * @param {(text: string) => boolean} deps.shouldTryHomeAgent
+ * @param {(text: string) => Promise<string>} deps.runHomeAgent
+ * @param {string} deps.HOME_AGENT_SKIP
  * @returns {Promise<{ handled: boolean }>}
  */
 export async function runAgentsChainSequential(m, deps) {
@@ -40,6 +43,9 @@ export async function runAgentsChainSequential(m, deps) {
     shouldTryEmailAgent,
     runEmailAgent,
     EMAIL_AGENT_SKIP,
+    shouldTryHomeAgent,
+    runHomeAgent,
+    HOME_AGENT_SKIP,
   } = deps;
 
   const text = m.text;
@@ -126,6 +132,22 @@ export async function runAgentsChainSequential(m, deps) {
     } catch (emailErr) {
       logger.error({ err: emailErr }, 'Email agent error');
       await messaging.sendText(chatId, `Email assistant error: ${emailErr.message}`);
+      handled = true;
+    }
+  }
+
+  if (!handled && shouldTryHomeAgent(text)) {
+    try {
+      const homeReply = await runHomeAgent(text);
+      if (homeReply.trim().toUpperCase() !== HOME_AGENT_SKIP) {
+        await messaging.sendText(chatId, homeReply);
+        await chatMemory.append(chatId, 'user', text);
+        await chatMemory.append(chatId, 'assistant', homeReply);
+        handled = true;
+      }
+    } catch (homeErr) {
+      logger.error({ err: homeErr }, 'Home agent error');
+      await messaging.sendText(chatId, `Home assistant error: ${homeErr.message}`);
       handled = true;
     }
   }

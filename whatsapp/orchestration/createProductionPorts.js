@@ -14,6 +14,7 @@ import {
 } from '../agents/weatherAgent.js';
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.js';
+import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.js';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
 
@@ -73,6 +74,9 @@ export function createProductionPorts(deps) {
     shouldTryEmailAgent,
     runEmailAgent,
     EMAIL_AGENT_SKIP,
+    shouldTryHomeAgent,
+    runHomeAgent,
+    HOME_AGENT_SKIP,
   };
 
   return {

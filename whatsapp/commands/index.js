@@ -11,6 +11,7 @@ import claudeCommand from './claude.js';
 import claudeHistoryCommand from './claudeHistory.js';
 import claudeStatusCommand from './claudeStatus.js';
 import summarizeCommand from './summarize.js';
+import homeCommand from './home.js';
 import * as lightsCommands from './lights.js';
 
 export {
@@ -28,6 +29,7 @@ export {
     claudeStatusCommand as 'claude:status',
     summarizeCommand as summarize,
     summarizeCommand as summarise,
+    homeCommand as home,
 };
 
 export const hue = {
