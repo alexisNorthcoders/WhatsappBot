@@ -365,6 +365,7 @@ export async function runClaudeAgentWithPost(p) {
       agentRunOk,
       issueMode: issueMatch ? { number: issueMatch.issueNumber } : null,
       preAgentHeadSha,
+      trigger,
     });
   } catch (postErr) {
     postErrMessage = errorMessageFromUnknown(postErr);
