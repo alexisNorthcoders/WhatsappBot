@@ -1,8 +1,11 @@
+import { actorAltJid } from '../whatsAppActorAllowlist.js';
+
 /**
  * @typedef {object} InboundMessage
  * @property {string} id
  * @property {string} chatId
  * @property {string | null} actorId
+ * @property {string | null} actorAltId sender's alternate id (PN ↔ LID) from the message key, if any
  * @property {boolean} fromMe
  * @property {string} text
  * @property {{ hasImage: boolean }} features
@@ -32,6 +35,7 @@ export function normalizeBaileysMessage(msg) {
     id: String(msg.key?.id ?? ''),
     chatId: String(remoteJid ?? ''),
     actorId: participant ? String(participant) : remoteJid != null ? String(remoteJid) : null,
+    actorAltId: actorAltJid(msg),
     fromMe: !!msg.key?.fromMe,
     text,
     features: { hasImage: !!message?.imageMessage },

@@ -2,7 +2,15 @@
  * Who may run privileged bot actions (Claude agent, !restart, etc.).
  * Matches MY_PHONE / SECOND_PHONE with @c.us vs @s.whatsapp.net, digit match for PN JIDs,
  * and CLAUDE_AGENT_EXTRA_JIDS for @lid / other exact JIDs.
+ *
+ * Baileys 7.x delivers DMs from @lid identities. The owner is still recognised when either
+ * the message key's alternate id (participantAlt / remoteJidAlt) is an allowed phone JID, or
+ * the LID was resolved from MY_PHONE / SECOND_PHONE via the socket's LID mapping store at
+ * connect (see resolveOwnerLids). Anything malformed or unresolved denies.
  */
+
+/** User parts of owner @lid ids resolved from the LID mapping store; replaced on each v7 connect. */
+let ownerLidUsers = new Set();
 
 function digitsOnly(s) {
   return String(s ?? '').replace(/\D/g, '');
@@ -24,6 +32,13 @@ function phoneDigitsFromPnJid(jid) {
   const server = jid.slice(jid.indexOf('@') + 1);
   if (server !== 's.whatsapp.net' && server !== 'c.us') return '';
   return digitsOnly(jidUserPart(jid));
+}
+
+/** User part of a well-formed @lid id (digits only), else ''. */
+function lidUserPart(jid) {
+  if (!jid || typeof jid !== 'string' || !jid.endsWith('@lid')) return '';
+  const user = jidUserPart(jid);
+  return /^\d+$/.test(user) ? user : '';
 }
 
 function allowedPhoneDigitsSet() {
@@ -68,11 +83,76 @@ export function actorJid(msg, remoteJid) {
   return remoteJid;
 }
 
-export function isAllowedActor(actorJid) {
-  const phones = allowedPhoneDigitsSet();
-  const fromPn = phoneDigitsFromPnJid(actorJid);
-  if (fromPn && phones.has(fromPn)) return true;
-  return allowedJidsExact().includes(actorJid);
+/**
+ * The sender's alternate id from the message key: `participantAlt` in groups, `remoteJidAlt`
+ * in DMs. Baileys 7.x fills it with the PN JID when the primary id is a LID (and vice versa).
+ * @param {import('@whiskeysockets/baileys').proto.WebMessageInfo} [msg]
+ * @returns {string | null}
+ */
+export function actorAltJid(msg) {
+  const key = /** @type {Record<string, unknown> | undefined} */ (msg?.key);
+  if (!key) return null;
+  const { remoteJid, participant } = key;
+  // A DM is decided by the chat id, not by `participant` (some DM keys carry it too). The
+  // remoteJidAlt only describes the actor when the actor is the chat peer.
+  const isDm = typeof remoteJid === 'string' && isDmJid(remoteJid);
+  const actorIsPeer = !participant || participant === remoteJid;
+  const alt = isDm && actorIsPeer ? key.remoteJidAlt : participant ? key.participantAlt : null;
+  return typeof alt === 'string' && alt ? alt : null;
+}
+
+/** One-to-one chat ids (phone or LID); groups, broadcasts and newsletters are not DMs. */
+function isDmJid(jid) {
+  return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us') || jid.endsWith('@lid');
+}
+
+function matchesAllowedJid(jid) {
+  if (!jid || typeof jid !== 'string') return false;
+  const fromPn = phoneDigitsFromPnJid(jid);
+  if (fromPn && allowedPhoneDigitsSet().has(fromPn)) return true;
+  const lidUser = lidUserPart(jid);
+  if (lidUser && ownerLidUsers.has(lidUser)) return true;
+  return allowedJidsExact().includes(jid);
+}
+
+/**
+ * @param {string | null | undefined} actorJid primary sender id
+ * @param {string | null | undefined} [altJid] alternate sender id from the message key
+ */
+export function isAllowedActor(actorJid, altJid) {
+  return matchesAllowedJid(actorJid) || matchesAllowedJid(altJid);
+}
+
+/**
+ * Resolve the owner's LIDs from MY_PHONE / SECOND_PHONE via `sock.signalRepository.lidMapping`
+ * (Baileys 7.x only; feature-detected). A lookup pass replaces any previously resolved set, so a
+ * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
+ * no-op, and any previously resolved set is kept.
+ * @param {any} sock
+ * @param {{ logger?: { warn: Function, info: Function } }} [opts]
+ */
+export async function resolveOwnerLids(sock, { logger } = {}) {
+  const lidMapping = sock?.signalRepository?.lidMapping;
+  if (typeof lidMapping?.getLIDForPN !== 'function') return;
+
+  const next = new Set();
+  for (const digits of allowedPhoneDigitsSet()) {
+    try {
+      const lid = await lidMapping.getLIDForPN(`${digits}@s.whatsapp.net`);
+      const user = lidUserPart(lid);
+      if (user) next.add(user);
+      else logger?.warn({ phone: digits }, 'No LID mapping for owner phone');
+    } catch (err) {
+      logger?.warn({ err, phone: digits }, 'Owner LID lookup failed');
+    }
+  }
+  ownerLidUsers = next;
+  if (next.size) logger?.info({ count: next.size }, 'Resolved owner LIDs for the actor allowlist');
+}
+
+/** Forget resolved owner LIDs (tests). */
+export function clearOwnerLids() {
+  ownerLidUsers = new Set();
 }
 
 /** Hint for denied @lid senders (same env as Claude agent). */

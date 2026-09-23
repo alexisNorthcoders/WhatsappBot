@@ -1,4 +1,4 @@
-import { actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { actorAltJid, actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
 import { readIssueRunHistory, getTelemetryDir } from '../agents/claudeRunTelemetry.js';
 import { renderIssueHistoryText } from '../agents/claudeAgentCliFormat.js';
 
@@ -14,7 +14,7 @@ export default async function claudeHistoryCommand(sock, sender, text, msg, deps
   const now = deps.now ?? Date.now;
 
   const actor = actorJid(msg, sender);
-  if (!isAllowedActor(actor)) {
+  if (!isAllowedActor(actor, actorAltJid(msg))) {
     await sock.sendMessage(sender, {
       text: `Not allowed to view Claude agent history from this identity.${lidExtraJidsHint(actor)}`,
     });

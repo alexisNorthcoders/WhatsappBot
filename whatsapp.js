@@ -7,7 +7,7 @@ import {
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
-import { isAllowedActor } from './whatsapp/whatsAppActorAllowlist.js';
+import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.js';
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.js';
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
@@ -133,6 +133,7 @@ async function startSock() {
     if (connection === 'open') {
       reconnectAttempt = 0;
       logger.info('✅ WhatsApp connected.');
+      void resolveOwnerLids(sock, { logger });
       startReminderScheduler({
         getSocket: () => waSocket,
         logger,

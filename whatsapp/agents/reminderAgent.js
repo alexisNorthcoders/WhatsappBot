@@ -48,9 +48,10 @@ function formatUpcomingList(reminders, nowMs, meta = {}) {
  *   text: string,
  *   chatId: string,
  *   actorId: string | null,
+ *   actorAltId?: string | null,
  * }} m
  * @param {{
- *   isAllowedActor: (actorId: string | null) => boolean,
+ *   isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean,
  *   nowMs?: number,
  *   filePath?: string,
  * }} deps
@@ -69,7 +70,7 @@ export async function runReminderAgent(m, deps) {
   }
 
   const isAllowed =
-    typeof deps?.isAllowedActor === 'function' ? deps.isAllowedActor(m.actorId) : false;
+    typeof deps?.isAllowedActor === 'function' ? deps.isAllowedActor(m.actorId, m.actorAltId) : false;
   if (!isAllowed) {
     const hint = lidExtraJidsHint(m.actorId);
     return {
