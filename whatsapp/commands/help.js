@@ -16,6 +16,7 @@ export default async function helpCommand(sock, sender) {
 • *sdxl+* [changes] — Iterate on the latest SDXL output for this chat (each *sdxl+* becomes the new base — chain refinements). Examples: sdxl+ add sunset lighting · sdxl+ more contrast. Or *sdxl+* filename.png [changes] (assets/generated)
 • *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
 • *sprite+* [changes] — Refine the last sprite using the file saved on the server (no re-upload). Or *sprite+* filename.png [changes] (assets/generated)
+• *home* <question> — Ask the home-manuals service about appliances/manuals (e.g. home what model is the oven?); replies with the answer plus Sources
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Claude Agent*
@@ -46,6 +47,7 @@ export default async function helpCommand(sock, sender) {
 • *Notes* — Manage Joplin notes (say "save a note", "find my notes", "delete note"…, or "save https://… to Joplin" / "fetch this page to a note")
 • *Email* — Send emails via Gmail (say "email [person] about…")
 • *Weather* — Ask naturally: e.g. weather, forecast, temperature, rain/snow/storm, wind, humidity, sunny/cloudy, °C/°F, "will it rain", "how hot/cold", "what's it like outside". Name a city if you want; otherwise the bot uses its default city.
+• *Home* — Ask naturally about appliances/manuals (e.g. "what boiler do we have?", "how do I descale the coffee machine?")
 • *Reminders* — ${REMINDER_COMMAND_HELP_SNIPPET}
 
 ━━━━━━━━━━━━━━━━━━━━━━
