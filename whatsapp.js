@@ -10,8 +10,11 @@ import * as commands from './whatsapp/commands/index.js';
 import { isAllowedActor } from './whatsapp/whatsAppActorAllowlist.js';
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.js';
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
+import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
 import pino from 'pino';
 const logger = pino();
+/** Shared across reconnects so decryption retry counts (and maxMsgRetryCount) persist. */
+const msgRetryCounterCache = createMsgRetryCounterCache();
 import { promises as fs } from 'fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -86,15 +89,12 @@ async function startSock() {
     shouldSyncHistoryMessage: () => false,
     
     // Message retry and cache settings
-    maxMsgRetryCount: 3,
+    ...socketCacheOptions(msgRetryCounterCache),
     getMessage: async () => undefined,
     
     // Link preview and media settings
     generateHighQualityLinkPreview: true,
     patchMessageBeforeSending: (message) => message,
-    
-    // Device and cache settings
-    userDevicesCache: new Map(),
     
     // Timeout settings
     retryRequestDelayMs: 250
