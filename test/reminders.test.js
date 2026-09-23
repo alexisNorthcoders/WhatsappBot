@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
@@ -2153,8 +2153,11 @@ describe('production ports reminder list/cancel (e2e path)', () => {
     };
   }
 
-  it('routes list reminders through agents.tryHandle for allowlisted actors', async () => {
+  it('routes list reminders through agents.tryHandle for allowlisted actors', async (t) => {
     const now = Date.parse('2026-09-06T15:00:00+01:00');
+    // Production ports format the list against the real clock; freeze it so "today" stays true.
+    mock.timers.enable({ apis: ['Date'], now });
+    t.after(() => mock.timers.reset());
     await addReminder({
       chatId: 'c@s.whatsapp.net',
       dueAt: now + 20 * 60_000,
