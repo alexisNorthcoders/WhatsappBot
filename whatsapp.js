@@ -12,6 +12,7 @@ import { createBaileysMessageHandler } from './whatsapp/orchestration/createBail
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
 import { createSentMessageStore } from './whatsapp/sentMessageStore.js';
+import { backupAuthDirOnce } from './whatsapp/baileysAuthBackup.js';
 import pino from 'pino';
 const logger = pino();
 /** Shared across reconnects so decryption retry counts (and maxMsgRetryCount) persist. */
@@ -28,6 +29,8 @@ const BAILEYS_AUTH_DIR = path.join(
   '.auth',
   'baileys'
 );
+/** One-time copy of the auth folder from before Baileys 7.x's one-way LID session migration. */
+const BAILEYS_AUTH_BACKUP_DIR = path.join(path.dirname(BAILEYS_AUTH_DIR), 'baileys-pre-v7-backup');
 import { initializeLightCache } from './hue/index.js';
 import {
   readPendingClaudeRun,
@@ -303,7 +306,17 @@ async function initializeApp() {
     // Runs killed by the previous process (e.g. pm2 restart) otherwise show as `stale` forever
     const removed = await removeStaleActiveRuns().catch(() => []);
     if (removed.length) logger.info({ removed }, 'removed stale Claude agent active files');
-    
+
+    // Before the first socket opens: Baileys 7.x rewrites the stored sessions and can't go back.
+    // A failed backup aborts startup rather than migrating without a rollback copy.
+    const backup = await backupAuthDirOnce({
+      authDir: BAILEYS_AUTH_DIR,
+      backupDir: BAILEYS_AUTH_BACKUP_DIR,
+    });
+    if (backup.status === 'created') {
+      logger.info({ backupDir: BAILEYS_AUTH_BACKUP_DIR }, 'backed up Baileys auth folder (pre-v7)');
+    }
+
     // Then start the WhatsApp socket
     await startSock();
   } catch (error) {

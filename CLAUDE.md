@@ -52,13 +52,23 @@ unattended.
 ### Message flow (ports-and-adapters)
 
 `whatsapp.js` owns the Baileys socket lifecycle (auth, QR pairing, reconnect/backoff, logout
-handling) and wires up cron-style background jobs on `connection === 'open'`. It delegates all
-message handling to `whatsapp/orchestration/`, which is a small hexagonal/ports architecture:
+handling) and wires up cron-style background jobs on `connection === 'open'`. Baileys is pinned
+to 7.x (currently `7.0.0-rc14`). Before the first socket opens, `whatsapp/baileysAuthBackup.js`
+copies `.auth/baileys` once to `.auth/baileys-pre-v7-backup` (never overwritten; 7.x migrates
+stored sessions to LID format one-way) — restoring that folder plus pinning `6.7.24` is the
+rollback path. It delegates all message handling to `whatsapp/orchestration/`, which is a small hexagonal/ports architecture:
 
 - `createBaileysMessageHandler.js` — thin Baileys-specific adapter: dedupes `fromMe`, marks read
   receipts, normalizes the raw message, catches/reports errors back to the sender.
-- `normalizeBaileysMessage.js` — maps a raw Baileys `WebMessageInfo` into a plain
-  `InboundMessage` (`{ id, chatId, actorId, text, raw, features }`).
+- `normalizeBaileysMessage.js` — maps a raw Baileys `WAMessage` into a plain
+  `InboundMessage` (`{ id, chatId, actorId, actorAltId, text, raw, features }`).
+
+**LIDs:** on Baileys 7.x the sender (`actorId`) and chat id (`chatId`) may be a `@lid`
+(WhatsApp's privacy id) instead of a phone-number JID. The other form, when WhatsApp sends it,
+lives on the message key — `remoteJidAlt` in DMs, `participantAlt` in groups (surfaced as
+`actorAltId`). Never assume an inbound id carries a phone number; match on both forms. Anything
+keyed by chat id (e.g. per-chat assistant memory in `chatMemory.js`) sees a LID chat as a new
+chat. Sending to a phone-number JID still works.
 - `createProductionPorts.js` — builds the concrete ports object (real Baileys `sock`, real
   filesystem, real command registry, real agents) that the orchestrator runs against. Swap this
   factory out (see `test/messageOrchestrator.test.js`) to test orchestration logic without a
@@ -89,7 +99,7 @@ separately allowlists `@lid` (linked-device) identities via `CLAUDE_AGENT_EXTRA_
 don't carry a matchable phone number. The owner is also recognised from a `@lid` when the
 message key's alternate id (`participantAlt` / `remoteJidAlt`, surfaced as `actorAltId`) is an
 allowed phone JID, or when the LID was resolved from `MY_PHONE`/`SECOND_PHONE` via the socket's
-LID mapping store on connect (`resolveOwnerLids`, Baileys 7.x only — a no-op on 6.x). Failed
+LID mapping store on connect (`resolveOwnerLids`). Failed
 lookups or malformed ids deny. Any code path that can trigger the Claude CLI agent or a
 restart must check `isAllowedActor(actorId)` first.
 

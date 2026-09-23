@@ -74,7 +74,7 @@ function allowedJidsExact() {
 
 /**
  * Who sent the message: in groups `remoteJid` is the group; use `participant`.
- * @param {import('@whiskeysockets/baileys').proto.WebMessageInfo} [msg]
+ * @param {import('@whiskeysockets/baileys').WAMessage} [msg]
  * @param {string} remoteJid
  */
 export function actorJid(msg, remoteJid) {
@@ -86,7 +86,7 @@ export function actorJid(msg, remoteJid) {
 /**
  * The sender's alternate id from the message key: `participantAlt` in groups, `remoteJidAlt`
  * in DMs. Baileys 7.x fills it with the PN JID when the primary id is a LID (and vice versa).
- * @param {import('@whiskeysockets/baileys').proto.WebMessageInfo} [msg]
+ * @param {import('@whiskeysockets/baileys').WAMessage} [msg]
  * @returns {string | null}
  */
 export function actorAltJid(msg) {

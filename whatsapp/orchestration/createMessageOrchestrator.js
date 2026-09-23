@@ -26,7 +26,7 @@ export function createMessageOrchestrator(ports) {
    * @param {InboundMessage} m
    */
   async function handleInbound(m) {
-    const raw = /** @type {import('@whiskeysockets/baileys').proto.WebMessageInfo} */ (m.raw);
+    const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
     const messageType = raw.message ? Object.keys(raw.message)[0] : 'unknown';
     const button = m.text.toLowerCase();
     const command = m.text.split(' ')[0].toLowerCase();
