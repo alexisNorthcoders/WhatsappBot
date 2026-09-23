@@ -1352,14 +1352,17 @@ async function waitForGithubIssueClosed(repo, issueNumber, opts = {}) {
  * @param {number} issueNumber
  * @param {{ branchName: string, prBase: string }} workBranch
  * @param {string} userPrompt
+ * @param {'cron' | 'manual'} [trigger] how the issue run was started (default `manual`)
  */
-function buildIssueModePrBody(issueNumber, workBranch, userPrompt) {
+export function buildIssueModePrBody(issueNumber, workBranch, userPrompt, trigger = 'manual') {
   const n = parseInt(String(issueNumber), 10);
   const fixesLine = Number.isFinite(n) && n > 0 ? `Fixes #${n}` : '';
   const lines = [];
   if (fixesLine) lines.push(fixesLine, '');
   lines.push(
-    'Opened automatically after a `claude issue:…` run from the WhatsApp bot.',
+    trigger === 'cron'
+      ? 'Opened automatically by the cron issue tracer (`ready-for-agent` label) from the WhatsApp bot.'
+      : 'Opened automatically after a `claude issue:…` run from the WhatsApp bot.',
     '',
     `**Branch:** \`${workBranch.branchName}\``,
     `**Base:** \`${workBranch.prBase}\``,
@@ -2169,10 +2172,11 @@ async function runPostCloseChangesDeepInfra({ issueBlock }) {
  * `CLAUDE_POST_RUN_ISSUE_CLOSE_MAX_WAIT_MS` (default 30 minutes). Override the post-close model with `CLAUDE_POST_CLOSE_CHANGES_MODEL`.
  * Freeform `claude …` runs do not enter this pipeline.
  * Disable push with `CLAUDE_POST_RUN_PUSH=0`, or PR only with `CLAUDE_POST_RUN_PR=0`.
- * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null, preAgentHeadSha?: string | null }} opts
+ * `trigger` (`cron` | `manual`, default `manual`) only changes the PR description wording.
+ * @param {{ repo: string, userPrompt: string, agentRunOk: boolean, issueMode?: { number: number } | null, preAgentHeadSha?: string | null, trigger?: 'cron' | 'manual' }} opts
  */
 export async function maybeCommitReviewEmail(opts) {
-  const { repo, userPrompt, agentRunOk, issueMode = null, preAgentHeadSha = null } = opts;
+  const { repo, userPrompt, agentRunOk, issueMode = null, preAgentHeadSha = null, trigger = 'manual' } = opts;
   const { pollMs, maxWaitMs } = readPostRunGitWaitSettings();
   logPost('start', {
     repo,
@@ -2313,7 +2317,7 @@ export async function maybeCommitReviewEmail(opts) {
       if (pushResult.ok && prAfterPushEnabled()) {
         const prTitleRaw = commit.message || 'Claude (WhatsApp) CLI update';
         const prTitle = prTitleRaw.length > 200 ? `${prTitleRaw.slice(0, 197)}…` : prTitleRaw;
-        const prBody = buildIssueModePrBody(issueNum, workBranch, userPrompt);
+        const prBody = buildIssueModePrBody(issueNum, workBranch, userPrompt, trigger);
 
         const listed = await tryGhPrListOpenForHead(repo, {
           head: workBranch.branchName,
