@@ -159,6 +159,34 @@ describe('maybeCommitReviewEmail git gating', () => {
     }
   });
 
+  it('clean tree + unchanged HEAD but the branch has commits no PR carries: picks them up instead of skipping', async () => {
+    const repo = await initBareRepoWithMain();
+    await git(repo, ['checkout', '-b', 'claude/issue-9-thing']);
+    await writeFile(join(repo, 'feature.txt'), 'ok\n', 'utf8');
+    await git(repo, ['add', 'feature.txt']);
+    await git(repo, ['commit', '-m', 'run killed before push']);
+    const pre = await getRepoHeadShaFull(repo);
+    const realExecFile = claudePostRunExec.execFile;
+    claudePostRunExec.execFile = (command, args, options, callback) => {
+      if (command !== 'gh') return realExecFile(command, args, options, callback);
+      process.nextTick(() => callback(null, '[]', ''));
+    };
+    try {
+      const post = await maybeCommitReviewEmail({
+        repo,
+        userPrompt: 'unit test',
+        agentRunOk: true,
+        issueMode: { number: 9 },
+        preAgentHeadSha: pre,
+      });
+      assert.notEqual(post.skipReason, 'clean_after_wait');
+      assert.equal(post.ran, true);
+      assert.match(post.note, /picked up 1 commit\(s\) an earlier run left unpushed/);
+    } finally {
+      claudePostRunExec.execFile = realExecFile;
+    }
+  });
+
   it('clean tree + new commit(s): runs post-run without empty_diff (uses pre…HEAD when branch tip equals base)', async () => {
     const repo = await initBareRepoWithMain();
     const pre = await getRepoHeadShaFull(repo);

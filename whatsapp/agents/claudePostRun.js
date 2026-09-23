@@ -503,6 +503,24 @@ export async function buildResumeContextSummary(repo, defaultBranch) {
 }
 
 /**
+ * Commits on the checked-out issue branch that are not on the default branch; 0 when on the default
+ * branch, detached, or on any git error.
+ * @param {string} repo
+ * @returns {Promise<number>}
+ */
+async function countIssueBranchCommitsAheadOfDefault(repo) {
+  try {
+    const current = await getCurrentBranchName(repo);
+    const defaultBranch = await resolveDefaultBranchName(repo);
+    if (!defaultBranch || !current || current === 'HEAD' || current === defaultBranch) return 0;
+    const { stdout } = await execGit(['rev-list', '--count', `${defaultBranch}..HEAD`], repo);
+    return Number.parseInt(stdout.trim(), 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * @param {string} repo
  * @returns {Promise<{ ok: boolean, error?: string }>}
  */
@@ -662,6 +680,31 @@ export function githubPrMergeErrorLooksNotYetMergeable(combinedMessage) {
   const m = String(combinedMessage || '').toLowerCase();
   if (!m) return false;
   return m.includes('not mergeable') || m.includes('isnt mergeable') || m.includes("isn't mergeable");
+}
+
+/**
+ * True when a `gh` call failed on the network rather than on GitHub's answer
+ * (e.g. `dial tcp …: i/o timeout` from a flaky Pi connection), so the same call can simply be retried.
+ * @param {string} combinedMessage
+ * @returns {boolean}
+ */
+export function githubErrorLooksTransientNetwork(combinedMessage) {
+  const m = String(combinedMessage || '').toLowerCase();
+  if (!m) return false;
+  return [
+    'i/o timeout',
+    'etimedout',
+    'econnreset',
+    'econnrefused',
+    'eai_again',
+    'tls handshake timeout',
+    'connection reset by peer',
+    'could not resolve host',
+    'network is unreachable',
+    '502 bad gateway',
+    '503 service unavailable',
+    '504 gateway timeout',
+  ].some((needle) => m.includes(needle));
 }
 
 /**
@@ -1065,7 +1108,8 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
   /**
    * When auto-merge cannot be enabled because there is nothing to wait for, merge immediately.
    * Polls until GitHub reports the PR mergeable first (avoids “not mergeable” right after push).
-   * If the direct merge still fails because the base moved or mergeability raced, sync / wait and retry once.
+   * If the direct merge still fails because the base moved, mergeability raced or the network dropped,
+   * sync / wait and retry once.
    * @param {string} errFromAuto
    * @param {{ staleHeadSynced?: boolean }} [extra]
    */
@@ -1097,10 +1141,12 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
       return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...syncedExtra };
     } catch (eDirect) {
       const errDirect = eDirect.stderr || eDirect.message || String(eDirect);
+      const transient = githubErrorLooksTransientNetwork(errDirect);
       const canRetry =
-        prStaleHeadSyncBeforeAutoMergeEnabled() &&
-        (githubPrMergeErrorLooksStaleHead(errDirect) ||
-          githubPrMergeErrorLooksNotYetMergeable(errDirect));
+        transient ||
+        (prStaleHeadSyncBeforeAutoMergeEnabled() &&
+          (githubPrMergeErrorLooksStaleHead(errDirect) ||
+            githubPrMergeErrorLooksNotYetMergeable(errDirect)));
       if (!canRetry) {
         return {
           ok: false,
@@ -1112,13 +1158,15 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
       if (postRunLogEnabled()) {
         console.log(
           '[claudePostRun]',
-          githubPrMergeErrorLooksStaleHead(errDirect)
-            ? 'tryGhPrQueueAutoMerge: direct merge hit stale base; GitHub API update-branch then retry'
-            : 'tryGhPrQueueAutoMerge: direct merge hit not-yet-mergeable; wait then retry',
+          transient
+            ? 'tryGhPrQueueAutoMerge: direct merge hit a network error; wait then retry'
+            : githubPrMergeErrorLooksStaleHead(errDirect)
+              ? 'tryGhPrQueueAutoMerge: direct merge hit stale base; GitHub API update-branch then retry'
+              : 'tryGhPrQueueAutoMerge: direct merge hit not-yet-mergeable; wait then retry',
           url
         );
       }
-      if (githubPrMergeErrorLooksStaleHead(errDirect)) {
+      if (!transient && githubPrMergeErrorLooksStaleHead(errDirect)) {
         const sync = await tryGhPrUpdateBranchViaApi(repo, url);
         if (!sync.ok) {
           return {
@@ -1141,6 +1189,13 @@ export async function tryGhPrQueueAutoMerge(repo, prUrl) {
           mergeMethod: strategy,
           ...syncedExtra,
         };
+      }
+      if (readyAgain.classification === 'closed') {
+        // A merge request that timed out on our side may still have landed on GitHub.
+        const view = await tryGhPrViewMergeability(repo, url);
+        if (view.ok && String(view.state || '').toUpperCase() === 'MERGED') {
+          return { ok: true, mergedDirectly: true, mergeMethod: strategy, ...syncedExtra };
+        }
       }
       try {
         await mergeDirect();
@@ -2165,9 +2220,19 @@ export async function maybeCommitReviewEmail(opts) {
   let wait = await waitForAgentGitActivity(repo, preAgentHeadSha);
   /** Set when the agent changed nothing but this branch already has an open PR to finish. */
   let existingPr = null;
+  /** Set when the agent changed nothing but the branch holds commits no PR carries yet. */
+  let unpushedCommits = 0;
   if (!wait.dirty && !wait.headMoved) {
     existingPr = await findOpenPrForCurrentBranch(repo);
-    if (!existingPr) {
+    if (!existingPr) unpushedCommits = await countIssueBranchCommitsAheadOfDefault(repo);
+    if (!existingPr && unpushedCommits > 0) {
+      // An earlier run committed but was killed (e.g. pm2 restart) before push / PR: finish that work
+      // instead of reporting an empty run the cron would retry forever.
+      logPost('no new git activity, but the branch has commits with no PR; pushing them', {
+        commits: unpushedCommits,
+      });
+      wait = { ...wait, headMoved: true };
+    } else if (!existingPr) {
       logPost('skip: no dirty tree and HEAD unchanged after wait', {
         waitedMs: wait.waitedMs,
         polls: wait.polls,
@@ -2407,6 +2472,8 @@ export async function maybeCommitReviewEmail(opts) {
   const parts = [];
   if (existingPr) {
     parts.push(`The agent made no new changes; re-reviewed the open PR ${existingPr.url} (${existingPr.state}).`);
+  } else if (unpushedCommits > 0) {
+    parts.push(`The agent made no new changes; picked up ${unpushedCommits} commit(s) an earlier run left unpushed.`);
   }
   if (commit.ok) {
     if (existingPr) {

@@ -25,7 +25,7 @@ import {
   errorMessageFromUnknown,
 } from './claudeIssuePipeline.js';
 import { getAgentPauseForWorkspace } from './claudeAgentPause.js';
-import { writeCronStarted, writeCronTick } from './claudeRunTelemetry.js';
+import { removeStaleActiveRuns, writeCronStarted, writeCronTick } from './claudeRunTelemetry.js';
 
 const DEFAULT_MS = 10 * 60 * 1000;
 
@@ -574,6 +574,10 @@ export function startCronIssueTracer(opts) {
     inFlight = true;
     const startedAt = Date.now();
     try {
+      // The startup sweep keeps a run whose agent was still exiting after a pm2 restart (orphaned);
+      // once that agent is gone too, only a later sweep clears it.
+      const removed = await removeStaleActiveRuns().catch(() => []);
+      if (removed.length) logger?.info({ removed }, 'removed stale Claude agent active files');
       const outcome = await runCronIssueTracerTick({ getSocket, getOwnerJid, logger });
       await writeCronTick({ outcome, intervalMs, startedAt });
     } finally {

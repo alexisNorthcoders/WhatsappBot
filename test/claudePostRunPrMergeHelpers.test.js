@@ -6,6 +6,7 @@ import {
   githubPrMergeErrorLooksStaleHead,
   githubPrMergeErrorLooksNoAutoMergeGate,
   githubPrMergeErrorLooksNotYetMergeable,
+  githubErrorLooksTransientNetwork,
   githubPrUpdateBranchErrorLooksNoOp,
   pickGithubMergeStrategy,
   githubMergeMethodSummaryLabel,
@@ -80,6 +81,17 @@ describe('PR merge / update-branch error heuristics', () => {
       true
     );
     assert.equal(githubPrMergeErrorLooksNotYetMergeable('Base branch was modified'), false);
+  });
+
+  it('detects transient network errors from gh', () => {
+    assert.equal(
+      githubErrorLooksTransientNetwork(
+        'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout'
+      ),
+      true
+    );
+    assert.equal(githubErrorLooksTransientNetwork('read: connection reset by peer'), true);
+    assert.equal(githubErrorLooksTransientNetwork('Pull Request is not mergeable'), false);
   });
 
   it('detects no-auto-merge-gate errors (unprotected main / clean status)', () => {
@@ -511,6 +523,68 @@ describe('tryGhPrQueueAutoMerge (mocked gh, issue #47)', () => {
       assert.equal(r.ok, true);
       assert.equal(r.mergedDirectly, true);
       assert.equal(mergeAttempts, 2);
+    })
+  );
+
+  it(
+    'retries direct merge after a network timeout (issue #8 PR left open)',
+    withFastMergeablePoll(async () => {
+      let mergeAttempts = 0;
+      claudePostRunExec.execFile = (cmd, args, _opts, cb) => {
+        if (replyMergeableReady(cmd, args, _opts, cb)) return;
+        if (args[0] === 'api' && !args.includes('-X')) {
+          cb(null, JSON.stringify({ allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true, allow_auto_merge: false }), '');
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'merge') {
+          mergeAttempts += 1;
+          if (mergeAttempts === 1) {
+            const err = new Error('gh failed');
+            err.stderr = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
+            cb(err, '', err.stderr);
+            return;
+          }
+          cb(null, '', '');
+          return;
+        }
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+
+      const r = await tryGhPrQueueAutoMerge('/tmp/r', 'https://github.com/alexisNorthcoders/home-manuals/pull/10');
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.equal(mergeAttempts, 2);
+    })
+  );
+
+  it(
+    'treats a timed-out merge that landed on GitHub anyway as merged',
+    withFastMergeablePoll(async () => {
+      let mergeAttempts = 0;
+      claudePostRunExec.execFile = (cmd, args, _opts, cb) => {
+        if (args[0] === 'api' && !args.includes('-X')) {
+          cb(null, JSON.stringify({ allow_squash_merge: true, allow_merge_commit: true, allow_rebase_merge: true, allow_auto_merge: false }), '');
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'view') {
+          const state = mergeAttempts === 0 ? 'OPEN' : 'MERGED';
+          cb(null, JSON.stringify({ mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', state }), '');
+          return;
+        }
+        if (args[0] === 'pr' && args[1] === 'merge') {
+          mergeAttempts += 1;
+          const err = new Error('gh failed');
+          err.stderr = 'Post "https://api.github.com/graphql": dial tcp 20.26.156.210:443: i/o timeout';
+          cb(err, '', err.stderr);
+          return;
+        }
+        cb(new Error(`unexpected exec: ${cmd} ${args.join(' ')}`));
+      };
+
+      const r = await tryGhPrQueueAutoMerge('/tmp/r', 'https://github.com/alexisNorthcoders/home-manuals/pull/10');
+      assert.equal(r.ok, true);
+      assert.equal(r.mergedDirectly, true);
+      assert.equal(mergeAttempts, 1);
     })
   );
 
