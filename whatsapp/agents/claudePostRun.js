@@ -86,7 +86,7 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function buildPlainTextEmailHtml(plainBody) {
+function buildPlainTextEmailHtml(plainBody, headerHtml = '') {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -99,9 +99,46 @@ pre.summary { white-space: pre-wrap; font-size: 0.95rem; margin: 0; }
 </style>
 </head>
 <body>
-<pre class="summary">${escapeHtml(plainBody)}</pre>
+${headerHtml}<pre class="summary">${escapeHtml(plainBody)}</pre>
 </body>
 </html>`;
+}
+
+const POST_CLOSE_SUBJECT_TITLE_MAX_CHARS = 80;
+
+/**
+ * Post-close changes-summary email (issue #112): subject and a code-generated header name the
+ * issue (number, title, URL, PR URL) so the email identifies itself even when the LLM summary
+ * doesn't. The summary follows the header unchanged.
+ * @param {{ subjectPrefix: string, issueNumber: number, title?: string | null, issueUrl?: string | null, prUrl?: string | null, summary: string }} p
+ * @returns {{ subject: string, text: string, html: string }}
+ */
+export function buildPostCloseChangesEmail({ subjectPrefix, issueNumber, title, issueUrl, prUrl, summary }) {
+  const cleanTitle = String(title ?? '').replace(/\s+/g, ' ').trim();
+  const subjectTitle =
+    cleanTitle.length > POST_CLOSE_SUBJECT_TITLE_MAX_CHARS ?
+      `${cleanTitle.slice(0, POST_CLOSE_SUBJECT_TITLE_MAX_CHARS - 1).trimEnd()}…`
+    : cleanTitle;
+  const subject =
+    subjectTitle ?
+      `[${subjectPrefix}] Issue #${issueNumber} closed: ${subjectTitle}`
+    : `[${subjectPrefix}] Issue #${issueNumber} closed — changes summary`;
+
+  const heading = cleanTitle ? `Issue #${issueNumber}: ${cleanTitle}` : `Issue #${issueNumber}`;
+  /** @type {Array<[string, string]>} */
+  const links = [];
+  if (issueUrl) links.push(['Issue', String(issueUrl)]);
+  if (prUrl) links.push(['Pull request', String(prUrl)]);
+
+  const text = [heading, ...links.map(([label, url]) => `${label}: ${url}`), '', '---', '', summary].join('\n');
+
+  const linkItems = links
+    .map(([label, url]) => `<li>${label}: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></li>`)
+    .join('\n');
+  const headerHtml =
+    `<h2>${escapeHtml(heading)}</h2>\n` + (linkItems ? `<ul>\n${linkItems}\n</ul>\n` : '') + '<hr>\n';
+
+  return { subject, text, html: buildPlainTextEmailHtml(summary, headerHtml) };
 }
 
 /** Poll after the agent process exits — writes may not be visible to git immediately. Read per wait so tests/env can tune without reloading the module. */
@@ -1311,7 +1348,7 @@ async function tryGhIssueViewDetails(repo, issueNumber) {
   try {
     const { stdout } = await execFileAsync(
       'gh',
-      ['issue', 'view', String(issueNumber), '--json', 'title,body,state'],
+      ['issue', 'view', String(issueNumber), '--json', 'title,body,state,url'],
       {
         cwd: repo,
         encoding: 'utf8',
@@ -1324,6 +1361,7 @@ async function tryGhIssueViewDetails(repo, issueNumber) {
       title: String(j.title || '').trim(),
       body: String(j.body || '').trim(),
       state: String(j.state || '').trim().toUpperCase(),
+      url: String(j.url || '').trim(),
     };
   } catch (e) {
     return { ok: false, error: e.stderr || e.message || String(e) };
@@ -2445,14 +2483,17 @@ export async function maybeCommitReviewEmail(opts) {
         };
         logPost('post-close changes email: DeepInfra failed', postCloseChangesEmail.error);
       } else {
-        const subPre = reviewEmailSubjectPrefix(repo);
-        const mailSubject = `[${subPre}] Issue #${issueNum} closed — changes summary`;
+        const mailOut = buildPostCloseChangesEmail({
+          subjectPrefix: reviewEmailSubjectPrefix(repo),
+          issueNumber: issueNum,
+          title: details.title,
+          issueUrl: details.url,
+          prUrl: prResult?.ok ? prResult.url : null,
+          summary: llm.text,
+        });
         try {
           logPost('post-close changes email: sending Gmail', { to: reviewEmailTo() });
-          const mail = await sendGmailSmtp(mailSubject, {
-            text: llm.text,
-            html: buildPlainTextEmailHtml(llm.text),
-          });
+          const mail = await sendGmailSmtp(mailOut.subject, { text: mailOut.text, html: mailOut.html });
           if (mail.ok) {
             postCloseChangesEmail = { ok: true, to: mail.to, step: 'sent' };
           } else {
