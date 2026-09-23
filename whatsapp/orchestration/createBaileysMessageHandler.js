@@ -16,7 +16,7 @@ export function createBaileysMessageHandler(opts) {
 
   return {
     /**
-     * @param {{ messages?: import('@whiskeysockets/baileys').proto.WebMessageInfo[]; type?: string }} upsert
+     * @param {{ messages?: import('@whiskeysockets/baileys').WAMessage[]; type?: string }} upsert
      */
     async handleUpsert(upsert) {
       const msg = upsert.messages?.[0];

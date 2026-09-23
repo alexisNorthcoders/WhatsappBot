@@ -82,7 +82,7 @@ export function createProductionPorts(deps) {
   return {
     receipts: {
       async markRead(m) {
-        const raw = /** @type {import('@whiskeysockets/baileys').proto.WebMessageInfo} */ (m.raw);
+        const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
         await sock.readMessages([raw.key]);
       },
     },
@@ -99,7 +99,7 @@ export function createProductionPorts(deps) {
     },
     media: {
       async downloadImageBuffer(m) {
-        const raw = /** @type {import('@whiskeysockets/baileys').proto.WebMessageInfo} */ (m.raw);
+        const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
         return /** @type {Buffer} */ (
           await downloadMediaMessage(raw, 'buffer', {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage })
         );
@@ -136,7 +136,7 @@ export function createProductionPorts(deps) {
       },
       async runCommandByFirstToken(m) {
         const command = m.text.split(' ')[0].toLowerCase();
-        const raw = /** @type {import('@whiskeysockets/baileys').proto.WebMessageInfo} */ (m.raw);
+        const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
         if (!commands[command]) {
           return { handled: false };
         }

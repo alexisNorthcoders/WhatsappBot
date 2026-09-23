@@ -13,8 +13,8 @@ import { actorAltJid } from '../whatsAppActorAllowlist.js';
  */
 
 /**
- * Map a Baileys WebMessageInfo into a stable inbound shape for the orchestrator.
- * @param {import('@whiskeysockets/baileys').proto.WebMessageInfo} msg
+ * Map a Baileys WAMessage into a stable inbound shape for the orchestrator.
+ * @param {import('@whiskeysockets/baileys').WAMessage} msg
  * @returns {InboundMessage}
  */
 export function normalizeBaileysMessage(msg) {
