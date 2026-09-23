@@ -41,10 +41,15 @@ export async function runHomeAgent(userMessage, deps = {}) {
     return HOME_AGENT_SKIP;
   }
 
-  const sources = Array.isArray(result.sources) ? result.sources : [];
-  if (sources.length === 0 && looksLikeUnknownAnswer(result.answer)) {
+  const answer = typeof result.answer === 'string' ? result.answer.trim() : '';
+  if (!answer) {
     return HOME_AGENT_SKIP;
   }
 
-  return formatHomeAnswerReply(result.answer, sources);
+  const sources = Array.isArray(result.sources) ? result.sources : [];
+  if (sources.length === 0 && looksLikeUnknownAnswer(answer)) {
+    return HOME_AGENT_SKIP;
+  }
+
+  return formatHomeAnswerReply(answer, sources);
 }

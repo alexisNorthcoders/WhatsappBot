@@ -19,9 +19,9 @@
  * @param {(text: string) => boolean} deps.shouldTryEmailAgent
  * @param {(text: string) => Promise<string>} deps.runEmailAgent
  * @param {string} deps.EMAIL_AGENT_SKIP
- * @param {(text: string) => boolean} deps.shouldTryHomeAgent
- * @param {(text: string) => Promise<string>} deps.runHomeAgent
- * @param {string} deps.HOME_AGENT_SKIP
+ * @param {(text: string) => boolean} [deps.shouldTryHomeAgent]
+ * @param {(text: string) => Promise<string>} [deps.runHomeAgent]
+ * @param {string} [deps.HOME_AGENT_SKIP]
  * @returns {Promise<{ handled: boolean }>}
  */
 export async function runAgentsChainSequential(m, deps) {
@@ -136,10 +136,15 @@ export async function runAgentsChainSequential(m, deps) {
     }
   }
 
-  if (!handled && shouldTryHomeAgent(text)) {
+  if (
+    !handled &&
+    typeof shouldTryHomeAgent === 'function' &&
+    typeof runHomeAgent === 'function' &&
+    shouldTryHomeAgent(text)
+  ) {
     try {
       const homeReply = await runHomeAgent(text);
-      if (homeReply.trim().toUpperCase() !== HOME_AGENT_SKIP) {
+      if (homeReply.trim().toUpperCase() !== (HOME_AGENT_SKIP ?? 'SKIP')) {
         await messaging.sendText(chatId, homeReply);
         await chatMemory.append(chatId, 'user', text);
         await chatMemory.append(chatId, 'assistant', homeReply);
