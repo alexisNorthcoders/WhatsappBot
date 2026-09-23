@@ -11,10 +11,13 @@ import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowl
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.js';
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
+import { createSentMessageStore } from './whatsapp/sentMessageStore.js';
 import pino from 'pino';
 const logger = pino();
 /** Shared across reconnects so decryption retry counts (and maxMsgRetryCount) persist. */
 const msgRetryCounterCache = createMsgRetryCounterCache();
+/** The bot's own outgoing messages, so retry requests can be answered; also shared across reconnects. */
+const sentMessageStore = createSentMessageStore();
 import { promises as fs } from 'fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,7 +93,7 @@ async function startSock() {
     
     // Message retry and cache settings
     ...socketCacheOptions(msgRetryCounterCache),
-    getMessage: async () => undefined,
+    getMessage: sentMessageStore.getMessage,
     
     // Link preview and media settings
     generateHighQualityLinkPreview: true,
@@ -242,6 +245,8 @@ async function startSock() {
   });
 
   sock.ev.on('messages.upsert', async (upsert) => {
+    // With emitOwnEvents on, every sendMessage comes back here as a fromMe upsert.
+    sentMessageStore.recordUpsert(upsert);
     await messageHandler.handleUpsert(upsert);
   });
 
