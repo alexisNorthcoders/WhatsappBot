@@ -86,7 +86,11 @@ When adding a new command or agent, wire it through `commands/index.js` or the a
 `whatsapp/whatsAppActorAllowlist.js` gates privileged actions (the `claude` command, `!restart`).
 It matches `MY_PHONE`/`SECOND_PHONE` against both `@s.whatsapp.net` and `@c.us` JID forms, and
 separately allowlists `@lid` (linked-device) identities via `CLAUDE_AGENT_EXTRA_JIDS` since those
-don't carry a matchable phone number. Any code path that can trigger the Claude CLI agent or a
+don't carry a matchable phone number. The owner is also recognised from a `@lid` when the
+message key's alternate id (`participantAlt` / `remoteJidAlt`, surfaced as `actorAltId`) is an
+allowed phone JID, or when the LID was resolved from `MY_PHONE`/`SECOND_PHONE` via the socket's
+LID mapping store on connect (`resolveOwnerLids`, Baileys 7.x only — a no-op on 6.x). Failed
+lookups or malformed ids deny. Any code path that can trigger the Claude CLI agent or a
 restart must check `isAllowedActor(actorId)` first.
 
 ### Claude CLI agent pipeline (the big one)

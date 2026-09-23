@@ -5,7 +5,7 @@ import {
   runClaudeAgentWithPost,
 } from '../agents/claudeIssuePipeline.js';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
-import { actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { actorAltJid, actorJid, isAllowedActor, lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
 import {
   tryAcquireAgentBusyLock,
   releaseAgentBusyLock,
@@ -115,7 +115,7 @@ export default async function claudeCommand(sock, sender, text, msg, deps = {}) 
   const getPauseForWorkspace = deps.getAgentPauseForWorkspace ?? getAgentPauseForWorkspace;
 
   const actor = actorJid(msg, sender);
-  if (!isAllowedActor(actor)) {
+  if (!isAllowedActor(actor, actorAltJid(msg))) {
     await sock.sendMessage(sender, {
       text:
         `Not allowed to run the Claude agent from this identity.${lidExtraJidsHint(actor)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,

@@ -30,7 +30,7 @@ import { runAgentsChainSequential } from './agentsTryHandle.js';
  * @param {{ info: Function; warn: Function; error: Function }} deps.logger
  * @param {Record<string, unknown>} deps.commands
  * @param {string | undefined} deps.secondPhone
- * @param {(actorId: string | null) => boolean} deps.isAllowedActor
+ * @param {(actorId: string | null, actorAltId?: string | null) => boolean} deps.isAllowedActor
  */
 export function createProductionPorts(deps) {
   const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor } = deps;
@@ -141,7 +141,7 @@ export function createProductionPorts(deps) {
           return { handled: false };
         }
 
-        if (command === 'claude' && !isAllowedActor(m.actorId)) {
+        if (command === 'claude' && !isAllowedActor(m.actorId, m.actorAltId)) {
           await sock.sendMessage(m.chatId, {
             text:
               `Not allowed to run the Claude agent from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
@@ -170,7 +170,7 @@ export function createProductionPorts(deps) {
           return { handled: true };
         }
         if (command === '!restart') {
-          if (!isAllowedActor(m.actorId)) {
+          if (!isAllowedActor(m.actorId, m.actorAltId)) {
             await sock.sendMessage(m.chatId, {
               text:
                 `Not allowed to restart this bot from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
