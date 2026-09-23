@@ -38,6 +38,15 @@ test('a retry key carrying a device suffix still finds the message', async () =>
   );
 });
 
+test('a message sent to the @c.us form matches a retry from @s.whatsapp.net', async () => {
+  const store = createSentMessageStore({ maxEntries: 10, ttlMs: 60_000, now: fakeClock().now });
+  store.recordUpsert({ messages: [sent('447700900000@c.us', 'A1', 'hi')] });
+  assert.deepEqual(
+    await store.getMessage({ remoteJid: '447700900000:3@s.whatsapp.net', id: 'A1' }),
+    { conversation: 'hi' }
+  );
+});
+
 test('only the bot’s own messages with content are recorded', async () => {
   const store = createSentMessageStore({ maxEntries: 10, ttlMs: 60_000, now: fakeClock().now });
   store.recordUpsert({
