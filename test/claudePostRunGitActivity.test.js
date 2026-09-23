@@ -10,7 +10,9 @@ import {
   getPostRunReviewDiffText,
   getRepoHeadShaFull,
   maybeCommitReviewEmail,
+  postRunPrLanded,
   prepareWorkspaceForGithubIssue,
+  returnToDefaultBranchAfterMerge,
 } from '../whatsapp/agents/claudePostRun.js';
 
 const execFileAsync = promisify(execFile);
@@ -217,5 +219,83 @@ describe('prepareWorkspaceForGithubIssue resume', () => {
     const prep = await prepareWorkspaceForGithubIssue(repo, 9, 'thing');
     assert.equal(prep.resumed, true);
     assert.equal(await git(repo, ['rev-parse', 'HEAD']), pushedTip);
+  });
+});
+
+/**
+ * Bare origin whose default branch is `defaultBranch`, cloned locally (so `origin/HEAD` is set like a
+ * real clone), with the local clone sitting on a finished issue branch that was merged on origin.
+ * @param {string} defaultBranch
+ */
+async function cloneOnMergedIssueBranch(defaultBranch) {
+  const seed = await initBareRepoWithMain();
+  if (defaultBranch !== 'main') await git(seed, ['branch', '-M', defaultBranch]);
+  const origin = await mkdtemp(join(tmpdir(), 'wa-origin-'));
+  await execFileAsync('git', ['init', '--bare', '-b', defaultBranch, origin], { encoding: 'utf8' });
+  await git(seed, ['remote', 'add', 'origin', origin]);
+  await git(seed, ['push', '-q', 'origin', defaultBranch]);
+
+  const repo = await mkdtemp(join(tmpdir(), 'wa-clone-'));
+  await execFileAsync('git', ['clone', '-q', origin, repo], { encoding: 'utf8' });
+  await git(repo, ['config', 'user.email', 'test@test.local']);
+  await git(repo, ['config', 'user.name', 'test']);
+  await git(repo, ['checkout', '-b', 'claude/issue-5-thing']);
+  await writeFile(join(repo, 'work.txt'), 'work\n', 'utf8');
+  await git(repo, ['add', 'work.txt']);
+  await git(repo, ['commit', '-m', 'work']);
+
+  // The PR merges on GitHub: the default branch moves on origin, the local clone doesn't know yet.
+  await git(seed, ['fetch', '-q', repo, 'claude/issue-5-thing']);
+  await git(seed, ['merge', '-q', '--no-edit', 'FETCH_HEAD']);
+  await git(seed, ['push', '-q', 'origin', defaultBranch]);
+  return { repo, seed, mergedTip: await git(seed, ['rev-parse', 'HEAD']) };
+}
+
+describe('returnToDefaultBranchAfterMerge', () => {
+  it('checks out and fast-forwards main after the issue PR merged', async () => {
+    const { repo, mergedTip } = await cloneOnMergedIssueBranch('main');
+    const out = await returnToDefaultBranchAfterMerge(repo);
+    assert.deepEqual(out, { ok: true, defaultBranch: 'main' });
+    assert.equal(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
+    assert.equal(await git(repo, ['rev-parse', 'HEAD']), mergedTip);
+  });
+
+  it('uses master when that is the repo default, even if a main branch also exists', async () => {
+    const { repo, seed, mergedTip } = await cloneOnMergedIssueBranch('master');
+    await git(seed, ['push', '-q', 'origin', 'master:main']);
+    const out = await returnToDefaultBranchAfterMerge(repo);
+    assert.deepEqual(out, { ok: true, defaultBranch: 'master' });
+    assert.equal(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'master');
+    assert.equal(await git(repo, ['rev-parse', 'HEAD']), mergedTip);
+  });
+
+  it('leaves a dirty tree on the issue branch', async () => {
+    const { repo } = await cloneOnMergedIssueBranch('main');
+    await writeFile(join(repo, 'work.txt'), 'uncommitted\n', 'utf8');
+    const out = await returnToDefaultBranchAfterMerge(repo);
+    assert.deepEqual(out, { ok: false, reason: 'dirty_tree' });
+    assert.equal(await git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']), 'claude/issue-5-thing');
+  });
+});
+
+describe('postRunPrLanded', () => {
+  it('is true for a direct merge or a queued auto-merge whose issue closed', () => {
+    assert.equal(postRunPrLanded({ prAutoMergeResult: { ok: true, mergedDirectly: true } }), true);
+    assert.equal(
+      postRunPrLanded({ prAutoMergeResult: { ok: true }, issueCloseWait: { closed: true } }),
+      true
+    );
+  });
+
+  it('is false while auto-merge is still pending, when it failed, or when it never ran', () => {
+    assert.equal(
+      postRunPrLanded({ prAutoMergeResult: { ok: true }, issueCloseWait: { closed: false } }),
+      false
+    );
+    assert.equal(
+      postRunPrLanded({ prAutoMergeResult: { ok: false, mergedDirectly: true } }),
+      false
+    );
+    assert.equal(postRunPrLanded({ prAutoMergeResult: null, issueCloseWait: { closed: true } }), false);
   });
 });

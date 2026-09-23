@@ -421,6 +421,53 @@ export async function prepareWorkspaceForGithubIssue(repo, issueNumber, issueTit
 }
 
 /**
+ * True only when the PR is known to have landed: merged directly, or auto-merge queued and the linked
+ * issue then reached CLOSED. A queued-but-pending auto-merge does not count.
+ * @param {{ prAutoMergeResult?: { ok: boolean, mergedDirectly?: boolean } | null, issueCloseWait?: { closed?: boolean } | null }} opts
+ */
+export function postRunPrLanded({ prAutoMergeResult, issueCloseWait }) {
+  if (!prAutoMergeResult?.ok) return false;
+  return Boolean(prAutoMergeResult.mergedDirectly || issueCloseWait?.closed);
+}
+
+/**
+ * After the issue PR has merged, leave the workspace on the up-to-date default branch (`main` or
+ * `master`, whichever the repo uses) instead of the finished issue branch. Never forces: a dirty tree,
+ * unknown default branch, or failed checkout leaves the repo where it is (the next run's
+ * `prepareWorkspaceForGithubIssue` still normalizes it). A failed fast-forward keeps the checkout.
+ * @param {string} repo
+ * @returns {Promise<{ ok: boolean, defaultBranch?: string, reason?: string, error?: string }>}
+ */
+export async function returnToDefaultBranchAfterMerge(repo) {
+  try {
+    if (await getStatusPorcelain(repo)) {
+      logPost('return to default branch: skipped, working tree not clean');
+      return { ok: false, reason: 'dirty_tree' };
+    }
+    const hasOrigin = await hasOriginRemote(repo);
+    if (hasOrigin) await execGit(['fetch', 'origin'], repo);
+    const defaultBranch = await resolveDefaultBranchName(repo);
+    if (!defaultBranch) return { ok: false, reason: 'no_default_branch' };
+    if ((await getCurrentBranchName(repo)) !== defaultBranch) {
+      await execGit(['checkout', defaultBranch], repo);
+    }
+    if (hasOrigin) {
+      try {
+        await execGit(['pull', '--ff-only', 'origin', defaultBranch], repo);
+      } catch (e) {
+        logPost('return to default branch: fast-forward failed (left as is)', e.stderr || e.message || String(e));
+      }
+    }
+    logPost('return to default branch', { defaultBranch });
+    return { ok: true, defaultBranch };
+  } catch (e) {
+    const error = e.stderr || e.message || String(e);
+    logPost('return to default branch: failed', error);
+    return { ok: false, reason: 'git_error', error };
+  }
+}
+
+/**
  * Markdown summary of what a resumed run should already know: uncommitted changes (if any) and
  * commits already on this branch that are not yet on `defaultBranch`. Empty string on any git error
  * (best-effort context only — never blocks the resume).
@@ -2352,6 +2399,11 @@ export async function maybeCommitReviewEmail(opts) {
     }
   }
 
+  /** Merged → done with the issue branch; anything else stays put so the next run can resume it. */
+  const returnToDefaultBranch = postRunPrLanded({ prAutoMergeResult, issueCloseWait })
+    ? await returnToDefaultBranchAfterMerge(repo)
+    : null;
+
   const parts = [];
   if (existingPr) {
     parts.push(`The agent made no new changes; re-reviewed the open PR ${existingPr.url} (${existingPr.state}).`);
@@ -2470,6 +2522,14 @@ export async function maybeCommitReviewEmail(opts) {
     }
   }
 
+  if (returnToDefaultBranch?.ok) {
+    parts.push(`Workspace switched back to \`${returnToDefaultBranch.defaultBranch}\`.`);
+  } else if (returnToDefaultBranch) {
+    parts.push(
+      `Could not switch the workspace back to the default branch (${returnToDefaultBranch.reason}${returnToDefaultBranch.error ? `: ${returnToDefaultBranch.error}` : ''}); the next issue run will do it.`
+    );
+  }
+
   return {
     ran: true,
     note: parts.join(' '),
@@ -2486,6 +2546,7 @@ export async function maybeCommitReviewEmail(opts) {
     prAutoMergeResult,
     issueCloseWait,
     postCloseChangesEmail,
+    returnToDefaultBranch,
     usage,
   };
 }
