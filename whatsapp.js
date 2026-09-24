@@ -70,7 +70,14 @@ const agentRunner = agentRunnerUrl
       redisUrl: process.env.REDIS_URL,
       sendText: async (chatId, text) => {
         if (!waSocket) throw new Error('WhatsApp socket not ready');
-        await waSocket.sendMessage(chatId, { text });
+        // bounded: a send that never settles would wedge the outbox poll for good
+        let timer;
+        await Promise.race([
+          waSocket.sendMessage(chatId, { text }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('WhatsApp send timed out')), 60_000);
+          }),
+        ]).finally(() => clearTimeout(timer));
       },
       getOwnerJid: ownerJidFromMyPhone,
       logger,

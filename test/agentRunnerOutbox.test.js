@@ -160,3 +160,27 @@ describe('agent-runner outbox drain', () => {
     assert.equal(await drain.missedReport(), 'No missed agent messages.');
   });
 });
+
+describe('agent-runner outbox catch-up notice', () => {
+  it('retries the "you missed" notice on the next poll when it fails to send', async () => {
+    const store = fakeStore([entry('1-0', 'owner', 'a')]);
+    let fail = true;
+    const sent = [];
+    const drain = createOutboxDrain({
+      store,
+      sendText: async (chatId, text) => {
+        if (fail) throw new Error('socket closed');
+        sent.push(text);
+      },
+      getOwnerJid: () => OWNER_JID,
+      logger: { info() {}, warn() {}, error() {} },
+    });
+    await assert.rejects(drain.poll());
+    assert.equal(await store.getCursor(), null);
+
+    fail = false;
+    await drain.poll();
+    assert.deepEqual(sent, ['You missed 1 agent message, `claude:missed` to list them']);
+    assert.equal(await store.getCursor(), '1-0');
+  });
+});

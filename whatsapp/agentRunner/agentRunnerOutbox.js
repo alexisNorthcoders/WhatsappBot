@@ -47,15 +47,16 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
     }
     const lastId = missed[missed.length - 1].id;
     await store.setMissed({ afterId: cursor, toId: lastId });
+    const owner = getOwnerJid();
+    const n = missed.length;
+    if (owner) {
+      // before moving the cursor: a failed notice is retried (with a fresh count) on the next poll
+      await sendText(owner, `You missed ${n} agent message${n === 1 ? '' : 's'}, \`claude:missed\` to list them`);
+    } else {
+      logger.warn({ count: n }, 'agent-runner: missed outbox messages, but MY_PHONE is not set');
+    }
     await store.setCursor(lastId);
     caughtUp = true;
-    const owner = getOwnerJid();
-    if (!owner) {
-      logger.warn({ count: missed.length }, 'agent-runner: missed outbox messages, but MY_PHONE is not set');
-      return;
-    }
-    const n = missed.length;
-    await sendText(owner, `You missed ${n} agent message${n === 1 ? '' : 's'}, \`claude:missed\` to list them`);
   }
 
   async function deliver() {

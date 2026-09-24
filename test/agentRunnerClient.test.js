@@ -49,6 +49,18 @@ describe('agent-runner client', () => {
     await assert.rejects(html.sendCommand({ text: 'claude', replyTo: 'c' }), AgentRunnerUnreachableError);
   });
 
+  it('flags a timeout (the runner may still be working) apart from a refused connection', async () => {
+    const client = createAgentRunnerClient({
+      baseUrl: 'http://x',
+      commandTimeoutMs: 5,
+      fetchImpl: (url, init) =>
+        new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))),
+    });
+    const err = await client.sendCommand({ text: 'claude issue:1', replyTo: 'c' }).catch((e) => e);
+    assert.ok(err instanceof AgentRunnerUnreachableError);
+    assert.equal(err.timedOut, true);
+  });
+
   it('GETs /status', async () => {
     const client = createAgentRunnerClient({
       baseUrl: 'http://x',

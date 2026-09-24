@@ -387,6 +387,19 @@ describe('createMessageOrchestrator agent-runner delegation (AGENT_RUNNER_URL se
     assert.deepEqual(log, [{ op: 'sendText', chatId: '111@s.whatsapp.net', text: 'Agent runner is not reachable' }]);
   });
 
+  it('says the runner may still be working when /command timed out', async () => {
+    const { ports, log } = runnerPorts({
+      runner: {
+        async sendCommand() {
+          throw Object.assign(new Error('timeout'), { timedOut: true });
+        },
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude issue:3' }));
+    assert.equal(log.length, 1);
+    assert.match(log[0].text, /didn't answer in time.*claude:status/s);
+  });
+
   it('handles claude:missed in the bot instead of forwarding it', async () => {
     const { ports, log, calls } = runnerPorts();
     await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude:missed' }));

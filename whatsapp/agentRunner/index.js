@@ -35,7 +35,13 @@ export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwner
       redis.on('ready', () => {
         down = false;
       });
-      connecting = redis.connect().then(() => redis);
+      connecting = redis.connect().then(
+        () => redis,
+        (err) => {
+          connecting = null;
+          throw err;
+        }
+      );
     }
     return Promise.race([
       connecting,

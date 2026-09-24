@@ -16,7 +16,7 @@ const DEFAULT_BUTTONS = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'sele
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
  * @param {{ info: Function; warn: Function; error: Function }} ports.logger
  * @param {{ labels: string[] }} [ports.buttons]
- * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} [ports.access] required with `agentRunner`
+ * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} [ports.access] required when `ports.agentRunner` is set
  * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} [ports.agentRunner]
  *   Set when `AGENT_RUNNER_URL` is: `claude…` commands go to agent-runner instead of the command registry.
  */
@@ -47,8 +47,10 @@ export function createMessageOrchestrator(ports) {
     try {
       reply = await ports.agentRunner.sendCommand({ text: m.text, replyTo: m.chatId });
     } catch (err) {
-      ports.logger.warn('agent-runner command failed:', err?.message || err);
-      reply = 'Agent runner is not reachable';
+      ports.logger.warn({ err: err?.message || err }, 'agent-runner command failed');
+      reply = err?.timedOut
+        ? "Agent runner didn't answer in time. It may still be working on it, check `claude:status`."
+        : 'Agent runner is not reachable';
     }
     if (reply) await ports.messaging.sendText(m.chatId, reply);
   }
@@ -65,7 +67,7 @@ export function createMessageOrchestrator(ports) {
     try {
       status = await ports.agentRunner.status();
     } catch (err) {
-      ports.logger.warn('agent-runner status failed, restarting anyway:', err?.message || err);
+      ports.logger.warn({ err: err?.message || err }, 'agent-runner status failed, restarting anyway');
       return false;
     }
     if (!status?.busy) return false;
