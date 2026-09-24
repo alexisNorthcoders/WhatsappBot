@@ -316,3 +316,160 @@ describe('runAgentsChainSequential', () => {
     assert.equal(log[0].text, 'rainy');
   });
 });
+
+describe('createMessageOrchestrator agent-runner delegation (AGENT_RUNNER_URL set)', () => {
+  function runnerPorts({ allowed = true, runner = {}, routes = {} } = {}) {
+    const log = [];
+    const calls = [];
+    const ports = basePorts({
+      __log: log,
+      access: { isAllowedActor: () => allowed },
+      agentRunner: {
+        async sendCommand(req) {
+          calls.push({ op: 'command', ...req });
+          return 'runner-reply';
+        },
+        async status() {
+          calls.push({ op: 'status' });
+          return { busy: false, activeRun: null, paused: false };
+        },
+        async missedReport() {
+          calls.push({ op: 'missed' });
+          return 'missed-report';
+        },
+        ...runner,
+      },
+      routes: {
+        runSpritePlus: async () => ({ handled: false }),
+        runSdxlPlus: async () => ({ handled: false }),
+        // like the real registry: `!…` routes are legacy, not registered commands
+        runCommandByFirstToken: async (m) => {
+          if (m.text.startsWith('!')) return { handled: false };
+          log.push({ op: 'registry' });
+          return { handled: true };
+        },
+        runLegacyRoutes: async () => {
+          log.push({ op: 'legacy' });
+          return { handled: true };
+        },
+        ...routes,
+      },
+    });
+    return { ports, log, calls };
+  }
+
+  for (const text of ['claude fix the bug', 'Claude issue:42', 'claude:status', 'claude:stop now']) {
+    it(`forwards "${text}" verbatim with replyTo = chatId and sends back the reply`, async () => {
+      const { ports, log, calls } = runnerPorts();
+      await createMessageOrchestrator(ports).handleInbound(fakeInbound({ chatId: 'c@lid', text }));
+      assert.deepEqual(calls, [{ op: 'command', text, replyTo: 'c@lid' }]);
+      assert.deepEqual(log, [{ op: 'sendText', chatId: 'c@lid', text: 'runner-reply' }]);
+    });
+  }
+
+  it('denies claude commands from a non-allowlisted actor without calling the runner', async () => {
+    const { ports, log, calls } = runnerPorts({ allowed: false });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude hi' }));
+    assert.deepEqual(calls, []);
+    assert.equal(log.length, 1);
+    assert.match(log[0].text, /Not allowed to run the Claude agent/);
+  });
+
+  it('replies once "Agent runner is not reachable" when the runner is down', async () => {
+    const { ports, log } = runnerPorts({
+      runner: {
+        async sendCommand() {
+          throw new Error('ECONNREFUSED');
+        },
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude hi' }));
+    assert.deepEqual(log, [{ op: 'sendText', chatId: '111@s.whatsapp.net', text: 'Agent runner is not reachable' }]);
+  });
+
+  it('says the runner may still be working when /command timed out', async () => {
+    const { ports, log } = runnerPorts({
+      runner: {
+        async sendCommand() {
+          throw Object.assign(new Error('timeout'), { timedOut: true });
+        },
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude issue:3' }));
+    assert.equal(log.length, 1);
+    assert.match(log[0].text, /didn't answer in time.*claude:status/s);
+  });
+
+  it('handles claude:missed in the bot instead of forwarding it', async () => {
+    const { ports, log, calls } = runnerPorts();
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude:missed' }));
+    assert.deepEqual(calls, [{ op: 'missed' }]);
+    assert.deepEqual(log, [{ op: 'sendText', chatId: '111@s.whatsapp.net', text: 'missed-report' }]);
+  });
+
+  it('does not forward other messages', async () => {
+    const { ports, log, calls } = runnerPorts();
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'summarize this' }));
+    assert.deepEqual(calls, []);
+    assert.deepEqual(log, [{ op: 'registry' }]);
+  });
+
+  it('!restart refuses while a run is active', async () => {
+    const { ports, log } = runnerPorts({
+      runner: {
+        status: async () => ({ busy: true, activeRun: { runId: 'r7' }, paused: false }),
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
+    assert.deepEqual(log, [
+      { op: 'sendText', chatId: '111@s.whatsapp.net', text: 'Run r7 in progress, wait or `claude:stop`.' },
+    ]);
+  });
+
+  it('!restart is guarded even if the command registry would handle it', async () => {
+    const registry = [];
+    const { ports, log } = runnerPorts({
+      runner: {
+        status: async () => ({ busy: true, activeRun: { runId: 'r7' }, paused: false }),
+      },
+      routes: {
+        runCommandByFirstToken: async (m) => {
+          registry.push(m.text);
+          return { handled: true };
+        },
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
+    assert.deepEqual(registry, []);
+    assert.deepEqual(log, [
+      { op: 'sendText', chatId: '111@s.whatsapp.net', text: 'Run r7 in progress, wait or `claude:stop`.' },
+    ]);
+  });
+
+  it('!restart goes ahead when no run is active, or the runner is unreachable', async () => {
+    for (const status of [
+      async () => ({ busy: false, activeRun: null, paused: false }),
+      async () => {
+        throw new Error('down');
+      },
+    ]) {
+      const { ports, log } = runnerPorts({ runner: { status } });
+      await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
+      assert.deepEqual(log, [{ op: 'legacy' }]);
+    }
+  });
+
+  it('!restart from a non-allowlisted actor skips the status check (legacy route denies it)', async () => {
+    const { ports, log, calls } = runnerPorts({ allowed: false });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
+    assert.deepEqual(calls, []);
+    assert.deepEqual(log, [{ op: 'legacy' }]);
+  });
+
+  it('without an agentRunner port, claude commands go to the command registry as before', async () => {
+    const { ports, log } = runnerPorts();
+    delete ports.agentRunner;
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude hi' }));
+    assert.deepEqual(log, [{ op: 'registry' }]);
+  });
+});

@@ -38,6 +38,7 @@ import {
 } from './whatsapp/agents/claudeCliPending.js';
 import { removeStaleActiveRuns } from './whatsapp/agents/claudeRunTelemetry.js';
 import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
+import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
 import {
   startReminderScheduler,
@@ -57,6 +58,33 @@ function ownerJidFromMyPhone() {
   const d = raw.replace(/\D/g, '');
   return d ? `${d}@s.whatsapp.net` : null;
 }
+
+/**
+ * Set when `AGENT_RUNNER_URL` is: `claude…` commands go to agent-runner, its outbox is delivered
+ * from here, and the in-process cron issue tracer stays off.
+ */
+const agentRunnerUrl = process.env.AGENT_RUNNER_URL?.trim();
+const agentRunner = agentRunnerUrl
+  ? createAgentRunnerIntegration({
+      url: agentRunnerUrl,
+      redisUrl: process.env.REDIS_URL,
+      sendText: async (chatId, text) => {
+        if (!waSocket) throw new Error('WhatsApp socket not ready');
+        // bounded: a send that never settles would wedge the outbox poll for good
+        let timer;
+        await Promise.race([
+          waSocket.sendMessage(chatId, { text }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('WhatsApp send timed out')), 60_000);
+          }),
+        ]).finally(() => clearTimeout(timer));
+      },
+      getOwnerJid: ownerJidFromMyPhone,
+      logger,
+    })
+  : null;
+const agentRunnerOutboxPollMs =
+  parseInt(process.env.AGENT_RUNNER_OUTBOX_POLL_MS || '', 10) || 5000;
 
 /** Avoid overlapping reconnect timers when the connection flaps (prevents duplicate sockets → 440 connectionReplaced). */
 let reconnectTimer = null;
@@ -144,13 +172,17 @@ async function startSock() {
         getSocket: () => waSocket,
         logger,
       });
+      // the first poll of the process reports what arrived while the bot was down
+      agentRunner?.outbox.start(agentRunnerOutboxPollMs);
       if (myPhone) {
         const getOwnerJid = () => ownerJidFromMyPhone();
-        startCronIssueTracer({
-          getSocket: () => waSocket,
-          getOwnerJid,
-          logger,
-        });
+        if (!agentRunner) {
+          startCronIssueTracer({
+            getSocket: () => waSocket,
+            getOwnerJid,
+            logger,
+          });
+        }
         startRedditCronDigest({
           getSocket: () => waSocket,
           getOwnerJid,
@@ -177,6 +209,7 @@ async function startSock() {
       })();
     } else if (connection === 'close') {
       stopReminderScheduler();
+      agentRunner?.outbox.stop();
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       /*
        * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:
@@ -244,6 +277,7 @@ async function startSock() {
         commands,
         secondPhone,
         isAllowedActor,
+        agentRunner: agentRunner?.port ?? null,
       }),
   });
 

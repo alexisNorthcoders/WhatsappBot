@@ -31,9 +31,10 @@ import { runAgentsChainSequential } from './agentsTryHandle.js';
  * @param {Record<string, unknown>} deps.commands
  * @param {string | undefined} deps.secondPhone
  * @param {(actorId: string | null, actorAltId?: string | null) => boolean} deps.isAllowedActor
+ * @param {object | null} [deps.agentRunner] the orchestrator's `agentRunner` port, when `AGENT_RUNNER_URL` is set
  */
 export function createProductionPorts(deps) {
-  const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor } = deps;
+  const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
 
   async function sendRandomMessage(recipient) {
     const topic = pickRandomTopic(topics);
@@ -217,6 +218,8 @@ export function createProductionPorts(deps) {
         return { handled: r.handled };
       },
     },
+    access: { isAllowedActor },
+    ...(agentRunner ? { agentRunner } : {}),
     logger,
     buttons: { labels: ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'] },
   };
