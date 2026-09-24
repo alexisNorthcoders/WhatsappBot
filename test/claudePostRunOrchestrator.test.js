@@ -50,6 +50,17 @@ describe('claudePostRun decision logic', () => {
     );
   });
 
+  it('autofix declining the feedback (AUTOFIX_NO_CHANGES) passes the gate', () => {
+    assert.equal(
+      autoMergeAllowedByReviewGate({
+        reviewOutcome: 'success',
+        reviewVerdict: VERDICT_REQUEST_CHANGES,
+        postReviewAutofix: { ok: false, mergeBlocked: false, noChanges: true, detail: 'false positive' },
+      }),
+      true
+    );
+  });
+
   it('autofix failure / no-op path blocks auto-merge (mergeBlocked implies ok false)', () => {
     assert.equal(
       autoMergeAllowedByReviewGate({
@@ -193,7 +204,7 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
     assert.ok(tryGhPrReviewComment.mock.callCount() >= 1);
   });
 
-  it('autofix declining with noChanges posts reasoning, not a failure, and holds merge', async () => {
+  it('autofix declining with noChanges posts reasoning, not a failure, and auto-merges', async () => {
     const tryGhPrQueueAutoMerge = mock.fn(async () => ({ ok: true }));
     const tryGhPrReviewComment = mock.fn(async () => ({ ok: true }));
     await runPostReviewAutofixMergeFlow({
@@ -211,7 +222,7 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       pushResultOk: true,
       runSinglePostReviewAutofix: async () => ({
         ok: false,
-        mergeBlocked: true,
+        mergeBlocked: false,
         noChanges: true,
         detail: 'made **no changes**: false positive',
       }),
@@ -220,10 +231,10 @@ describe('runPostReviewAutofixMergeFlow (mocked gh + agent)', () => {
       waitForGithubIssueClosed: async () => ({}),
       logPost: () => {},
     });
-    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 0);
+    assert.equal(tryGhPrQueueAutoMerge.mock.callCount(), 1);
     const body = tryGhPrReviewComment.mock.calls[0].arguments[2];
-    assert.match(body, /made no changes/);
-    assert.match(body, /Human decision needed/);
+    assert.match(body, /made \*\*no changes\*\*: false positive/);
+    assert.match(body, /overruled the review feedback/);
     assert.doesNotMatch(body, /autofix failed/);
   });
 

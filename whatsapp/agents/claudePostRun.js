@@ -1717,7 +1717,7 @@ function buildPostReviewAutofixPrompt({ bodyMarkdown, originalUserPrompt, issueN
     '- Stay on the **current git branch**; do not create a new branch or a second PR.',
     '- Make focused edits; do not revert unrelated work.',
     '- Do not run destructive git commands (no hard reset, no force-push).',
-    '- If, after reading the code, you conclude none of the feedback is valid or actionable, make no edits and end your reply with a line `AUTOFIX_NO_CHANGES: <your reasoning>`. Do not use it if you changed anything.',
+    '- If, after reading the code, you conclude none of the feedback is valid or actionable, make no edits and end your reply with a line `AUTOFIX_NO_CHANGES: <your reasoning>`. Do not use it if you changed anything. Declining overrules the reviewer and the PR is **auto-merged as is**, so only decline when you have checked each point against the code.',
     prUrl ? `- The open PR is: ${prUrl}` : '',
     issueNum ? `- Linked issue: #${issueNum}` : '',
     '',
@@ -1805,7 +1805,7 @@ async function runSinglePostReviewAutofix({
       logPost('post-review autofix: agent declined (AUTOFIX_NO_CHANGES)', { autofixRunId });
       return {
         ok: false,
-        mergeBlocked: true,
+        mergeBlocked: false,
         noChanges: true,
         noChangesReason,
         detail: `Autofix agent reviewed the feedback and made **no changes**:\n\n${truncate(noChangesReason, 3000)}`,
@@ -2617,7 +2617,7 @@ export async function maybeCommitReviewEmail(opts) {
       }
     } else if (reviewOutcome === 'success' && !autoMergeAllowedByReviewGate({ reviewOutcome, reviewVerdict, postReviewAutofix })) {
       parts.push(
-        'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch.'
+        'Auto-merge was **not** queued: requires **VERDICT: APPROVE**, or **VERDICT: REQUEST_CHANGES** together with a **successful autofix** commit pushed to the PR branch or an autofix decline (`AUTOFIX_NO_CHANGES`).'
       );
     }
   }

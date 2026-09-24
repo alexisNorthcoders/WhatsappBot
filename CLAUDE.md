@@ -143,7 +143,9 @@ This is the most complex subsystem, spread across `whatsapp/agents/claude*.js` a
   after the agent exits, commits if needed, pushes, opens a PR via `gh`, waits for
   mergeability, and can auto-merge behind a review-verdict gate
   (`claudePostRunDecisionLogic.js` parses `VERDICT: APPROVE` / `VERDICT: REQUEST_CHANGES`,
-  `claudePostRunReviewFollowUp.js` runs an autofix pass on `REQUEST_CHANGES` before re-merging).
+  `claudePostRunReviewFollowUp.js` runs an autofix pass on `REQUEST_CHANGES` before re-merging;
+  if that agent judges the feedback wrong it replies `AUTOFIX_NO_CHANGES: <reason>`, which
+  overrules the reviewer and still auto-merges).
   Controlled by `CLAUDE_POST_RUN`, `CLAUDE_POST_RUN_PUSH`, `CLAUDE_POST_RUN_PR` env flags. If the
   agent errors out but left uncommitted work, it commits a WIP snapshot so the next attempt can
   resume cleanly rather than losing the work.
