@@ -426,6 +426,26 @@ describe('createMessageOrchestrator agent-runner delegation (AGENT_RUNNER_URL se
     ]);
   });
 
+  it('!restart is guarded even if the command registry would handle it', async () => {
+    const registry = [];
+    const { ports, log } = runnerPorts({
+      runner: {
+        status: async () => ({ busy: true, activeRun: { runId: 'r7' }, paused: false }),
+      },
+      routes: {
+        runCommandByFirstToken: async (m) => {
+          registry.push(m.text);
+          return { handled: true };
+        },
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
+    assert.deepEqual(registry, []);
+    assert.deepEqual(log, [
+      { op: 'sendText', chatId: '111@s.whatsapp.net', text: 'Run r7 in progress, wait or `claude:stop`.' },
+    ]);
+  });
+
   it('!restart goes ahead when no run is active, or the runner is unreachable', async () => {
     for (const status of [
       async () => ({ busy: false, activeRun: null, paused: false }),

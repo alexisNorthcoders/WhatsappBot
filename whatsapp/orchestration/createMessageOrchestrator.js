@@ -137,13 +137,14 @@ export function createMessageOrchestrator(ports) {
       return;
     }
 
+    // before the command registry, so no registered `!restart` can bypass the runner guard
+    if (ports.agentRunner && command === '!restart' && (await refuseRestartWhileRunActive(m))) {
+      return;
+    }
+
     {
       const r = await ports.routes.runCommandByFirstToken(m);
       if (r.handled) return;
-    }
-
-    if (ports.agentRunner && command === '!restart' && (await refuseRestartWhileRunActive(m))) {
-      return;
     }
 
     {
