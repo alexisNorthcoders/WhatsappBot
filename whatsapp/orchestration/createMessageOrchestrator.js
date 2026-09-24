@@ -1,3 +1,5 @@
+import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+
 /** @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage */
 
 const DEFAULT_BUTTONS = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
@@ -14,12 +16,64 @@ const DEFAULT_BUTTONS = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'sele
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
  * @param {{ info: Function; warn: Function; error: Function }} ports.logger
  * @param {{ labels: string[] }} [ports.buttons]
+ * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} [ports.access] required with `agentRunner`
+ * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} [ports.agentRunner]
+ *   Set when `AGENT_RUNNER_URL` is: `claude…` commands go to agent-runner instead of the command registry.
  */
 export function createMessageOrchestrator(ports) {
   const buttonLabels = ports.buttons?.labels ?? DEFAULT_BUTTONS;
 
   function isButtonLabel(lowerText) {
     return buttonLabels.includes(lowerText);
+  }
+
+  /**
+   * `claude…` → agent-runner (`claude:missed` is answered from the bot's own outbox cursor).
+   * @param {InboundMessage} m
+   */
+  async function delegateToAgentRunner(m, command) {
+    if (!ports.access.isAllowedActor(m.actorId, m.actorAltId)) {
+      await ports.messaging.sendText(
+        m.chatId,
+        `Not allowed to run the Claude agent from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
+      );
+      return;
+    }
+    if (command === 'claude:missed') {
+      await ports.messaging.sendText(m.chatId, await ports.agentRunner.missedReport());
+      return;
+    }
+    let reply;
+    try {
+      reply = await ports.agentRunner.sendCommand({ text: m.text, replyTo: m.chatId });
+    } catch (err) {
+      ports.logger.warn('agent-runner command failed:', err?.message || err);
+      reply = 'Agent runner is not reachable';
+    }
+    if (reply) await ports.messaging.sendText(m.chatId, reply);
+  }
+
+  /**
+   * A bot restart mid-run can load a half-edited checkout, so `!restart` waits for the runner.
+   * Unreachable runner → nothing to wait for. Non-allowlisted actors fall through to the denial.
+   * @param {InboundMessage} m
+   * @returns {Promise<boolean>} true when the restart was refused
+   */
+  async function refuseRestartWhileRunActive(m) {
+    if (!ports.access.isAllowedActor(m.actorId, m.actorAltId)) return false;
+    let status;
+    try {
+      status = await ports.agentRunner.status();
+    } catch (err) {
+      ports.logger.warn('agent-runner status failed, restarting anyway:', err?.message || err);
+      return false;
+    }
+    if (!status?.busy) return false;
+    await ports.messaging.sendText(
+      m.chatId,
+      `Run ${status.activeRun?.runId ?? '?'} in progress, wait or \`claude:stop\`.`,
+    );
+    return true;
   }
 
   /**
@@ -76,9 +130,18 @@ export function createMessageOrchestrator(ports) {
       if (r.handled) return;
     }
 
+    if (ports.agentRunner && command.startsWith('claude')) {
+      await delegateToAgentRunner(m, command);
+      return;
+    }
+
     {
       const r = await ports.routes.runCommandByFirstToken(m);
       if (r.handled) return;
+    }
+
+    if (ports.agentRunner && command === '!restart' && (await refuseRestartWhileRunActive(m))) {
+      return;
     }
 
     {

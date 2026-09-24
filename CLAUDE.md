@@ -171,6 +171,14 @@ This is the most complex subsystem, spread across `whatsapp/agents/claude*.js` a
   a separate process and flag `orphaned`/`stale` runs when the bot process died. `stdout` returned by
   `runClaudeCliAgent` is the final `result` text, unchanged for callers.
 
+- **agent-runner delegation** (`whatsapp/agentRunner/`, `docs/adr/0001-agent-runner-out-of-process.md`):
+  when `AGENT_RUNNER_URL` is set, the orchestrator forwards every `claude…` message (after
+  `isAllowedActor`) to the separate agent-runner process instead of the pipeline above, `!restart`
+  refuses while a runner run is active, and the in-process cron tracer is off. The bot drains the
+  runner's Redis Stream outbox (`agent-runner:outbox`) with its own cursor in Redis, one merged
+  message per recipient per poll; backlog from while the bot was down is summarised as "you missed
+  N" instead of replayed, and `claude:missed` (answered in the bot) lists it.
+
 When touching this pipeline, the manual (`commands/claude.js`) and cron
 (`cronIssueTracer.js`) paths are meant to share the exact same underlying functions
 (`runIssueFetchAndGitPrep`, `runClaudeAgentWithPost`) — don't fork the logic between them.
