@@ -7,19 +7,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A Node.js (ESM, ES modules — `"type": "module"`) WhatsApp bot built on Baileys
 (`@whiskeysockets/baileys`, an unofficial WhatsApp Web client). It listens on a linked WhatsApp
 device and routes inbound messages to commands, "agents" (small NL-triggered assistants), or an
-OpenAI-backed chat fallback. A significant part of the codebase is a self-hosted Claude Code CLI
-automation pipeline: the bot can spawn `claude` headlessly to work GitHub issues end-to-end
-(fetch issue → branch → run agent → commit → open PR → self-review → auto-merge), triggered
-either manually from WhatsApp or by a cron-style poller.
+OpenAI-backed chat fallback. `claude…` messages are forwarded to agent-runner
+(`/home/alexis/Projects/agent-runner`, a separate PM2 process), which runs the Claude Code CLI
+headlessly — including working GitHub issues end-to-end and the cron issue tracer. The bot itself
+no longer spawns `claude`.
 
 The repo also contains several loosely-related side projects (a React chat UI, a Philips Hue
 controller, a Joplin notes integration, a Pokémon-playing vision demo, a streaming server) that
 share this top-level `package.json`/`node_modules` but are otherwise independent — see
 "Side projects" below.
 
-Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `pm2 restart` in
-logs/messages throughout the agent code — the Claude CLI agent is explicitly instructed never to
-restart the PM2 process that spawned it, since the parent is waiting to report the result back).
+Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `pm2 restart`).
 
 ## Commands
 
@@ -43,8 +41,7 @@ injected as plain objects/functions and tests pass fakes directly (see "Testing"
 
 See `CONTRIBUTING.md`. In short: branch off up-to-date `main` per GitHub issue
 (`git checkout -b issue/42-short-description`), commit, push, open a PR with `gh pr create --base
-main`. This convention matters here because the Claude CLI automation pipeline (see below)
-programmatically replicates the same flow (branch naming, PR-per-issue) when it works issues
+main`. agent-runner replicates the same flow (branch, PR-per-issue) when it works issues
 unattended.
 
 ## Architecture
@@ -101,87 +98,26 @@ don't carry a matchable phone number. The owner is also recognised from a `@lid`
 message key's alternate id (`participantAlt` / `remoteJidAlt`, surfaced as `actorAltId`) is an
 allowed phone JID, or when the LID was resolved from `MY_PHONE`/`SECOND_PHONE` via the socket's
 LID mapping store on connect (`resolveOwnerLids`). Failed
-lookups or malformed ids deny. Any code path that can trigger the Claude CLI agent or a
+lookups or malformed ids deny. Any code path that can reach agent-runner or trigger a
 restart must check `isAllowedActor(actorId)` first.
 
-### Claude CLI agent pipeline (the big one)
+### Claude agent: delegated to agent-runner
 
-This is the most complex subsystem, spread across `whatsapp/agents/claude*.js` and
-`whatsapp/commands/claude.js`:
+Design: `docs/adr/0001-agent-runner-out-of-process.md`. The Claude CLI pipeline (freeform runs,
+`joplin:` runs, the GitHub issue pipeline, post-run PR/review/merge, the cron issue tracer,
+telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot's side is
+`whatsapp/agentRunner/`:
 
-- **Entry points**: `claude <instructions>` (freeform, in the default/bot workspace),
-  `claude <alias>: <instructions>` or `claude </abs/path> <instructions>` (run in another
-  allowlisted repo), `claude issue:<n>` / `claude issue:<alias>:<n>` (fetch a GitHub issue and
-  work it end-to-end), `claude joplin:<note>` (use a Joplin note body as the prompt). Parsing
-  lives in `whatsapp/commands/claude.js`.
-- **Workspace allowlisting** (`whatsapp/claudeWorkspaces.js`): the bot's own repo root is always
-  allowed; additional repos come from `CLAUDE_WORKSPACE_MAP` (`alias=/path,alias2=/path2`) or a
-  JSON file at `CLAUDE_WORKSPACE_MAP_FILE`. All paths are realpath-canonicalized and checked
-  against the allowlist — this is a security boundary (arbitrary absolute paths are rejected
-  unless they resolve to an allowlisted root), so treat changes here as security-sensitive.
-- **Single-flight lock** (`whatsapp/agents/claudeAgentBusy.js`): only one Claude CLI run at a
-  time across the whole process (manual command and cron tracer share the same lock).
-- **Process execution** (`whatsapp/agents/claudeCliAgent.js`): spawns `claude -p
-  --dangerously-skip-permissions <prompt>` as a child process, queued (serialized) so overlapping
-  WhatsApp messages never interleave repo edits. The prompt is prefixed with an explicit
-  instruction telling the agent never to restart/kill the PM2 process that spawned it (the parent
-  Node process is waiting synchronously to report the result back over WhatsApp). Output is
-  tee'd to `logs/claude-agent/<runId>.log` and capped in memory (`MAX_CAPTURE_BYTES`) before being
-  chunked back to WhatsApp (4096-char message limit).
-- **Pending-run recovery** (`whatsapp/agents/claudeCliPending.js`): a run's identity (sender, log
-  path, workspace) is persisted before spawning and cleared only after the completion message is
-  successfully delivered. On process restart, `whatsapp.js` checks for a leftover pending run and
-  notifies the owner that a previous run was interrupted (e.g. by a PM2 restart) instead of
-  silently losing it.
-- **Issue pipeline** (`whatsapp/agents/claudeIssuePipeline.js`, `ghIssueForClaude.js`): fetches
-  the issue via `gh`, prepares git state (checkout default branch, pull, create/resume an
-  `issue/<n>-...`-style branch — `claudePostRun.js`'s `prepareWorkspaceForGithubIssue`), runs the
-  CLI agent, then hands off to post-run automation. Resuming an interrupted run re-injects a
-  summary of what already changed so the agent doesn't restart from scratch.
-- **Post-run automation** (`whatsapp/agents/claudePostRun.js`, the largest file in the repo):
-  for `claude issue:<n>` runs only (freeform runs skip this entirely) — detects git activity
-  after the agent exits, commits if needed, pushes, opens a PR via `gh`, waits for
-  mergeability, and can auto-merge behind a review-verdict gate
-  (`claudePostRunDecisionLogic.js` parses `VERDICT: APPROVE` / `VERDICT: REQUEST_CHANGES`,
-  `claudePostRunReviewFollowUp.js` runs an autofix pass on `REQUEST_CHANGES` before re-merging;
-  if that agent judges the feedback wrong it replies `AUTOFIX_NO_CHANGES: <reason>`, which
-  overrules the reviewer and still auto-merges).
-  Controlled by `CLAUDE_POST_RUN`, `CLAUDE_POST_RUN_PUSH`, `CLAUDE_POST_RUN_PR` env flags. If the
-  agent errors out but left uncommitted work, it commits a WIP snapshot so the next attempt can
-  resume cleanly rather than losing the work.
-- **Cron issue tracer** (`whatsapp/agents/cronIssueTracer.js`): polls open GitHub issues labeled
-  `ready-for-agent` (lowest issue number wins) across this repo and one secondary allowlisted
-  workspace (`CRON_PLATFORMER_WORKSPACE_ALIAS`, default `platformer`), runs the exact same
-  fetch→prep→agent→post-run pipeline unattended, and tracks per-repo "last started issue"
-  (`cronLastStartedIssue.js`) so it doesn't hammer the same issue every tick — but a failed run,
-  timeout, or empty (no-git-change) run does *not* count as progress, so it will retry rather than
-  silently skip a stuck issue. An issue that already has an open agent PR (`claude/issue-<n>-…`
-  head) is worked to get that PR merged (the resume prompt has the agent merge the base in on a
-  conflict, then post-run re-runs the review / merge gate), but only once per PR state — PR head +
-  base tip, persisted in `cron-pr-attempts.json` (`cronPrAttempts.js`). A PR still blocked in the
-  same state is parked (owner told once) until either side moves. Runs only when the agent-busy
-  lock is free.
-
-- **Observability** (`claudeAgentCli.js`, `whatsapp/agents/claudeRunTelemetry.js`, `claudeStreamParser.js`,
-  `claudeAgentCliFormat.js`): the agent is spawned with `--output-format stream-json --verbose`; the parser
-  turns the event stream into a readable `logs/claude-agent/<runId>.log`, live state
-  (`logs/claude-agent/active/<runId>.json`), a history line per run (`runs.jsonl`: model, tokens,
-  cost) and cron tick state (`cron-state.json`) — all under the bot repo regardless of target
-  workspace. `npm run claude:status` / `claude:watch` / `claude:history` / `claude:logs` read them from
-  a separate process and flag `orphaned`/`stale` runs when the bot process died. `stdout` returned by
-  `runClaudeCliAgent` is the final `result` text, unchanged for callers.
-
-- **agent-runner delegation** (`whatsapp/agentRunner/`, `docs/adr/0001-agent-runner-out-of-process.md`):
-  when `AGENT_RUNNER_URL` is set, the orchestrator forwards every `claude…` message (after
-  `isAllowedActor`) to the separate agent-runner process instead of the pipeline above, `!restart`
-  refuses while a runner run is active, and the in-process cron tracer is off. The bot drains the
-  runner's Redis Stream outbox (`agent-runner:outbox`) with its own cursor in Redis, one merged
-  message per recipient per poll; backlog from while the bot was down is summarised as "you missed
-  N" instead of replayed, and `claude:missed` (answered in the bot) lists it.
-
-When touching this pipeline, the manual (`commands/claude.js`) and cron
-(`cronIssueTracer.js`) paths are meant to share the exact same underlying functions
-(`runIssueFetchAndGitPrep`, `runClaudeAgentWithPost`) — don't fork the logic between them.
+- The orchestrator forwards every message whose first token starts with `claude` (after
+  `isAllowedActor`) to the runner's localhost HTTP API (`AGENT_RUNNER_URL`, default
+  `http://127.0.0.1:3790`) and sends back its immediate reply. Nothing `claude…` reaches the
+  command registry.
+- `!restart` refuses while a runner run is active (a bot restart mid-run can load a half-edited
+  checkout); an unreachable runner doesn't block it.
+- Run results arrive asynchronously through the runner's Redis Stream outbox
+  (`agent-runner:outbox`). The bot drains it with its own cursor in Redis, one merged message per
+  recipient per poll; backlog from while the bot was down is summarised as "you missed N" instead
+  of replayed, and `claude:missed` (answered in the bot) lists it.
 
 ### Other background jobs started from `whatsapp.js`
 

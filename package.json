@@ -27,14 +27,7 @@
     "test": "node --test ./test/**/*.test.js",
     "eval:summarize": "node eval/summarize/run.mjs",
     "start": "node --no-deprecation whatsapp.js",
-    "start:joplin": "node --no-deprecation test-joplin.js",
-    "claude:pause": "node claudeAgentPauseCli.js pause",
-    "claude:resume": "node claudeAgentPauseCli.js resume",
-    "claude:pause:status": "node claudeAgentPauseCli.js status",
-    "claude:status": "node claudeAgentCli.js",
-    "claude:watch": "node claudeAgentCli.js watch",
-    "claude:history": "node claudeAgentCli.js history",
-    "claude:logs": "node claudeAgentCli.js logs"
+    "start:joplin": "node --no-deprecation test-joplin.js"
   },
   "keywords": [],
   "author": "",

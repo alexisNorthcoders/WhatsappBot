@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
-import { getClaudeCliRepoRoot } from './claudeCliAgent.js';
+import { getRepoRoot } from '../repoRoot.js';
 
 const FILE = 'reddit-cron-digest-last-sent.json';
 const DEFAULT_STATUS_FILE =
@@ -20,7 +20,7 @@ let inFlight = false;
 export function redditCronDigestLastSentPath() {
   const fromEnv = process.env.REDDIT_CRON_DIGEST_LAST_SENT_FILE?.trim();
   if (fromEnv) return fromEnv;
-  return join(getClaudeCliRepoRoot(), 'logs', 'claude-agent', FILE);
+  return join(getRepoRoot(), 'logs', 'claude-agent', FILE);
 }
 
 /**

@@ -31,7 +31,7 @@ import { runAgentsChainSequential } from './agentsTryHandle.js';
  * @param {Record<string, unknown>} deps.commands
  * @param {string | undefined} deps.secondPhone
  * @param {(actorId: string | null, actorAltId?: string | null) => boolean} deps.isAllowedActor
- * @param {object | null} [deps.agentRunner] the orchestrator's `agentRunner` port, when `AGENT_RUNNER_URL` is set
+ * @param {object} deps.agentRunner the orchestrator's `agentRunner` port
  */
 export function createProductionPorts(deps) {
   const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
@@ -142,14 +142,6 @@ export function createProductionPorts(deps) {
           return { handled: false };
         }
 
-        if (command === 'claude' && !isAllowedActor(m.actorId, m.actorAltId)) {
-          await sock.sendMessage(m.chatId, {
-            text:
-              `Not allowed to run the Claude agent from this identity.${lidExtraJidsHint(m.actorId)}\n\n(Phone chats use MY_PHONE / SECOND_PHONE; @lid chats need CLAUDE_AGENT_EXTRA_JIDS.)`,
-          });
-          return { handled: true };
-        }
-
         logger.info(`Executing command: ${command}`);
         try {
           await commands[command](sock, m.chatId, m.text, raw);
@@ -219,7 +211,7 @@ export function createProductionPorts(deps) {
       },
     },
     access: { isAllowedActor },
-    ...(agentRunner ? { agentRunner } : {}),
+    agentRunner,
     logger,
     buttons: { labels: ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'] },
   };

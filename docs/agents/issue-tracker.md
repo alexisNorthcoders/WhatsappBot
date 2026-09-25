@@ -15,11 +15,11 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Cron picker: cross-repo dependency ordering
 
-The cron issue tracer (`whatsapp/agents/cronIssueTracer.js`) skips a `ready-for-agent`-labeled
-issue when GitHub's native issue dependencies (see "Blocking" below) report an open blocker
-(`issue_dependencies_summary.blocked_by > 0`), trying the next-lowest eligible issue in the same
-repo before falling through to the next configured repo (`CRON_SECONDARY_WORKSPACE_ALIASES`). A
-lookup failure is treated as blocked, not as unblocked — the tracer will not guess.
+The cron issue tracer runs in agent-runner (see its README, "Cron issue tracer"), not in this
+repo. It skips a `ready-for-agent`-labeled issue when GitHub's native issue dependencies (see
+"Blocking" below) report an open blocker (`issue_dependencies_summary.blocked_by > 0`), trying the
+next-lowest eligible issue in the same repo before falling through to the next configured repo. A
+lookup failure is treated as blocked, not as unblocked.
 
 To block issue `B` on issue `A` (cross-repo works fine — the edge stores the blocker by its
 global database id, not by repo+number):
@@ -30,7 +30,7 @@ gh api --method POST repos/<owner-of-B>/<repo-of-B>/issues/<B>/dependencies/bloc
 ```
 
 The block clears itself once `A` closes — GitHub recomputes `issue_dependencies_summary` live, so
-nothing in this repo needs to update or remove it.
+nothing needs to update or remove it.
 
 ## Pull requests as a triage surface
 

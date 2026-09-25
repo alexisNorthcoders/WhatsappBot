@@ -59,18 +59,9 @@ Backend server made in **Node.js**:
    <img src="image-9.png" alt="pokemon game initial state" width="200"/>
    <img src="image-8.png" alt="pokemon game going right" width="200"/>
 
-## Monitoring the Claude agent (`claudeAgentCli.js`)
+## Claude agent
 
-A terminal CLI, similar to `pm2 status`, for seeing what the headless Claude agent and the cron issue tracer are doing. Run these from the repo root on the machine running the bot:
-
-| Command | What it shows |
-|---|---|
-| `npm run claude:status` | Snapshot: cron state (last/next tick), running agents, paused workspaces, rate-limit usage, spend, recent runs. Add `-- --json` for JSON. |
-| `npm run claude:watch` | Same view, live-refreshing every 2s. Pass a number of seconds to change it: `npm run claude:watch -- 5`. |
-| `npm run claude:history` | Table of finished runs: repo, issue, trigger (cron/manual), outcome, duration, model, tokens and cost. Use `-- -n 50` for more rows. |
-| `npm run claude:logs` | Log of the latest run. Pass a run ID for a specific one, or `-- -f` to follow it live. |
-
-Runs are flagged `orphaned` (the bot died but the agent is still running) or `stale` (leftover from a crash). History only includes runs made after the bot was restarted with this feature. Data is stored under `logs/claude-agent/`.
+`claude…` WhatsApp messages are forwarded to [agent-runner](../agent-runner) (`AGENT_RUNNER_URL`), which runs the headless Claude agent, the GitHub issue pipeline and the cron issue tracer. Monitoring (`npm run agent:status`, `agent:watch`, `agent:history`, `agent:logs`) lives there too. Old `logs/claude-agent/` data from the in-process pipeline can be archived or deleted by hand.
 
 ## Contributing
 
