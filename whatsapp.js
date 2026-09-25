@@ -32,12 +32,6 @@ const BAILEYS_AUTH_DIR = path.join(
 /** One-time copy of the auth folder from before Baileys 7.x's one-way LID session migration. */
 const BAILEYS_AUTH_BACKUP_DIR = path.join(path.dirname(BAILEYS_AUTH_DIR), 'baileys-pre-v7-backup');
 import { initializeLightCache } from './hue/index.js';
-import {
-  readPendingClaudeRun,
-  clearPendingClaudeRun,
-} from './whatsapp/agents/claudeCliPending.js';
-import { removeStaleActiveRuns } from './whatsapp/agents/claudeRunTelemetry.js';
-import { startCronIssueTracer } from './whatsapp/agents/cronIssueTracer.js';
 import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
 import {
@@ -60,29 +54,26 @@ function ownerJidFromMyPhone() {
 }
 
 /**
- * Set when `AGENT_RUNNER_URL` is: `claude…` commands go to agent-runner, its outbox is delivered
- * from here, and the in-process cron issue tracer stays off.
+ * `claude…` commands go to agent-runner (docs/adr/0001-agent-runner-out-of-process.md); its
+ * outbox is delivered from here.
  */
-const agentRunnerUrl = process.env.AGENT_RUNNER_URL?.trim();
-const agentRunner = agentRunnerUrl
-  ? createAgentRunnerIntegration({
-      url: agentRunnerUrl,
-      redisUrl: process.env.REDIS_URL,
-      sendText: async (chatId, text) => {
-        if (!waSocket) throw new Error('WhatsApp socket not ready');
-        // bounded: a send that never settles would wedge the outbox poll for good
-        let timer;
-        await Promise.race([
-          waSocket.sendMessage(chatId, { text }),
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error('WhatsApp send timed out')), 60_000);
-          }),
-        ]).finally(() => clearTimeout(timer));
-      },
-      getOwnerJid: ownerJidFromMyPhone,
-      logger,
-    })
-  : null;
+const agentRunner = createAgentRunnerIntegration({
+  url: process.env.AGENT_RUNNER_URL?.trim() || 'http://127.0.0.1:3790',
+  redisUrl: process.env.REDIS_URL,
+  sendText: async (chatId, text) => {
+    if (!waSocket) throw new Error('WhatsApp socket not ready');
+    // bounded: a send that never settles would wedge the outbox poll for good
+    let timer;
+    await Promise.race([
+      waSocket.sendMessage(chatId, { text }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('WhatsApp send timed out')), 60_000);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  },
+  getOwnerJid: ownerJidFromMyPhone,
+  logger,
+});
 const agentRunnerOutboxPollMs =
   parseInt(process.env.AGENT_RUNNER_OUTBOX_POLL_MS || '', 10) || 5000;
 
@@ -173,43 +164,17 @@ async function startSock() {
         logger,
       });
       // the first poll of the process reports what arrived while the bot was down
-      agentRunner?.outbox.start(agentRunnerOutboxPollMs);
+      agentRunner.outbox.start(agentRunnerOutboxPollMs);
       if (myPhone) {
-        const getOwnerJid = () => ownerJidFromMyPhone();
-        if (!agentRunner) {
-          startCronIssueTracer({
-            getSocket: () => waSocket,
-            getOwnerJid,
-            logger,
-          });
-        }
         startRedditCronDigest({
           getSocket: () => waSocket,
-          getOwnerJid,
+          getOwnerJid: ownerJidFromMyPhone,
           logger,
         });
       }
-      (async () => {
-        const pending = await readPendingClaudeRun();
-        if (pending?.sender && pending?.logPath) {
-          try {
-            const ws = pending.workspaceRoot ? `\nWorkspace: ${pending.workspaceRoot}\n` : '';
-            await sock.sendMessage(pending.sender, {
-              text:
-                'Previous Claude agent run was interrupted before the bot could send the completion message (for example `pm2 restart` while the agent was still running).' +
-                ws +
-                'Inspect the run on the Pi:\n' +
-                pending.logPath,
-            });
-            await clearPendingClaudeRun();
-          } catch (e) {
-            logger.warn({ err: e }, 'pending Claude run notice failed');
-          }
-        }
-      })();
     } else if (connection === 'close') {
       stopReminderScheduler();
-      agentRunner?.outbox.stop();
+      agentRunner.outbox.stop();
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       /*
        * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:
@@ -277,7 +242,7 @@ async function startSock() {
         commands,
         secondPhone,
         isAllowedActor,
-        agentRunner: agentRunner?.port ?? null,
+        agentRunner: agentRunner.port,
       }),
   });
 
@@ -336,10 +301,6 @@ async function initializeApp() {
   try {
     // Initialize light cache first
     await initializeLightCache();
-
-    // Runs killed by the previous process (e.g. pm2 restart) otherwise show as `stale` forever
-    const removed = await removeStaleActiveRuns().catch(() => []);
-    if (removed.length) logger.info({ removed }, 'removed stale Claude agent active files');
 
     // Before the first socket opens: Baileys 7.x rewrites the stored sessions and can't go back.
     // A failed backup aborts startup rather than migrating without a rollback copy.

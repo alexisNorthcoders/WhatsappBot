@@ -88,6 +88,12 @@ function basePorts(overrides = {}) {
     agents: {
       tryHandle: async () => ({ handled: false }),
     },
+    access: { isAllowedActor: () => true },
+    agentRunner: {
+      sendCommand: async () => assert.fail('agent-runner should not be called'),
+      status: async () => ({ busy: false, activeRun: null }),
+      missedReport: async () => '',
+    },
     logger: noopLogger(),
     buttons: { labels: ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'] },
     ...rest,
@@ -317,7 +323,7 @@ describe('runAgentsChainSequential', () => {
   });
 });
 
-describe('createMessageOrchestrator agent-runner delegation (AGENT_RUNNER_URL set)', () => {
+describe('createMessageOrchestrator agent-runner delegation', () => {
   function runnerPorts({ allowed = true, runner = {}, routes = {} } = {}) {
     const log = [];
     const calls = [];
@@ -366,6 +372,13 @@ describe('createMessageOrchestrator agent-runner delegation (AGENT_RUNNER_URL se
       assert.deepEqual(log, [{ op: 'sendText', chatId: 'c@lid', text: 'runner-reply' }]);
     });
   }
+
+  it('does not forward words that merely start with "claude"', async () => {
+    const { ports, log, calls } = runnerPorts();
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claudette is here' }));
+    assert.deepEqual(calls, []);
+    assert.deepEqual(log, [{ op: 'registry' }]);
+  });
 
   it('denies claude commands from a non-allowlisted actor without calling the runner', async () => {
     const { ports, log, calls } = runnerPorts({ allowed: false });
@@ -464,12 +477,5 @@ describe('createMessageOrchestrator agent-runner delegation (AGENT_RUNNER_URL se
     await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
     assert.deepEqual(calls, []);
     assert.deepEqual(log, [{ op: 'legacy' }]);
-  });
-
-  it('without an agentRunner port, claude commands go to the command registry as before', async () => {
-    const { ports, log } = runnerPorts();
-    delete ports.agentRunner;
-    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude hi' }));
-    assert.deepEqual(log, [{ op: 'registry' }]);
   });
 });

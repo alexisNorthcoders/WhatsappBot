@@ -1,9 +1,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createProductionPorts } from '../whatsapp/orchestration/createProductionPorts.js';
+import { createMessageOrchestrator } from '../whatsapp/orchestration/createMessageOrchestrator.js';
 import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBaileysMessage.js';
 import { isAllowedActor } from '../whatsapp/whatsAppActorAllowlist.js';
-import claudeCommand from '../whatsapp/commands/claude.js';
 
 describe('createProductionPorts privileged routes', () => {
   it('denies !restart when isAllowedActor returns false', async () => {
@@ -38,39 +38,6 @@ describe('createProductionPorts privileged routes', () => {
     assert.match(sent[0].text, /Not allowed to restart/);
   });
 
-  it('denies claude command when isAllowedActor returns false', async () => {
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, ...content });
-      },
-      readMessages: async () => {},
-      logger: {},
-      updateMediaMessage: async () => {},
-    };
-    const ports = createProductionPorts({
-      sock,
-      downloadMediaMessage: async () => Buffer.from(''),
-      fs: { writeFile: async () => {} },
-      logger: { info() {}, warn() {}, error() {} },
-      commands: { claude: async () => assert.fail('claude should not run') },
-      secondPhone: undefined,
-      isAllowedActor: () => false,
-    });
-    const inbound = {
-      id: 'x',
-      chatId: '1@s.whatsapp.net',
-      actorId: '1@s.whatsapp.net',
-      fromMe: false,
-      text: 'claude fix the bug',
-      features: { hasImage: false },
-      raw: { key: { remoteJid: '1@s.whatsapp.net', participant: null, id: 'x' }, message: {} },
-    };
-    const r = await ports.routes.runCommandByFirstToken(inbound);
-    assert.equal(r.handled, true);
-    assert.match(sent[0].text, /Not allowed to run the Claude agent/);
-  });
-
   describe('with the real allowlist and @lid senders', () => {
     const OWNER_LID = '123456789012345@lid';
     let savedPhone;
@@ -90,7 +57,7 @@ describe('createProductionPorts privileged routes', () => {
       });
     }
 
-    function portsWith(commands, sent) {
+    function portsWith(commands, sent, agentRunner) {
       return createProductionPorts({
         sock: {
           sendMessage: async (jid, content) => {
@@ -103,22 +70,38 @@ describe('createProductionPorts privileged routes', () => {
         commands,
         secondPhone: undefined,
         isAllowedActor,
+        agentRunner,
       });
     }
 
-    it('lets the owner run claude from a LID whose remoteJidAlt is their phone', async () => {
+    function runnerRecording(forwarded) {
+      return {
+        sendCommand: async (req) => {
+          forwarded.push(req);
+          return 'queued';
+        },
+        status: async () => ({ busy: false, activeRun: null }),
+        missedReport: async () => '',
+      };
+    }
+
+    it('forwards claude from a LID whose remoteJidAlt is the owner phone to agent-runner', async () => {
       const sent = [];
-      let ran = false;
-      const ports = portsWith({ claude: async () => { ran = true; } }, sent);
-      await ports.routes.runCommandByFirstToken(lidDm('claude fix it', '447700900001@s.whatsapp.net'));
-      assert.equal(ran, true);
-      assert.equal(sent.length, 0);
+      const forwarded = [];
+      const ports = portsWith({}, sent, runnerRecording(forwarded));
+      await createMessageOrchestrator(ports).handleInbound(
+        lidDm('claude fix it', '447700900001@s.whatsapp.net'),
+      );
+      assert.deepEqual(forwarded, [{ text: 'claude fix it', replyTo: OWNER_LID }]);
+      assert.equal(sent[0].text, 'queued');
     });
 
-    it('denies claude from a LID with no alternate id', async () => {
+    it('denies claude from a LID with no alternate id without reaching agent-runner', async () => {
       const sent = [];
-      const ports = portsWith({ claude: async () => assert.fail('claude should not run') }, sent);
-      await ports.routes.runCommandByFirstToken(lidDm('claude fix it'));
+      const forwarded = [];
+      const ports = portsWith({}, sent, runnerRecording(forwarded));
+      await createMessageOrchestrator(ports).handleInbound(lidDm('claude fix it'));
+      assert.deepEqual(forwarded, []);
       assert.match(sent[0].text, /Not allowed to run the Claude agent/);
     });
 
@@ -127,18 +110,6 @@ describe('createProductionPorts privileged routes', () => {
       const ports = portsWith({}, sent);
       await ports.routes.runLegacyRoutes(lidDm('!restart'));
       assert.match(sent[0].text, /Not allowed to restart/);
-    });
-
-    it('claude command itself checks the raw message key alternate id', async () => {
-      const sent = [];
-      const sock = { sendMessage: async (jid, content) => { sent.push({ jid, ...content }); } };
-      const raw = { key: { id: 'l2', remoteJid: OWNER_LID, remoteJidAlt: '447700900001@s.whatsapp.net' } };
-      await claudeCommand(sock, OWNER_LID, 'claude', raw);
-      assert.match(sent[0].text, /^Usage:/);
-
-      sent.length = 0;
-      await claudeCommand(sock, OWNER_LID, 'claude', { key: { id: 'l3', remoteJid: OWNER_LID } });
-      assert.match(sent[0].text, /Not allowed to run the Claude agent/);
     });
   });
 });

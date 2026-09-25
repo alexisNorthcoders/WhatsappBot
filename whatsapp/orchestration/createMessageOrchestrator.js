@@ -16,9 +16,9 @@ const DEFAULT_BUTTONS = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'sele
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
  * @param {{ info: Function; warn: Function; error: Function }} ports.logger
  * @param {{ labels: string[] }} [ports.buttons]
- * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} [ports.access] required when `ports.agentRunner` is set
- * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} [ports.agentRunner]
- *   Set when `AGENT_RUNNER_URL` is: `claude…` commands go to agent-runner instead of the command registry.
+ * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} ports.access
+ * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} ports.agentRunner
+ *   `claude…` commands go to agent-runner, never the command registry.
  */
 export function createMessageOrchestrator(ports) {
   const buttonLabels = ports.buttons?.labels ?? DEFAULT_BUTTONS;
@@ -132,13 +132,13 @@ export function createMessageOrchestrator(ports) {
       if (r.handled) return;
     }
 
-    if (ports.agentRunner && command.startsWith('claude')) {
+    if (/^claude(?=$|:)/.test(command)) {
       await delegateToAgentRunner(m, command);
       return;
     }
 
     // before the command registry, so no registered `!restart` can bypass the runner guard
-    if (ports.agentRunner && command === '!restart' && (await refuseRestartWhileRunActive(m))) {
+    if (command === '!restart' && (await refuseRestartWhileRunActive(m))) {
       return;
     }
 

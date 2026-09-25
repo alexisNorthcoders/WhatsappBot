@@ -5,9 +5,8 @@ import { createOutboxDrain, createRedisOutboxStore } from './agentRunnerOutbox.j
 const REDIS_CONNECT_TIMEOUT_MS = 3000;
 
 /**
- * Bot side of agent-runner (docs/adr/0001-agent-runner-out-of-process.md), active when
- * `AGENT_RUNNER_URL` is set: the orchestrator's `agentRunner` port, plus the outbox drain that
- * `whatsapp.js` starts on connect.
+ * Bot side of agent-runner (docs/adr/0001-agent-runner-out-of-process.md): the orchestrator's
+ * `agentRunner` port, plus the outbox drain that `whatsapp.js` starts on connect.
  *
  * @param {{
  *   url: string,

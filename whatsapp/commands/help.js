@@ -21,15 +21,15 @@ export default async function helpCommand(sock, sender) {
 ━━━━━━━━━━━━━━━━━━━━━━
 *Claude Agent*
 ━━━━━━━━━━━━━━━━━━━━━━
-• *claude* [instructions] — Run the Claude agent on this bot’s repo (default workspace)
-• *claude* *alias*: [instructions] — Run in an allowlisted repo (set CLAUDE_WORKSPACE_MAP in .env)
-• *claude* */absolute/path/to/repo* [instructions] — Same, using an absolute path from the allowlist
-• *claude:history* [n] — List the last n (default 10, max 30) GitHub issue runs by the agent: repo, #issue, title, outcome, time ago
-• *claude:status* — Snapshot of the Claude agent: active run (or idle), pauses, last cron tick, last 3 issue runs
-• *claude* joplin:[note] — Use a Joplin note as the prompt (workspace stays default unless you use alias/path before joplin)
-• *claude* issue:[n] [extra] — Use GitHub issue #n as the prompt (repo: git origin of the selected workspace, else GH_ISSUE_REPO, else alexisNorthcoders/WhatsappBot)
-• *claude* issue:[alias]:[n] [extra] — Same, but run in that allowlisted workspace (CLAUDE_WORKSPACE_MAP alias). Repo: CLAUDE_ISSUE_REPO_MAP for that alias, else that workspace’s origin, else GH_ISSUE_REPO / default
-• *claude* [your-alias]: issue:[n] — Workspace from your alias; issue repo follows the same rules from that workspace (map → origin → env/default)
+(forwarded to agent-runner, which owns the Claude agent)
+• *claude* [instructions] — Freeform run
+• *claude* joplin:[note] — Use a Joplin note as the prompt
+• *claude* issue:[n] [extra] / issue:[alias]:[n] [extra] — Work GitHub issue #n end-to-end (branch, PR, review, merge)
+• *claude:status* — Active run, pause, last cron tick, recent runs
+• *claude:history* [n] — Last n finished runs (default 10, max 30)
+• *claude:stop* — Kill the active run
+• *claude:restart* — Safely restart agent-runner when idle
+• *claude:missed* — Runner messages that arrived while the bot was down
 
 ━━━━━━━━━━━━━━━━━━━━━━
 *Image Commands*
@@ -55,7 +55,7 @@ export default async function helpCommand(sock, sender) {
 ━━━━━━━━━━━━━━━━━━━━━━
 • *!help* — This message
 • *!clear* — Clear chat memory (resets AI conversation context)
-• *!restart* — Restart the bot (pm2 restart 0; same identities as *claude*: MY_PHONE, SECOND_PHONE, CLAUDE_AGENT_EXTRA_JIDS)
+• *!restart* — Restart the bot (pm2 restart 0; same identities as *claude*: MY_PHONE, SECOND_PHONE, CLAUDE_AGENT_EXTRA_JIDS; refused while a runner run is active)
 • *!sendpoll* — Send a sample poll
 • *daniel* — Photo do Daniel
 • *Send* — Random fact to both phones
