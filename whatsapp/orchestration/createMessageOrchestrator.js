@@ -132,7 +132,7 @@ export function createMessageOrchestrator(ports) {
       if (r.handled) return;
     }
 
-    if (command.startsWith('claude')) {
+    if (/^claude(?=$|:)/.test(command)) {
       await delegateToAgentRunner(m, command);
       return;
     }

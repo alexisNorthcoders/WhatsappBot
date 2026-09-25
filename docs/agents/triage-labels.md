@@ -14,4 +14,4 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 Edit the right-hand column to match whatever vocabulary you actually use.
 
-Note: `ready-for-agent` already matches the label `whatsapp/agents/cronIssueTracer.js` polls for when picking up issues automatically — no change needed there.
+Note: `ready-for-agent` already matches the label agent-runner's cron issue tracer polls for when picking up issues automatically — no change needed there.

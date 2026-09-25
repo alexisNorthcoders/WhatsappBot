@@ -373,6 +373,13 @@ describe('createMessageOrchestrator agent-runner delegation', () => {
     });
   }
 
+  it('does not forward words that merely start with "claude"', async () => {
+    const { ports, log, calls } = runnerPorts();
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claudette is here' }));
+    assert.deepEqual(calls, []);
+    assert.deepEqual(log, [{ op: 'registry' }]);
+  });
+
   it('denies claude commands from a non-allowlisted actor without calling the runner', async () => {
     const { ports, log, calls } = runnerPorts({ allowed: false });
     await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude hi' }));

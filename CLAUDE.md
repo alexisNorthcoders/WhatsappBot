@@ -108,7 +108,7 @@ Design: `docs/adr/0001-agent-runner-out-of-process.md`. The Claude CLI pipeline 
 telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot's side is
 `whatsapp/agentRunner/`:
 
-- The orchestrator forwards every message whose first token starts with `claude` (after
+- The orchestrator forwards every message whose first token is `claude` or `claude:…` (after
   `isAllowedActor`) to the runner's localhost HTTP API (`AGENT_RUNNER_URL`, default
   `http://127.0.0.1:3790`) and sends back its immediate reply. Nothing `claude…` reaches the
   command registry.
