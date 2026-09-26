@@ -21,13 +21,14 @@ export default async function helpCommand(sock, sender) {
 ━━━━━━━━━━━━━━━━━━━━━━
 *Claude Agent*
 ━━━━━━━━━━━━━━━━━━━━━━
-(forwarded to agent-runner, which owns the Claude agent)
+(forwarded to agent-runner, which owns the Claude agent; requests sent while it's busy are queued and run one at a time)
 • *claude* [instructions] — Freeform run
 • *claude* joplin:[note] — Use a Joplin note as the prompt
 • *claude* issue:[n] [extra] / issue:[alias]:[n] [extra] — Work GitHub issue #n end-to-end (branch, PR, review, merge)
 • *claude:status* — Active run, pause, last cron tick, recent runs
 • *claude:history* [n] — Last n finished runs (default 10, max 30)
-• *claude:stop* — Kill the active run
+• *claude:stop* — Kill the active run (the next queued request then starts)
+• *claude:queue* [clear] — List (or drop) requests waiting for the agent
 • *claude:restart* — Safely restart agent-runner when idle
 • *claude:missed* — Runner messages that arrived while the bot was down
 
