@@ -2,7 +2,9 @@ import { normalizeBaileysMessage } from './normalizeBaileysMessage.js';
 import { createMessageOrchestrator } from './createMessageOrchestrator.js';
 
 /**
- * Thin adapter: Baileys upsert → read receipt → normalize → orchestrator.
+ * Thin adapter: Baileys upsert → owner check → read receipt → normalize → orchestrator.
+ * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.js)
+ * are dropped silently: no read receipt, no reply, so another bot can't start a reply loop.
  * @param {object} opts
  * @param {import('@whiskeysockets/baileys').WASocket} opts.sock
  * @param {() => object} opts.createPorts factory returning full orchestrator ports
@@ -24,6 +26,16 @@ export function createBaileysMessageHandler(opts) {
         return;
       }
 
+      const inbound = normalizeBaileysMessage(msg);
+      if (!ports.access.isAllowedActor(inbound.actorId, inbound.actorAltId)) {
+        ports.logger.info('Ignoring message from non-owner sender', {
+          messageId: msg.key.id,
+          sender: inbound.actorId,
+          senderAlt: inbound.actorAltId,
+        });
+        return;
+      }
+
       const messageType = Object.keys(msg.message)[0];
       const text = (
         msg.message.conversation
@@ -38,13 +50,13 @@ export function createBaileysMessageHandler(opts) {
 
       try {
         try {
-          await ports.receipts.markRead(normalizeBaileysMessage(msg));
+          await ports.receipts.markRead(inbound);
           ports.logger.info(`Sent read receipt for message ${msg.key.id}`);
         } catch (err) {
           ports.logger.warn(`Failed to send read receipt: ${err.message}`);
         }
 
-        await handleInbound(normalizeBaileysMessage(msg));
+        await handleInbound(inbound);
       } catch (err) {
         ports.logger.error('❌ Error processing message:', {
           error: err.message,
