@@ -1,10 +1,13 @@
 /**
- * Sequential agent chain with SKIP fallthrough (same semantics as legacy whatsapp.js).
+ * Agent chain. With `routeIntent` (Jev), one call picks the agent and only that agent runs;
+ * otherwise (or when Jev is unreachable) agents are tried in order behind their keyword gates,
+ * with SKIP fallthrough (same semantics as legacy whatsapp.js).
  * @param {import('./normalizeBaileysMessage.js').InboundMessage} m
  * @param {object} deps
  * @param {{ info: Function; warn: Function; error: Function }} deps.logger
  * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
  * @param {{ append(chatId: string, role: 'user'|'assistant', content: string): Promise<void> }} deps.chatMemory
+ * @param {(text: string) => Promise<{ agent: string; probability: number } | null>} [deps.routeIntent]
  * @param {(text: string) => boolean} [deps.shouldTryReminderAgent]
  * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<{ handled: boolean, replyText?: string }>} [deps.runReminderAgent]
  * @param {(text: string) => boolean} deps.shouldTryLightsAgent
@@ -25,137 +28,105 @@
  * @returns {Promise<{ handled: boolean }>}
  */
 export async function runAgentsChainSequential(m, deps) {
-  const {
-    logger,
-    messaging,
-    chatMemory,
-    shouldTryReminderAgent,
-    runReminderAgent,
-    shouldTryLightsAgent,
-    runLightsAgent,
-    LIGHTS_AGENT_SKIP,
-    shouldTryWeatherAgent,
-    runWeatherAgent,
-    WEATHER_AGENT_SKIP,
-    shouldTryJoplinAgent,
-    runJoplinAgent,
-    JOPLIN_AGENT_SKIP,
-    shouldTryEmailAgent,
-    runEmailAgent,
-    EMAIL_AGENT_SKIP,
-    shouldTryHomeAgent,
-    runHomeAgent,
-    HOME_AGENT_SKIP,
-  } = deps;
-
+  const { logger, messaging, chatMemory, routeIntent } = deps;
   const text = m.text;
   const chatId = m.chatId;
+  const agents = listAgents(deps);
 
-  let handled = false;
-
-  if (!handled && typeof shouldTryReminderAgent === 'function' && shouldTryReminderAgent(text)) {
+  /**
+   * @returns {Promise<boolean>} handled
+   */
+  async function runAgent(agent) {
     try {
-      const reminderResult = await runReminderAgent(m);
-      if (reminderResult?.handled) {
-        const reply = reminderResult.replyText ?? '';
-        if (reply) {
-          await messaging.sendText(chatId, reply);
-          await chatMemory.append(chatId, 'user', text);
-          await chatMemory.append(chatId, 'assistant', reply);
-        }
-        handled = true;
-      }
-    } catch (reminderErr) {
-      logger.error({ err: reminderErr }, 'Reminder agent error');
-      await messaging.sendText(chatId, `Reminder error: ${reminderErr.message}`);
-      handled = true;
-    }
-  }
-
-  if (!handled && shouldTryLightsAgent(text)) {
-    try {
-      const lightsReply = await runLightsAgent(text);
-      if (lightsReply.trim().toUpperCase() !== LIGHTS_AGENT_SKIP) {
-        await messaging.sendText(chatId, lightsReply);
+      const reply = await agent.run(m);
+      if (reply === null) return false;
+      if (reply) {
+        await messaging.sendText(chatId, reply);
         await chatMemory.append(chatId, 'user', text);
-        await chatMemory.append(chatId, 'assistant', lightsReply);
-        handled = true;
+        await chatMemory.append(chatId, 'assistant', reply);
       }
-    } catch (lightsErr) {
-      logger.error({ err: lightsErr }, 'Lights agent error');
-      await messaging.sendText(chatId, `Lights assistant error: ${lightsErr.message}`);
-      handled = true;
+      return true;
+    } catch (err) {
+      logger.error({ err }, agent.logLabel);
+      await messaging.sendText(chatId, `${agent.errorLabel}: ${err.message}`);
+      return true;
     }
   }
 
-  if (!handled && shouldTryWeatherAgent(text)) {
-    try {
-      const weatherReply = await runWeatherAgent(text);
-      if (weatherReply.trim().toUpperCase() !== WEATHER_AGENT_SKIP) {
-        await messaging.sendText(chatId, weatherReply);
-        await chatMemory.append(chatId, 'user', text);
-        await chatMemory.append(chatId, 'assistant', weatherReply);
-        handled = true;
-      }
-    } catch (weatherErr) {
-      logger.error({ err: weatherErr }, 'Weather agent error');
-      await messaging.sendText(chatId, `Weather assistant error: ${weatherErr.message}`);
-      handled = true;
+  if (typeof routeIntent === 'function') {
+    const route = await routeIntent(text);
+    if (route) {
+      const agent = agents.find((a) => a.key === route.agent);
+      return { handled: agent ? await runAgent(agent) : false };
     }
   }
 
-  if (!handled && shouldTryJoplinAgent(text)) {
-    try {
-      const joplinReply = await runJoplinAgent(text);
-      if (joplinReply.trim().toUpperCase() !== JOPLIN_AGENT_SKIP) {
-        await messaging.sendText(chatId, joplinReply);
-        await chatMemory.append(chatId, 'user', text);
-        await chatMemory.append(chatId, 'assistant', joplinReply);
-        handled = true;
-      }
-    } catch (joplinErr) {
-      logger.error({ err: joplinErr }, 'Joplin agent error');
-      await messaging.sendText(chatId, `Notes assistant error: ${joplinErr.message}`);
-      handled = true;
-    }
+  for (const agent of agents) {
+    if (agent.shouldTry(text) && (await runAgent(agent))) return { handled: true };
   }
+  return { handled: false };
+}
 
-  if (!handled && shouldTryEmailAgent(text)) {
-    try {
-      const emailReply = await runEmailAgent(text);
-      if (emailReply.trim().toUpperCase() !== EMAIL_AGENT_SKIP) {
-        await messaging.sendText(chatId, emailReply);
-        await chatMemory.append(chatId, 'user', text);
-        await chatMemory.append(chatId, 'assistant', emailReply);
-        handled = true;
-      }
-    } catch (emailErr) {
-      logger.error({ err: emailErr }, 'Email agent error');
-      await messaging.sendText(chatId, `Email assistant error: ${emailErr.message}`);
-      handled = true;
-    }
+/**
+ * Keys match the Choice options in jevRouter.js. `run` returns the reply, or null to fall through.
+ * @param {Parameters<typeof runAgentsChainSequential>[1]} deps
+ */
+export function listAgents(deps) {
+  const skipAware = (run, skip) => async (m) => {
+    const reply = await run(m.text);
+    return reply.trim().toUpperCase() === skip ? null : reply;
+  };
+  const agents = [];
+  if (typeof deps.shouldTryReminderAgent === 'function') {
+    agents.push({
+      key: 'reminder',
+      shouldTry: deps.shouldTryReminderAgent,
+      run: async (m) => {
+        const r = await deps.runReminderAgent(m);
+        return r?.handled ? (r.replyText ?? '') : null;
+      },
+      logLabel: 'Reminder agent error',
+      errorLabel: 'Reminder error',
+    });
   }
-
-  if (
-    !handled &&
-    typeof shouldTryHomeAgent === 'function' &&
-    typeof runHomeAgent === 'function' &&
-    shouldTryHomeAgent(text)
-  ) {
-    try {
-      const homeReply = await runHomeAgent(text);
-      if (homeReply.trim().toUpperCase() !== (HOME_AGENT_SKIP ?? 'SKIP')) {
-        await messaging.sendText(chatId, homeReply);
-        await chatMemory.append(chatId, 'user', text);
-        await chatMemory.append(chatId, 'assistant', homeReply);
-        handled = true;
-      }
-    } catch (homeErr) {
-      logger.error({ err: homeErr }, 'Home agent error');
-      await messaging.sendText(chatId, `Home assistant error: ${homeErr.message}`);
-      handled = true;
-    }
+  agents.push(
+    {
+      key: 'lights',
+      shouldTry: deps.shouldTryLightsAgent,
+      run: skipAware(deps.runLightsAgent, deps.LIGHTS_AGENT_SKIP),
+      logLabel: 'Lights agent error',
+      errorLabel: 'Lights assistant error',
+    },
+    {
+      key: 'weather',
+      shouldTry: deps.shouldTryWeatherAgent,
+      run: skipAware(deps.runWeatherAgent, deps.WEATHER_AGENT_SKIP),
+      logLabel: 'Weather agent error',
+      errorLabel: 'Weather assistant error',
+    },
+    {
+      key: 'joplin',
+      shouldTry: deps.shouldTryJoplinAgent,
+      run: skipAware(deps.runJoplinAgent, deps.JOPLIN_AGENT_SKIP),
+      logLabel: 'Joplin agent error',
+      errorLabel: 'Notes assistant error',
+    },
+    {
+      key: 'email',
+      shouldTry: deps.shouldTryEmailAgent,
+      run: skipAware(deps.runEmailAgent, deps.EMAIL_AGENT_SKIP),
+      logLabel: 'Email agent error',
+      errorLabel: 'Email assistant error',
+    },
+  );
+  if (typeof deps.shouldTryHomeAgent === 'function' && typeof deps.runHomeAgent === 'function') {
+    agents.push({
+      key: 'home',
+      shouldTry: deps.shouldTryHomeAgent,
+      run: skipAware(deps.runHomeAgent, deps.HOME_AGENT_SKIP ?? 'SKIP'),
+      logLabel: 'Home agent error',
+      errorLabel: 'Home assistant error',
+    });
   }
-
-  return { handled };
+  return agents;
 }

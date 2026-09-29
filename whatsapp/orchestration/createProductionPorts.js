@@ -17,6 +17,7 @@ import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.js';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
+import { createJevRouter } from './jevRouter.js';
 
 /**
  * @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage
@@ -78,6 +79,15 @@ export function createProductionPorts(deps) {
     shouldTryHomeAgent,
     runHomeAgent,
     HOME_AGENT_SKIP,
+    routeIntent: process.env.TYPESAFE_API_KEY
+      ? createJevRouter({
+          apiKey: process.env.TYPESAFE_API_KEY,
+          model: process.env.JEV_ROUTER_MODEL || undefined,
+          timeoutMs: Number(process.env.JEV_ROUTER_TIMEOUT_MS) || undefined,
+          minProbability: Number(process.env.JEV_ROUTER_MIN_PROBABILITY) || undefined,
+          logger,
+        })
+      : undefined,
   };
 
   return {
