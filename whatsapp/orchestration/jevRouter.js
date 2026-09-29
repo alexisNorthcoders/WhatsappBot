@@ -50,8 +50,10 @@ export const ROUTE_CRITERIA = {
  * @param {number} [opts.timeoutMs]
  * @param {number} [opts.minProbability] below this, the message goes to chat
  * @param {string[]} [opts.agents] agent keys to offer (chat is always offered)
+ * @param {() => Record<string, object>} [opts.extraQuestions] speculative agent-specific questions
+ *   asked in the same request (answers come back on `answers` whatever the route)
  * @param {{ info: Function; warn: Function }} opts.logger
- * @returns {(text: string) => Promise<{ agent: string; probability: number } | null>}
+ * @returns {(text: string) => Promise<{ agent: string; probability: number; answers: Record<string, any> } | null>}
  *   null when Jev could not be reached (caller falls back to the keyword gates)
  */
 export function createJevRouter(opts) {
@@ -63,6 +65,7 @@ export function createJevRouter(opts) {
     timeoutMs = 3000,
     minProbability = 0.5,
     agents = Object.keys(ROUTE_CRITERIA),
+    extraQuestions = () => ({}),
     logger,
   } = opts;
 
@@ -81,6 +84,7 @@ export function createJevRouter(opts) {
           model,
           state: { message: text },
           questions: {
+            ...extraQuestions(),
             route: {
               type: 'choice',
               instructions:
@@ -110,6 +114,6 @@ export function createJevRouter(opts) {
     const probability = Number(answer.probabilities?.[choice] ?? 0);
     const agent = probability >= minProbability ? choice : ROUTE_CHAT;
     logger.info({ choice, probability, agent, ms: Date.now() - started }, 'Jev route');
-    return { agent, probability };
+    return { agent, probability, answers: body.answers };
   };
 }

@@ -7,7 +7,9 @@
  * @param {{ info: Function; warn: Function; error: Function }} deps.logger
  * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
  * @param {{ append(chatId: string, role: 'user'|'assistant', content: string): Promise<void> }} deps.chatMemory
- * @param {(text: string) => Promise<{ agent: string; probability: number } | null>} [deps.routeIntent]
+ * @param {(text: string) => Promise<{ agent: string; probability: number; answers?: Record<string, any> } | null>} [deps.routeIntent]
+ * @param {(text: string, answers: Record<string, any>) => Promise<string | null>} [deps.runLightsFromJev]
+ *   Jev-answered lights request; null hands over to runLightsAgent
  * @param {(text: string) => boolean} [deps.shouldTryReminderAgent]
  * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<{ handled: boolean, replyText?: string }>} [deps.runReminderAgent]
  * @param {(text: string) => boolean} deps.shouldTryLightsAgent
@@ -36,9 +38,9 @@ export async function runAgentsChainSequential(m, deps) {
   /**
    * @returns {Promise<boolean>} handled
    */
-  async function runAgent(agent) {
+  async function runAgent(agent, route) {
     try {
-      const reply = await agent.run(m);
+      const reply = await agent.run(m, route);
       if (reply === null) return false;
       if (reply) {
         await messaging.sendText(chatId, reply);
@@ -57,7 +59,7 @@ export async function runAgentsChainSequential(m, deps) {
     const route = await routeIntent(text);
     if (route) {
       const agent = agents.find((a) => a.key === route.agent);
-      return { handled: agent ? await runAgent(agent) : false };
+      return { handled: agent ? await runAgent(agent, route) : false };
     }
   }
 
@@ -68,7 +70,8 @@ export async function runAgentsChainSequential(m, deps) {
 }
 
 /**
- * Keys match the Choice options in jevRouter.js. `run` returns the reply, or null to fall through.
+ * Keys match the Choice options in jevRouter.js. `run(m, route?)` returns the reply, or null to
+ * fall through; `route` is the Jev route when Jev picked this agent.
  * @param {Parameters<typeof runAgentsChainSequential>[1]} deps
  */
 export function listAgents(deps) {
@@ -93,7 +96,13 @@ export function listAgents(deps) {
     {
       key: 'lights',
       shouldTry: deps.shouldTryLightsAgent,
-      run: skipAware(deps.runLightsAgent, deps.LIGHTS_AGENT_SKIP),
+      run: async (m, route) => {
+        if (route?.answers && typeof deps.runLightsFromJev === 'function') {
+          const reply = await deps.runLightsFromJev(m.text, route.answers);
+          if (reply !== null) return reply;
+        }
+        return skipAware(deps.runLightsAgent, deps.LIGHTS_AGENT_SKIP)(m);
+      },
       logLabel: 'Lights agent error',
       errorLabel: 'Lights assistant error',
     },

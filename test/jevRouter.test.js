@@ -28,7 +28,9 @@ describe('createJevRouter', () => {
       },
     });
     const r = await route('turn off the bedroom lights');
-    assert.deepEqual(r, { agent: 'lights', probability: 0.9 });
+    assert.equal(r.agent, 'lights');
+    assert.equal(r.probability, 0.9);
+    assert.equal(r.answers.route.choice, 'lights');
     assert.equal(sent.url, 'https://api.typesafe.ai/v1/systemone');
     assert.equal(sent.init.headers.Authorization, 'Bearer k');
     assert.equal(sent.body.model, 'jev-latest');
@@ -54,7 +56,24 @@ describe('createJevRouter', () => {
 
   it('routes to chat when the chosen agent is below the probability threshold', async () => {
     const route = createJevRouter({ apiKey: 'k', minProbability: 0.6, logger: quietLogger, fetch: jevAnswer('weather', 0.55) });
-    assert.deepEqual(await route('is it nice out'), { agent: ROUTE_CHAT, probability: 0.55 });
+    const r = await route('is it nice out');
+    assert.equal(r.agent, ROUTE_CHAT);
+    assert.equal(r.probability, 0.55);
+  });
+
+  it('asks the extra questions in the same request', async () => {
+    let questions;
+    const route = createJevRouter({
+      apiKey: 'k',
+      logger: quietLogger,
+      extraQuestions: () => ({ lights_action: { type: 'choice', instructions: 'x', criteria: { on: null } } }),
+      fetch: async (_url, init) => {
+        questions = JSON.parse(init.body).questions;
+        return jevAnswer('lights', 0.9)();
+      },
+    });
+    await route('lights on');
+    assert.deepEqual(Object.keys(questions).sort(), ['lights_action', 'route']);
   });
 
   it('returns null on HTTP errors, network errors and unexpected answers', async () => {
@@ -124,6 +143,31 @@ describe('runAgentsChainSequential with routeIntent', () => {
     });
     assert.deepEqual(await runAgentsChainSequential(m, deps), { handled: false });
     assert.deepEqual(calls, []);
+  });
+
+  it('answers a lights route from the Jev answers when the fast path handles it', async () => {
+    const answers = { lights_action: { choice: 'off' } };
+    let got;
+    const { deps, calls, sent } = chainDeps({
+      routeIntent: async () => ({ agent: 'lights', probability: 0.9, answers }),
+      runLightsFromJev: async (text, a) => {
+        got = { text, a };
+        return 'Turned off the Bedroom lights.';
+      },
+    });
+    assert.deepEqual(await runAgentsChainSequential(m, deps), { handled: true });
+    assert.deepEqual(got, { text: m.text, a: answers });
+    assert.deepEqual(calls, []);
+    assert.deepEqual(sent, ['Turned off the Bedroom lights.']);
+  });
+
+  it('hands a lights route to the GPT agent when the fast path declines', async () => {
+    const { deps, calls } = chainDeps({
+      routeIntent: async () => ({ agent: 'lights', probability: 0.9, answers: {} }),
+      runLightsFromJev: async () => null,
+    });
+    assert.deepEqual(await runAgentsChainSequential(m, deps), { handled: true });
+    assert.deepEqual(calls, ['run:Lights']);
   });
 
   it('uses the keyword gates when Jev is unavailable', async () => {

@@ -7,6 +7,7 @@ import { pickRandomTopic } from '../../data/helper.js';
 import { topics } from '../../data/topics.js';
 import { getMessages, appendMessage, clearMessages } from '../chatMemory.js';
 import { shouldTryLightsAgent, runLightsAgent, LIGHTS_AGENT_SKIP } from '../agents/lightsAgent.js';
+import { lightsJevQuestions, runLightsFromJev } from '../agents/lightsJev.js';
 import {
   shouldTryWeatherAgent,
   runWeatherAgent,
@@ -67,6 +68,8 @@ export function createProductionPorts(deps) {
     shouldTryLightsAgent,
     runLightsAgent,
     LIGHTS_AGENT_SKIP,
+    runLightsFromJev:
+      process.env.LIGHTS_JEV_DISABLE === '1' ? undefined : (text, answers) => runLightsFromJev(text, answers, { logger }),
     shouldTryWeatherAgent,
     runWeatherAgent,
     WEATHER_AGENT_SKIP,
@@ -85,6 +88,7 @@ export function createProductionPorts(deps) {
           model: process.env.JEV_ROUTER_MODEL || undefined,
           timeoutMs: Number(process.env.JEV_ROUTER_TIMEOUT_MS) || undefined,
           minProbability: Number(process.env.JEV_ROUTER_MIN_PROBABILITY) || undefined,
+          extraQuestions: process.env.LIGHTS_JEV_DISABLE === '1' ? undefined : () => lightsJevQuestions(),
           logger,
         })
       : undefined,
