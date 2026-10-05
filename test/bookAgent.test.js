@@ -186,4 +186,18 @@ describe('runAgentsChainSequential book agent wiring', () => {
     assert.equal(r.handled, true);
     assert.deepEqual(sent, ['Read *Dune*.']);
   });
+
+  it('a Jev "books" route that the service rejects is left for chat', async () => {
+    const askBookRecs = fakeAsk({ ok: true, kind: 'not_a_request', answer: '', sources: [] });
+    const r = await runAgentsChainSequential(
+      fakeInbound('finished my book today'),
+      chainDeps({
+        routeIntent: async () => ({ agent: 'books', probability: 0.8, answers: {} }),
+        shouldTryBookAgent,
+        runBookAgent: (m) => runBookAgent(m, { askBookRecs, isAllowedActor }),
+        BOOK_AGENT_SKIP,
+      }),
+    );
+    assert.equal(r.handled, false);
+  });
 });

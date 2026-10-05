@@ -79,8 +79,8 @@ export async function runAgentsChainSequential(m, deps) {
  * @param {Parameters<typeof runAgentsChainSequential>[1]} deps
  */
 export function listAgents(deps) {
-  const skipAware = (run, skip) => async (m) => {
-    const reply = await run(m.text);
+  const skipAware = (run, skip, input = (m) => m.text) => async (m) => {
+    const reply = await run(input(m));
     return reply.trim().toUpperCase() === skip ? null : reply;
   };
   const agents = [];
@@ -142,14 +142,10 @@ export function listAgents(deps) {
     });
   }
   if (typeof deps.shouldTryBookAgent === 'function' && typeof deps.runBookAgent === 'function') {
-    const skip = deps.BOOK_AGENT_SKIP ?? 'SKIP';
     agents.push({
       key: 'books',
       shouldTry: deps.shouldTryBookAgent,
-      run: async (m) => {
-        const reply = await deps.runBookAgent(m);
-        return reply.trim().toUpperCase() === skip ? null : reply;
-      },
+      run: skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP', (m) => m),
       logLabel: 'Book agent error',
       errorLabel: 'Book recommendations error',
     });
