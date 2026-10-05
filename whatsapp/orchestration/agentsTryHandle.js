@@ -27,6 +27,10 @@
  * @param {(text: string) => boolean} [deps.shouldTryHomeAgent]
  * @param {(text: string) => Promise<string>} [deps.runHomeAgent]
  * @param {string} [deps.HOME_AGENT_SKIP]
+ * @param {(text: string) => boolean} [deps.shouldTryBookAgent]
+ * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<string>} [deps.runBookAgent]
+ *   gets the whole message (owner check needs the actor)
+ * @param {string} [deps.BOOK_AGENT_SKIP]
  * @returns {Promise<{ handled: boolean }>}
  */
 export async function runAgentsChainSequential(m, deps) {
@@ -135,6 +139,19 @@ export function listAgents(deps) {
       run: skipAware(deps.runHomeAgent, deps.HOME_AGENT_SKIP ?? 'SKIP'),
       logLabel: 'Home agent error',
       errorLabel: 'Home assistant error',
+    });
+  }
+  if (typeof deps.shouldTryBookAgent === 'function' && typeof deps.runBookAgent === 'function') {
+    const skip = deps.BOOK_AGENT_SKIP ?? 'SKIP';
+    agents.push({
+      key: 'books',
+      shouldTry: deps.shouldTryBookAgent,
+      run: async (m) => {
+        const reply = await deps.runBookAgent(m);
+        return reply.trim().toUpperCase() === skip ? null : reply;
+      },
+      logLabel: 'Book agent error',
+      errorLabel: 'Book recommendations error',
     });
   }
   return agents;

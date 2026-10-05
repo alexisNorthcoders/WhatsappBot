@@ -35,6 +35,10 @@ export const ROUTE_CRITERIA = {
     not_for: 'The Hue lights, which are "lights".',
     examples: ['how do I descale the coffee machine', 'what boiler do we have', 'dishwasher shows error E24'],
   },
+  books: {
+    what: 'Asking for book recommendations: what to read next, books on a topic, or books like a given title or author.',
+    examples: ['something like Mistborn but darker', 'what should I read next', 'recommend a good sci-fi book'],
+  },
   [ROUTE_CHAT]: {
     what: 'Anything else: general conversation, questions, jokes, advice, or a request none of the other options covers.',
     examples: ['tell me a joke', 'what is the capital of France', 'thanks!'],

@@ -73,7 +73,7 @@ hexagonal/ports architecture:
   6. the sequential **agent chain** (see below)
   7. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.js`)
 - `agentsTryHandle.js` (`runAgentsChainSequential`) — runs NL-intent agents in a fixed order
-  (reminder → lights → weather → joplin → email), each with a `shouldTryX(text)` gate and a
+  (reminder → lights → weather → joplin → email → home → books), each with a `shouldTryX(text)` gate and a
   `SKIP` sentinel string convention: an agent's LLM call can return exactly `LIGHTS_AGENT_SKIP`
   (etc.) to mean "not actually for me," letting the chain fall through to the next agent instead
   of committing to a reply.
