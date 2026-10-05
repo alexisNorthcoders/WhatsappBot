@@ -31,6 +31,8 @@
  * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<string>} [deps.runBookAgent]
  *   gets the whole message (owner check needs the actor)
  * @param {string} [deps.BOOK_AGENT_SKIP]
+ * @param {(actorId: string | null, actorAltId?: string | null) => boolean} [deps.isAllowedActor]
+ *   owner gate for the book agent; without it the book agent is never registered
  * @returns {Promise<{ handled: boolean }>}
  */
 export async function runAgentsChainSequential(m, deps) {
@@ -141,11 +143,17 @@ export function listAgents(deps) {
       errorLabel: 'Home assistant error',
     });
   }
-  if (typeof deps.shouldTryBookAgent === 'function' && typeof deps.runBookAgent === 'function') {
+  if (
+    typeof deps.shouldTryBookAgent === 'function' &&
+    typeof deps.runBookAgent === 'function' &&
+    typeof deps.isAllowedActor === 'function'
+  ) {
+    const runBooks = skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP', (m) => m);
     agents.push({
       key: 'books',
       shouldTry: deps.shouldTryBookAgent,
-      run: skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP', (m) => m),
+      // Owner-only: non-owners fall through without reaching the service.
+      run: async (m) => (deps.isAllowedActor(m.actorId, m.actorAltId) ? runBooks(m) : null),
       logLabel: 'Book agent error',
       errorLabel: 'Book recommendations error',
     });

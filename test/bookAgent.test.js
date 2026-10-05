@@ -44,13 +44,27 @@ describe('shouldTryBookAgent', () => {
       'what should I read next?',
       'finished my book today',
       'looking for a fantasy novel',
+      'what to read next',
+      'what can I read after Dune',
+      'anything to read on holiday?',
+      'recommend something to read',
+      'something darker like Mistborn',
+      'any recommendations for my reading list?',
+      'something similar to The Name of the Wind',
     ]) {
       assert.equal(shouldTryBookAgent(text), true, text);
     }
   });
 
   it('does not match unrelated messages', () => {
-    for (const text of ['tell me a joke', 'turn off the lights', 'will it rain tomorrow', '']) {
+    for (const text of [
+      'tell me a joke',
+      'turn off the lights',
+      'will it rain tomorrow',
+      'I read your message',
+      'recommend a restaurant',
+      '',
+    ]) {
       assert.equal(shouldTryBookAgent(text), false, text);
     }
   });
@@ -103,9 +117,13 @@ describe('runBookAgent', () => {
   });
 
   it('replies "unavailable" when the service errors or times out', async () => {
-    const askBookRecs = fakeAsk({ ok: false, reason: 'error', error: new Error('timeout') });
-    const reply = await runBookAgent(fakeInbound('recommend a book'), { askBookRecs, isAllowedActor });
-    assert.equal(reply, BOOK_RECS_UNAVAILABLE);
+    for (const result of [
+      { ok: false, reason: 'error', error: new Error('ECONNREFUSED') },
+      { ok: false, reason: 'timeout', error: new Error('The operation was aborted due to timeout') },
+    ]) {
+      const reply = await runBookAgent(fakeInbound('recommend a book'), { askBookRecs: fakeAsk(result), isAllowedActor });
+      assert.equal(reply, BOOK_RECS_UNAVAILABLE, result.reason);
+    }
   });
 
   it('replies "unavailable" when the service answers with an empty answer', async () => {
@@ -132,6 +150,7 @@ function chainDeps(overrides) {
     shouldTryEmailAgent: () => false,
     runEmailAgent: async () => 'SKIP',
     EMAIL_AGENT_SKIP: 'SKIP',
+    isAllowedActor,
     ...overrides,
   };
 }
@@ -199,5 +218,41 @@ describe('runAgentsChainSequential book agent wiring', () => {
       }),
     );
     assert.equal(r.handled, false);
+  });
+
+  it('the chain gates non-owners before the agent runs', async () => {
+    let ran = false;
+    const r = await runAgentsChainSequential(
+      fakeInbound('recommend a book', STRANGER),
+      chainDeps({
+        shouldTryBookAgent,
+        runBookAgent: async () => {
+          ran = true;
+          return 'x';
+        },
+        BOOK_AGENT_SKIP,
+      }),
+    );
+    assert.equal(r.handled, false);
+    assert.equal(ran, false);
+  });
+
+  it('without isAllowedActor the book agent is not registered', async () => {
+    let ran = false;
+    const r = await runAgentsChainSequential(
+      fakeInbound('recommend a book'),
+      chainDeps({
+        isAllowedActor: undefined,
+        routeIntent: async () => ({ agent: 'books', probability: 0.9, answers: {} }),
+        shouldTryBookAgent,
+        runBookAgent: async () => {
+          ran = true;
+          return 'x';
+        },
+        BOOK_AGENT_SKIP,
+      }),
+    );
+    assert.equal(r.handled, false);
+    assert.equal(ran, false);
   });
 });

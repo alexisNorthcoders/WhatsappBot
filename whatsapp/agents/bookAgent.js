@@ -3,8 +3,17 @@ import { askBookRecs } from '../bookRecsClient.js';
 export const BOOK_AGENT_SKIP = 'SKIP';
 export const BOOK_RECS_UNAVAILABLE = 'Book recommendations are unavailable right now.';
 
-const KEYWORD_PATTERN =
-  /\b(books?|novels?|audiobooks?|read\s+next|should\s+i\s+read|something\s+like|similar\s+to)\b/i;
+const KEYWORD_PATTERN = new RegExp(
+  [
+    String.raw`\b(?:books?|novels?|audiobooks?|reads|trilogy)\b`,
+    String.raw`\bread(?:ing)?\s+(?:next|after|list)\b`,
+    String.raw`\b(?:what|something|anything)\s+(?:\w+\s+){0,3}(?:to|should\s+i|could\s+i|can\s+i)\s+read\b`,
+    String.raw`\brecommend(?:ation)?s?\b.*\bread\b`,
+    String.raw`\b(?:something|anything)\s+(?:\w+\s+)?like\s+\S`,
+    String.raw`\bsimilar\s+to\b`,
+  ].join('|'),
+  'i',
+);
 
 /**
  * Keyword gate; the service itself decides whether a hit is really a request (`not_a_request`).
@@ -36,7 +45,8 @@ export async function runBookAgent(m, deps = {}) {
 
   if (!result.ok) {
     if (result.reason === 'not_configured') return BOOK_AGENT_SKIP;
-    deps.logger?.warn({ err: result.error?.message }, 'Book recommendation service failed');
+    // 'timeout' and 'error' both mean the service is unavailable to the owner.
+    deps.logger?.warn({ reason: result.reason, err: result.error?.message }, 'Book recommendation service failed');
     return BOOK_RECS_UNAVAILABLE;
   }
   if (result.kind === 'not_a_request') return BOOK_AGENT_SKIP;

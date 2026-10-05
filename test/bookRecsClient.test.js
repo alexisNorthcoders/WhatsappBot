@@ -78,14 +78,15 @@ describe('askBookRecs', () => {
     assert.match(result.error.message, /ECONNREFUSED/);
   });
 
-  it('returns reason:error when the service is slower than the timeout', async () => {
+  it('returns reason:timeout when the service is slower than the timeout', async () => {
     const fetchImpl = (_url, init) =>
       new Promise((_resolve, reject) => {
         init.signal.addEventListener('abort', () => reject(init.signal.reason));
       });
     const result = await askBookRecs('q', { baseUrl: 'http://127.0.0.1:3200', fetchImpl, timeoutMs: 20 });
     assert.equal(result.ok, false);
-    assert.equal(result.reason, 'error');
+    assert.equal(result.reason, 'timeout');
+    assert.equal(result.error.name, 'TimeoutError');
   });
 
   it('returns reason:error on a non-JSON body', async () => {

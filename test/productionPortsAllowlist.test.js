@@ -6,6 +6,21 @@ import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBail
 import { isAllowedActor } from '../whatsapp/whatsAppActorAllowlist.js';
 
 describe('createProductionPorts privileged routes', () => {
+  it('refuses to build ports without an isAllowedActor gate', () => {
+    assert.throws(
+      () =>
+        createProductionPorts({
+          sock: {},
+          downloadMediaMessage: async () => Buffer.from(''),
+          fs: { writeFile: async () => {} },
+          logger: { info() {}, warn() {}, error() {} },
+          commands: {},
+          secondPhone: undefined,
+        }),
+      /isAllowedActor is required/,
+    );
+  });
+
   it('denies !restart when isAllowedActor returns false', async () => {
     const sent = [];
     const sock = {

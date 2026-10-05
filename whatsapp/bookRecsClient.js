@@ -15,6 +15,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  * @returns {Promise<
  *   | { ok: true, kind: string, answer: string, sources: Array<object|string> }
  *   | { ok: false, reason: 'not_configured' }
+ *   | { ok: false, reason: 'timeout', error: Error }
  *   | { ok: false, reason: 'error', error: Error }
  * >}
  */
@@ -46,6 +47,11 @@ export async function askBookRecs(question, opts = {}) {
       sources: Array.isArray(data?.sources) ? data.sources : [],
     };
   } catch (e) {
-    return { ok: false, reason: 'error', error: e instanceof Error ? e : new Error(String(e)) };
+    const error = e instanceof Error ? e : new Error(String(e));
+    // AbortSignal.timeout rejects with a TimeoutError; a plain abort surfaces as AbortError.
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      return { ok: false, reason: 'timeout', error };
+    }
+    return { ok: false, reason: 'error', error };
   }
 }

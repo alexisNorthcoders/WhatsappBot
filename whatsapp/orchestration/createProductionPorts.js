@@ -38,6 +38,9 @@ import { createJevRouter } from './jevRouter.js';
  */
 export function createProductionPorts(deps) {
   const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
+  if (typeof isAllowedActor !== 'function') {
+    throw new TypeError('createProductionPorts: isAllowedActor is required');
+  }
 
   async function sendRandomMessage(recipient) {
     const topic = pickRandomTopic(topics);
@@ -86,6 +89,7 @@ export function createProductionPorts(deps) {
     shouldTryBookAgent,
     runBookAgent: (m) => runBookAgent(m, { isAllowedActor, logger }),
     BOOK_AGENT_SKIP,
+    isAllowedActor,
     routeIntent: process.env.TYPESAFE_API_KEY
       ? createJevRouter({
           apiKey: process.env.TYPESAFE_API_KEY,
