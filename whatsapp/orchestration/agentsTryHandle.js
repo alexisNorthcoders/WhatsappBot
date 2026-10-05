@@ -27,6 +27,12 @@
  * @param {(text: string) => boolean} [deps.shouldTryHomeAgent]
  * @param {(text: string) => Promise<string>} [deps.runHomeAgent]
  * @param {string} [deps.HOME_AGENT_SKIP]
+ * @param {(text: string) => boolean} [deps.shouldTryBookAgent]
+ * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<string>} [deps.runBookAgent]
+ *   gets the whole message (owner check needs the actor)
+ * @param {string} [deps.BOOK_AGENT_SKIP]
+ * @param {(actorId: string | null, actorAltId?: string | null) => boolean} [deps.isAllowedActor]
+ *   owner gate for the book agent; without it the book agent is never registered
  * @returns {Promise<{ handled: boolean }>}
  */
 export async function runAgentsChainSequential(m, deps) {
@@ -75,8 +81,8 @@ export async function runAgentsChainSequential(m, deps) {
  * @param {Parameters<typeof runAgentsChainSequential>[1]} deps
  */
 export function listAgents(deps) {
-  const skipAware = (run, skip) => async (m) => {
-    const reply = await run(m.text);
+  const skipAware = (run, skip, input = (m) => m.text) => async (m) => {
+    const reply = await run(input(m));
     return reply.trim().toUpperCase() === skip ? null : reply;
   };
   const agents = [];
@@ -135,6 +141,21 @@ export function listAgents(deps) {
       run: skipAware(deps.runHomeAgent, deps.HOME_AGENT_SKIP ?? 'SKIP'),
       logLabel: 'Home agent error',
       errorLabel: 'Home assistant error',
+    });
+  }
+  if (
+    typeof deps.shouldTryBookAgent === 'function' &&
+    typeof deps.runBookAgent === 'function' &&
+    typeof deps.isAllowedActor === 'function'
+  ) {
+    const runBooks = skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP', (m) => m);
+    agents.push({
+      key: 'books',
+      shouldTry: deps.shouldTryBookAgent,
+      // Owner-only: non-owners fall through without reaching the service.
+      run: async (m) => (deps.isAllowedActor(m.actorId, m.actorAltId) ? runBooks(m) : null),
+      logLabel: 'Book agent error',
+      errorLabel: 'Book recommendations error',
     });
   }
   return agents;

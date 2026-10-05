@@ -16,6 +16,7 @@ import {
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.js';
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.js';
+import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.js';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
 import { createJevRouter } from './jevRouter.js';
@@ -37,6 +38,9 @@ import { createJevRouter } from './jevRouter.js';
  */
 export function createProductionPorts(deps) {
   const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
+  if (typeof isAllowedActor !== 'function') {
+    throw new TypeError('createProductionPorts: isAllowedActor is required');
+  }
 
   async function sendRandomMessage(recipient) {
     const topic = pickRandomTopic(topics);
@@ -82,6 +86,10 @@ export function createProductionPorts(deps) {
     shouldTryHomeAgent,
     runHomeAgent,
     HOME_AGENT_SKIP,
+    shouldTryBookAgent,
+    runBookAgent: (m) => runBookAgent(m, { isAllowedActor, logger }),
+    BOOK_AGENT_SKIP,
+    isAllowedActor,
     routeIntent: process.env.TYPESAFE_API_KEY
       ? createJevRouter({
           apiKey: process.env.TYPESAFE_API_KEY,
