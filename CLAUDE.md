@@ -177,4 +177,4 @@ Default five-role vocabulary: needs-triage, needs-info, ready-for-agent, ready-f
 
 ### Domain docs
 
-Single-context (root `CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`.
+Single-context (root `GLOSSARY.md` + `docs/adr/`). See `docs/agents/domain.md`.
