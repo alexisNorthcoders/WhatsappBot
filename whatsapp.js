@@ -38,6 +38,7 @@ import {
   startReminderScheduler,
   stopReminderScheduler,
 } from './whatsapp/reminders/reminderScheduler.js';
+import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -163,6 +164,11 @@ async function startSock() {
         getSocket: () => waSocket,
         logger,
       });
+      startCalendarNudges({
+        getSocket: () => waSocket,
+        getOwnerJid: ownerJidFromMyPhone,
+        logger,
+      });
       // the first poll of the process reports what arrived while the bot was down
       agentRunner.outbox.start(agentRunnerOutboxPollMs);
       if (myPhone) {
@@ -174,6 +180,7 @@ async function startSock() {
       }
     } else if (connection === 'close') {
       stopReminderScheduler();
+      stopCalendarNudges();
       agentRunner.outbox.stop();
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       /*

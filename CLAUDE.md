@@ -125,6 +125,12 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   store (`reminderStore.js`), and a poller (`reminderScheduler.js`) with an at-most-once delivery
   state machine (`pending → delivering → fired`) that survives restarts and does a catch-up tick
   on reconnect.
+- `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.js`),
+  its Google Calendar v3 adapter (`googleCalendar.js`, plain `fetch` + OAuth refresh token), and
+  a nudge tick (`nudgeTick.js`, started by `nudgeScheduler.js`) that Nudges the owner at each
+  Alert time, at most once per (event, occurrence start, offset) via a local nudged log. Runs
+  alongside the local reminder scheduler for now; off without `GOOGLE_CALENDAR_*` credentials.
+  Setup: `docs/google-calendar-setup.md`. Tests use the in-memory `test/helpers/fakeCalendar.js`.
 - `whatsapp/agents/redditCronDigest.js` — polls a status file written by a *different* project
   (`reddit-bot`) and forwards a daily digest once it's fresh for the current UTC day.
 
