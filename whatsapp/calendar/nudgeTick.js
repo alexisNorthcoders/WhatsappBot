@@ -10,8 +10,84 @@ import {
 /** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
 
 const MIN = 60_000;
+const DAY = 24 * 60 * MIN;
 /** Google's longest notification is 4 weeks before start; look that far ahead. */
-export const NUDGE_LOOKAHEAD_MS = 28 * 24 * 60 * MIN + MIN;
+export const NUDGE_LOOKAHEAD_MS = 28 * DAY + MIN;
+/** All-day Reminders without overrides Nudge at this local time (minutes after midnight). */
+export const DEFAULT_ALL_DAY_NUDGE_MIN = 9 * 60;
+/** Nudged-log offset for the fixed-time Nudge of an all-day Reminder without overrides. */
+const ALL_DAY_NUDGE_OFFSET = 'allday';
+
+/**
+ * `HH:MM` (24 h) → minutes after midnight, or null when malformed.
+ * @param {string | undefined} raw
+ */
+export function parseAllDayNudgeTime(raw) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(raw ?? '').trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  return h < 24 && min < 60 ? h * 60 + min : null;
+}
+
+/**
+ * How far `timeZone`'s wall clock is ahead of UTC at `ms`.
+ * @param {number} ms
+ * @param {string} timeZone
+ */
+function zoneOffsetMs(ms, timeZone) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+      .formatToParts(new Date(ms))
+      .map((p) => [p.type, Number(p.value)])
+  );
+  const wall = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return wall - Math.floor(ms / 1000) * 1000;
+}
+
+/**
+ * The instant `timeZone`'s wall clock reads `date` at `minutes` after midnight.
+ * @param {string} date `YYYY-MM-DD`
+ * @param {number} minutes
+ * @param {string} timeZone
+ */
+export function zonedTimeMs(date, minutes, timeZone) {
+  const wall = Date.parse(`${date}T00:00:00Z`) + minutes * MIN;
+  const guess = wall - zoneOffsetMs(wall, timeZone);
+  // Re-check at the guess, in case a DST change lies between it and the wall time.
+  return wall - zoneOffsetMs(guess, timeZone);
+}
+
+/**
+ * `YYYY-MM-DD` in `timeZone` at `ms`.
+ * @param {number} ms
+ * @param {string} timeZone
+ */
+function zonedDate(ms, timeZone) {
+  return new Date(ms + zoneOffsetMs(ms, timeZone)).toISOString().slice(0, 10);
+}
+
+/**
+ * A Reminder occurrence's real span: all-day dates are local midnights in the calendar's
+ * timezone, not the UTC midnights the port carries in `startMs`/`endMs`.
+ * @param {CalendarEvent} event
+ * @param {string} timeZone
+ */
+export function occurrenceSpan(event, timeZone) {
+  if (!event.allDay || !event.startDate) return { startMs: event.startMs, endMs: event.endMs };
+  const startMs = zonedTimeMs(event.startDate, 0, timeZone);
+  const endMs = event.endDate ? zonedTimeMs(event.endDate, 0, timeZone) : startMs + DAY;
+  return { startMs, endMs };
+}
 
 /**
  * Alert offsets (minutes before start) for a timed Reminder, deduped.
@@ -24,6 +100,28 @@ export function alertOffsetsFor(event, defaultOffsetsMin) {
   const raw =
     n?.mode === 'explicit' ? n.offsetsMin : n?.mode === 'none' ? [] : defaultOffsetsMin;
   return [...new Set(raw.filter((m) => Number.isFinite(m) && m >= 0))];
+}
+
+/**
+ * A Reminder's Alert times: each with its nudged-log offset and the instant it's due.
+ * All-day overrides count back from local midnight of the first day (as Google does); an
+ * all-day Reminder on default notifications Nudges once at `allDayNudgeMin` that day, since
+ * Google doesn't expose the all-day defaults.
+ * @param {CalendarEvent} event
+ * @param {{ defaultOffsetsMin: number[], timeZone: string, allDayNudgeMin: number }} opts
+ * @returns {{ offset: number | string, atMs: number }[]}
+ */
+export function alertTimesFor(event, { defaultOffsetsMin, timeZone, allDayNudgeMin }) {
+  if (event.allDay && event.startDate && event.notifications?.mode === 'default') {
+    return [
+      { offset: ALL_DAY_NUDGE_OFFSET, atMs: zonedTimeMs(event.startDate, allDayNudgeMin, timeZone) },
+    ];
+  }
+  const { startMs } = occurrenceSpan(event, timeZone);
+  return alertOffsetsFor(event, defaultOffsetsMin).map((offset) => ({
+    offset,
+    atMs: startMs - offset * MIN,
+  }));
 }
 
 /**
@@ -61,15 +159,50 @@ function formatStart(ms, timeZone) {
 }
 
 /**
+ * @param {string} date `YYYY-MM-DD`
+ */
+function formatDate(date) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(`${date}T00:00:00Z`));
+}
+
+/**
+ * "Mon 19 Oct (all day, today)", or a date range for multi-day Reminders.
+ * @param {CalendarEvent & { startDate: string }} event
+ * @param {{ nowMs: number, timeZone: string }} opts
+ */
+function formatAllDayWhen(event, { nowMs, timeZone }) {
+  const startDay = Date.parse(`${event.startDate}T00:00:00Z`);
+  const endDay = event.endDate ? Date.parse(`${event.endDate}T00:00:00Z`) : startDay + DAY;
+  const lastDate = new Date(endDay - DAY).toISOString().slice(0, 10);
+  const daysAway = Math.round((startDay - Date.parse(`${zonedDate(nowMs, timeZone)}T00:00:00Z`)) / DAY);
+  const howFar =
+    daysAway <= 0 ? 'today' : daysAway === 1 ? 'tomorrow' : `in ${daysAway} days`;
+  const range =
+    lastDate > event.startDate
+      ? `${formatDate(event.startDate)} – ${formatDate(lastDate)}`
+      : formatDate(event.startDate);
+  return `${range} (all day, ${howFar})`;
+}
+
+/**
  * One Reminder's lines in a Nudge.
  * @param {CalendarEvent} event
  * @param {{ nowMs: number, timeZone: string }} opts
  */
 export function formatNudgeBlock(event, { nowMs, timeZone }) {
-  const lines = [
-    String(event.title || '').trim() || '(no title)',
-    `${formatStart(event.startMs, timeZone)} (${formatHowFar(event.startMs - nowMs)})`,
-  ];
+  const when =
+    event.allDay && event.startDate
+      ? formatAllDayWhen(/** @type {CalendarEvent & { startDate: string }} */ (event), {
+          nowMs,
+          timeZone,
+        })
+      : `${formatStart(event.startMs, timeZone)} (${formatHowFar(event.startMs - nowMs)})`;
+  const lines = [String(event.title || '').trim() || '(no title)', when];
   const location = String(event.location || '').trim();
   if (location) lines.push(`📍 ${location}`);
   const firstLine = String(event.description || '')
@@ -100,29 +233,34 @@ function errMsg(e) {
 }
 
 /**
- * One nudge tick: Nudge every timed Reminder occurrence whose Alert time has arrived and
- * that hasn't ended, at most once per (event, occurrence start, alert offset).
+ * One nudge tick: Nudge every Reminder occurrence (timed or all-day, see `alertTimesFor`)
+ * whose Alert time has arrived and that hasn't ended, at most once per (event, occurrence
+ * start, alert offset).
  *
  * Alert times are recomputed from the calendar each tick, so an event moved or deleted in
- * Google never Nudges at its old time. Alerts that came due while the bot was down are still
- * sent if the occurrence hasn't ended. Everything due in one tick goes out as one message per
- * recipient. Nudged-log entries are written before sending (at-most-once), and entries for
- * ended occurrences are pruned.
+ * Google never Nudges at its old time. Alerts that came due while the bot or Google was
+ * unreachable are still sent if the occurrence hasn't ended, and dropped (counted in
+ * `dropped`) if it has. Everything due in one tick goes out as one message per recipient.
+ * Nudged-log entries are written before sending (at-most-once), and entries for ended
+ * occurrences are pruned.
  *
  * @param {{
  *   calendar: CalendarPort,
  *   ownerChatId: string,
  *   sendText: (chatId: string, text: string) => Promise<unknown>,
  *   nowMs?: number,
+ *   allDayNudgeMin?: number,
  *   logPath?: string,
  *   logger?: { info?: Function, warn?: Function },
  * }} deps
- * @returns {Promise<{ nudged: number, messages: number, pruned: number }>}
+ * @returns {Promise<{ nudged: number, messages: number, pruned: number, dropped: number }>}
  */
 export async function runNudgeTick(deps) {
   const nowMs = deps.nowMs ?? Date.now();
   const logPath = deps.logPath ?? nudgedLogPath();
+  const allDayNudgeMin = deps.allDayNudgeMin ?? DEFAULT_ALL_DAY_NUDGE_MIN;
   const settings = await deps.calendar.getSettings();
+  const { timeZone } = settings;
   const events = await deps.calendar.listEvents({
     timeMinMs: nowMs,
     timeMaxMs: nowMs + NUDGE_LOOKAHEAD_MS,
@@ -130,37 +268,53 @@ export async function runNudgeTick(deps) {
 
   const log = await readNudgedLog(logPath);
   let changed = false;
+  let dropped = 0;
 
   /** @type {CalendarEvent[]} */
   const due = [];
   for (const event of events) {
-    if (event.allDay) continue;
     if (event.responseStatus === 'declined') continue;
-    if (!(event.endMs > nowMs)) continue;
+    const { endMs } = occurrenceSpan(event, timeZone);
+    const ended = !(endMs > nowMs);
     let eventDue = false;
-    for (const offsetMin of alertOffsetsFor(event, settings.defaultOffsetsMin)) {
-      if (event.startMs - offsetMin * MIN > nowMs) continue;
-      const key = nudgeKey(event.id, event.startMs, offsetMin);
+    const alertTimes = alertTimesFor(event, {
+      defaultOffsetsMin: settings.defaultOffsetsMin,
+      timeZone,
+      allDayNudgeMin,
+    });
+    for (const { offset, atMs } of alertTimes) {
+      if (atMs > nowMs) continue;
+      const key = nudgeKey(event.id, event.startMs, offset);
       const existing = log.entries[key];
+      if (ended) {
+        // Overdue for a Reminder that's already over: dropped, and recorded as handled until
+        // the calendar stops listing it (all-day events can outlive their local end there).
+        if (!existing) {
+          log.entries[key] = { endMs: Math.max(endMs, event.endMs) };
+          dropped += 1;
+        }
+        continue;
+      }
       if (existing) {
         // Track the current end so an extended event isn't pruned (and re-nudged) early.
-        if (existing.endMs !== event.endMs) {
-          existing.endMs = event.endMs;
+        if (existing.endMs !== endMs) {
+          existing.endMs = endMs;
           changed = true;
         }
         continue;
       }
-      log.entries[key] = { endMs: event.endMs };
+      log.entries[key] = { endMs };
       eventDue = true;
     }
     if (eventDue) due.push(event);
   }
 
   const pruned = pruneEndedNudges(log, nowMs);
-  if (due.length > 0 || pruned > 0 || changed) await writeNudgedLog(logPath, log);
-  if (due.length === 0) return { nudged: 0, messages: 0, pruned };
+  if (due.length > 0 || dropped > 0 || pruned > 0 || changed) await writeNudgedLog(logPath, log);
+  if (dropped > 0) deps.logger?.info?.({ dropped }, 'calendar nudges: dropped, Reminder already ended');
+  if (due.length === 0) return { nudged: 0, messages: 0, pruned, dropped };
 
-  const text = formatNudgeMessage(due, { nowMs, timeZone: settings.timeZone });
+  const text = formatNudgeMessage(due, { nowMs, timeZone });
   let messages = 0;
   try {
     await deps.sendText(deps.ownerChatId, text);
@@ -173,5 +327,5 @@ export async function runNudgeTick(deps) {
       'calendar nudges: send failed (not retried)'
     );
   }
-  return { nudged: due.length, messages, pruned };
+  return { nudged: due.length, messages, pruned, dropped };
 }

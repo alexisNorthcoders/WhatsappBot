@@ -21,10 +21,11 @@ export function nudgedLogPath() {
 /**
  * @param {string} eventId
  * @param {number} startMs occurrence start
- * @param {number} offsetMin alert offset, minutes before start
+ * @param {number | string} offset alert offset, minutes before start (or a label for a
+ *   fixed-time all-day Nudge)
  */
-export function nudgeKey(eventId, startMs, offsetMin) {
-  return `${eventId}|${new Date(startMs).toISOString()}|${offsetMin}`;
+export function nudgeKey(eventId, startMs, offset) {
+  return `${eventId}|${new Date(startMs).toISOString()}|${offset}`;
 }
 
 /**

@@ -212,4 +212,120 @@ describe('calendar nudge tick', () => {
     await advance(60 * MIN);
     assert.equal(sent.length, 1);
   });
+
+  describe('all-day Reminders', () => {
+    const DAY = 24 * 60 * MIN;
+    // Mon 19 Oct 2026, 00:00 London (BST)
+    const MIDNIGHT = Date.parse('2026-10-18T23:00:00Z');
+
+    it('without overrides, nudges once that day at the all-day nudge time (local)', async () => {
+      now = MIDNIGHT - 60 * MIN;
+      calendar.seed({ title: "Mum's birthday", startDate: '2026-10-19' });
+      await advance(60 * MIN + 9 * 60 * MIN - MIN); // 08:59 local
+      assert.equal(sent.length, 0);
+      await advance(MIN); // 09:00 local
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /Mum's birthday/);
+      assert.match(sent[0].text, /Mon 19 Oct/);
+      assert.match(sent[0].text, /all day/);
+      assert.doesNotMatch(sent[0].text, /09:00/);
+      await advance(DAY);
+      assert.equal(sent.length, 1);
+    });
+
+    it('uses the configured all-day nudge time', async () => {
+      now = MIDNIGHT;
+      calendar.seed({ title: 'Holiday', startDate: '2026-10-19' });
+      await advance(7 * 60 * MIN + 29 * MIN);
+      await tick({ allDayNudgeMin: 7 * 60 + 30 });
+      assert.equal(sent.length, 0);
+      now += MIN;
+      await tick({ allDayNudgeMin: 7 * 60 + 30 });
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /all day, today/);
+    });
+
+    it('with overrides, nudges at each one (counted back from local midnight), not the fixed time', async () => {
+      now = MIDNIGHT - DAY;
+      calendar.seed({
+        title: 'Trip',
+        startDate: '2026-10-19',
+        endDate: '2026-10-22',
+        notifications: { mode: 'explicit', offsetsMin: [15 * 60] }, // 09:00 the day before
+      });
+      await advance(9 * 60 * MIN - MIN);
+      assert.equal(sent.length, 0);
+      await advance(MIN); // Sun 18 Oct, 09:00 local
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /Trip/);
+      assert.match(sent[0].text, /Mon 19 Oct – Wed 21 Oct \(all day, tomorrow\)/);
+      await advance(2 * DAY); // through the default all-day nudge time
+      assert.equal(sent.length, 1);
+    });
+
+    it('never nudges when notifications are switched off', async () => {
+      now = MIDNIGHT;
+      calendar.seed({ startDate: '2026-10-19', notifications: { mode: 'none' } });
+      await advance(DAY);
+      assert.equal(sent.length, 0);
+    });
+
+    it('after an outage, drops ended all-day Reminders and still nudges ongoing ones', async () => {
+      calendar.seed({ title: 'Yesterday thing', startDate: '2026-10-18' });
+      calendar.seed({ title: 'Conference', startDate: '2026-10-18', endDate: '2026-10-21' });
+      calendar.seed({ title: 'Today thing', startDate: '2026-10-19' });
+      now = MIDNIGHT + 30 * MIN; // back at 00:30 local Monday; 09:00 Sunday was missed
+      await tick();
+      assert.equal(sent.length, 1);
+      assert.doesNotMatch(sent[0].text, /Yesterday thing/);
+      assert.doesNotMatch(sent[0].text, /Today thing/);
+      assert.match(sent[0].text, /Conference/);
+      assert.match(sent[0].text, /all day, today/);
+      await advance(9 * 60 * MIN);
+      assert.equal(sent.length, 2);
+      assert.match(sent[1].text, /Today thing/);
+      assert.doesNotMatch(sent[1].text, /Conference|Yesterday thing/);
+    });
+  });
+
+  describe('outage catch-up', () => {
+    it('while Google is unreachable nothing is sent; on recovery overdue Nudges go out as one message', async () => {
+      calendar.seed({ title: 'Over during outage', startMs: T0 + 10 * MIN, endMs: T0 + 30 * MIN });
+      calendar.seed({ title: 'Ongoing', startMs: T0 + 20 * MIN, endMs: T0 + 90 * MIN });
+      calendar.seed({ title: 'Soon', startMs: T0 + 70 * MIN });
+      calendar.seed({ title: "Mum's birthday", startDate: '2026-10-19' });
+      const listEvents = calendar.listEvents;
+      const down = { ...calendar, listEvents: async () => { throw new Error('Google 503'); } };
+      for (; now < T0 + 65 * MIN; now += MIN) {
+        await assert.rejects(tick({ calendar: down }));
+      }
+      assert.equal(sent.length, 0);
+      calendar.listEvents = listEvents;
+      await tick();
+      assert.equal(sent.length, 1);
+      const text = sent[0].text;
+      assert.match(text, /^⏰ 3 reminders:/);
+      assert.match(text, /Ongoing/);
+      assert.match(text, /Soon/);
+      assert.match(text, /Mum's birthday/);
+      assert.doesNotMatch(text, /Over during outage/);
+      await advance(60 * MIN);
+      assert.equal(sent.length, 1);
+    });
+
+    it('records overdue Nudges of ended Reminders as handled, so they are never sent', async () => {
+      // Tokyo is UTC+9: an all-day Reminder's local day ends at 15:00 UTC, but the calendar
+      // (UTC-midnight endMs) keeps listing it until 00:00 UTC.
+      calendar = createFakeCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.seed({ title: 'Ended', startDate: '2026-10-18' });
+      now = Date.parse('2026-10-18T16:00:00Z'); // back after the 09:00 local Alert time and the day's end
+      const first = await tick();
+      assert.equal(first.nudged, 0);
+      assert.equal(first.dropped, 1);
+      await advance(7 * 60 * MIN);
+      assert.equal(sent.length, 0);
+      const later = await tick();
+      assert.equal(later.dropped, 0);
+    });
+  });
 });

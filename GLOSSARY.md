@@ -23,5 +23,6 @@ _Avoid_: notification, alert, delivery
 
 **Alert time**:
 A moment, relative to a Reminder's start, at which a Nudge is due; taken from the Reminder's own
-Google Calendar notification settings.
+Google Calendar notification settings. An all-day Reminder on default notifications has one
+Alert time instead: a fixed local time on its first day.
 _Avoid_: due time, lead time
