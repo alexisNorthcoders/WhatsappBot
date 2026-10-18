@@ -11,8 +11,18 @@ export const ROUTE_CHAT = 'chat';
 /** Option keys must match the agent keys in agentsTryHandle.js. */
 export const ROUTE_CRITERIA = {
   reminder: {
-    what: 'Create, list, cancel or get help with scheduled reminders ("remind me", "nudge me").',
-    examples: ['remind me to call mum at 6pm', 'nudge me in 20 minutes', 'what reminders do I have', 'cancel reminder 3'],
+    what:
+      'Create, list, cancel or get help with reminders and calendar events: "remind me", "nudge me", ' +
+      'appointments with a date or time ("dentist Friday 3pm"), all-day events, or "put … in my calendar".',
+    examples: [
+      'remind me to call mum at 6pm',
+      'nudge me in 20 minutes',
+      'dentist Friday 3-4pm',
+      "Mum's birthday on the 25th",
+      'put the MOT in my calendar for next Tuesday',
+      'what reminders do I have',
+      'cancel reminder 3',
+    ],
   },
   lights: {
     what: 'Control or ask about the Philips Hue lights in the house: on/off, brightness, colour, rooms.',
