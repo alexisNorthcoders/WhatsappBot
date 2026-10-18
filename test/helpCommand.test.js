@@ -5,7 +5,7 @@ import { SUMMARIZE_USAGE } from '../whatsapp/utils/summarizeArgs.js';
 import {
   REMINDER_COMMAND_HELP_SNIPPET,
   REMINDER_HELP_TEXT,
-} from '../whatsapp/reminders/reminderParser.js';
+} from '../whatsapp/calendar/reminderIntent.js';
 
 describe('help command text', () => {
   it('includes the summarize usage aligned with SUMMARIZE_USAGE ([extra])', async () => {
@@ -63,8 +63,8 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
-      /remind me at 6/,
-      'help should mention absolute reminder phrasing',
+      /remind me in 20 minutes/,
+      'help should mention reminder phrasing',
     );
     assert.match(
       helpText,
@@ -73,13 +73,13 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
-      /cancel\/delete\/remove reminder 3/,
-      'help should document cancel/delete/remove aliases',
+      /what's on tomorrow/,
+      'help should mention listing a window',
     );
     assert.match(
       helpText,
-      /cancel #3/,
-      'help should mention cancel #id shorthand',
+      /cancel 2/,
+      'help should mention cancel N',
     );
     assert.match(
       helpText,

@@ -13,7 +13,8 @@ export const ROUTE_CRITERIA = {
   reminder: {
     what:
       'Create, list, cancel or get help with reminders and calendar events: "remind me", "nudge me", ' +
-      'appointments with a date or time ("dentist Friday 3pm"), all-day events, or "put … in my calendar".',
+      'appointments with a date or time ("dentist Friday 3pm"), all-day events, "put … in my calendar", ' +
+      'or what is on the calendar today, tomorrow, this week or next week.',
     examples: [
       'remind me to call mum at 6pm',
       'nudge me in 20 minutes',
@@ -21,7 +22,9 @@ export const ROUTE_CRITERIA = {
       "Mum's birthday on the 25th",
       'put the MOT in my calendar for next Tuesday',
       'what reminders do I have',
-      'cancel reminder 3',
+      "what's on tomorrow",
+      "what's on this week",
+      'cancel 3',
     ],
   },
   lights: {

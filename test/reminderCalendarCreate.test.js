@@ -193,7 +193,7 @@ describe('reminder agent: create on the Owner\'s calendar (#127)', () => {
     assert.deepEqual(lastLists.get(second, NOW)?.map((e) => e.id), [evt.id]);
   });
 
-  it('"cancel 1" after a creation reply deletes that event, never a local-store one', async () => {
+  it('"cancel 1" after a creation reply deletes that event', async () => {
     const calendar = createFakeCalendar();
     const lastLists = createLastLists();
     const text = 'Dentist Friday 3–4pm';
