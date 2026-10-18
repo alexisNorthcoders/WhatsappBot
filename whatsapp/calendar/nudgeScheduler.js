@@ -58,9 +58,13 @@ export function startCalendarNudges(opts) {
   const pollMs = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_POLL_MS;
   const logPath = nudgedLogPath();
   const rawAllDay = process.env.CALENDAR_ALLDAY_NUDGE_TIME;
-  const allDayNudgeMin = parseAllDayNudgeTime(rawAllDay) ?? DEFAULT_ALL_DAY_NUDGE_MIN;
-  if (rawAllDay?.trim() && parseAllDayNudgeTime(rawAllDay) === null) {
-    logger?.warn?.({ value: rawAllDay }, 'calendar nudges: bad CALENDAR_ALLDAY_NUDGE_TIME, using 09:00');
+  const parsedAllDay = parseAllDayNudgeTime(rawAllDay);
+  const allDayNudgeMin = parsedAllDay ?? DEFAULT_ALL_DAY_NUDGE_MIN;
+  if (rawAllDay?.trim() && parsedAllDay === null) {
+    logger?.warn?.(
+      { value: rawAllDay, allDayNudgeMin },
+      'calendar nudges: bad CALENDAR_ALLDAY_NUDGE_TIME (want HH:MM), using the default'
+    );
   }
 
   const tick = async () => {

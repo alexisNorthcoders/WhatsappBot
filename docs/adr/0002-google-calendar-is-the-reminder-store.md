@@ -11,7 +11,7 @@ both be edited means reconciliation bugs.
 ## Consequences
 
 - Creating a Reminder while Google is unreachable fails outright; nothing is queued locally.
-- Every timed event on the primary calendar can produce a nudge (declined invites and events with
+- Every event on the primary calendar, timed or all-day, can produce a nudge (declined invites and events with
   notifications off excepted), so the primary calendar's notification settings now also drive
   WhatsApp traffic.
 - Pending reminders in the old JSON store were dropped, not migrated.

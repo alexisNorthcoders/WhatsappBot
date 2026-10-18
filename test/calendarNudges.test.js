@@ -314,18 +314,18 @@ describe('calendar nudge tick', () => {
     });
 
     it('records overdue Nudges of ended Reminders as handled, so they are never sent', async () => {
-      // Occurrence ended before the bot came back, but the calendar still lists it (e.g. an
-      // all-day event Google counts in UTC while the calendar's day has already ended).
-      const ended = calendar.seed({ title: 'Ended', startMs: T0 - 60 * MIN, endMs: T0 - MIN });
-      const listEvents = calendar.listEvents;
-      const stale = {
-        ...calendar,
-        listEvents: async (/** @type {any} */ w) => [{ ...ended }, ...(await listEvents(w))],
-      };
-      const result = await tick({ calendar: stale });
+      // Tokyo is UTC+9: an all-day Reminder's local day ends at 15:00 UTC, but the calendar
+      // (UTC-midnight endMs) keeps listing it until 00:00 UTC.
+      calendar = createFakeCalendar({ timeZone: 'Asia/Tokyo' });
+      calendar.seed({ title: 'Ended', startDate: '2026-10-18' });
+      now = Date.parse('2026-10-18T16:00:00Z'); // back after the 09:00 local Alert time and the day's end
+      const first = await tick();
+      assert.equal(first.nudged, 0);
+      assert.equal(first.dropped, 1);
+      await advance(7 * 60 * MIN);
       assert.equal(sent.length, 0);
-      assert.equal(result.nudged, 0);
-      assert.equal(result.dropped, 1);
+      const later = await tick();
+      assert.equal(later.dropped, 0);
     });
   });
 });

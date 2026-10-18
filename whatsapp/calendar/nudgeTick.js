@@ -112,15 +112,10 @@ export function alertOffsetsFor(event, defaultOffsetsMin) {
  * @returns {{ offset: number | string, atMs: number }[]}
  */
 export function alertTimesFor(event, { defaultOffsetsMin, timeZone, allDayNudgeMin }) {
-  if (event.allDay && event.startDate) {
-    if (event.notifications?.mode === 'default') {
-      return [
-        {
-          offset: ALL_DAY_NUDGE_OFFSET,
-          atMs: zonedTimeMs(event.startDate, allDayNudgeMin, timeZone),
-        },
-      ];
-    }
+  if (event.allDay && event.startDate && event.notifications?.mode === 'default') {
+    return [
+      { offset: ALL_DAY_NUDGE_OFFSET, atMs: zonedTimeMs(event.startDate, allDayNudgeMin, timeZone) },
+    ];
   }
   const { startMs } = occurrenceSpan(event, timeZone);
   return alertOffsetsFor(event, defaultOffsetsMin).map((offset) => ({
@@ -292,9 +287,12 @@ export async function runNudgeTick(deps) {
       const key = nudgeKey(event.id, event.startMs, offset);
       const existing = log.entries[key];
       if (ended) {
-        // Overdue for a Reminder that's already over: handled by dropping it. No log entry
-        // is needed, since an ended occurrence is never Nudged and its entry would be pruned.
-        if (!existing) dropped += 1;
+        // Overdue for a Reminder that's already over: dropped, and recorded as handled until
+        // the calendar stops listing it (all-day events can outlive their local end there).
+        if (!existing) {
+          log.entries[key] = { endMs: Math.max(endMs, event.endMs) };
+          dropped += 1;
+        }
         continue;
       }
       if (existing) {
@@ -312,7 +310,7 @@ export async function runNudgeTick(deps) {
   }
 
   const pruned = pruneEndedNudges(log, nowMs);
-  if (due.length > 0 || pruned > 0 || changed) await writeNudgedLog(logPath, log);
+  if (due.length > 0 || dropped > 0 || pruned > 0 || changed) await writeNudgedLog(logPath, log);
   if (dropped > 0) deps.logger?.info?.({ dropped }, 'calendar nudges: dropped, Reminder already ended');
   if (due.length === 0) return { nudged: 0, messages: 0, pruned, dropped };
 
