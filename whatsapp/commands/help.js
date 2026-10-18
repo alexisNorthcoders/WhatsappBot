@@ -1,4 +1,4 @@
-import { REMINDER_COMMAND_HELP_SNIPPET } from '../reminders/reminderParser.js';
+import { REMINDER_COMMAND_HELP_SNIPPET } from '../calendar/reminderIntent.js';
 
 export default async function helpCommand(sock, sender) {
   const helpText = `*WhatsApp Bot — Command Reference*

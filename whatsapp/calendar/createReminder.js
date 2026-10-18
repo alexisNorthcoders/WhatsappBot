@@ -36,7 +36,7 @@ function localDateTimeMs(local, timeZone) {
  * @param {string} date `YYYY-MM-DD`
  * @param {number} days
  */
-function addDays(date, days) {
+export function addDays(date, days) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
 }
 
@@ -44,7 +44,7 @@ function addDays(date, days) {
  * @param {number} ms
  * @param {string} timeZone
  */
-function localDate(ms, timeZone) {
+export function localDate(ms, timeZone) {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
     new Date(ms)
   );
@@ -54,7 +54,7 @@ function localDate(ms, timeZone) {
  * @param {number} ms
  * @param {string} timeZone
  */
-function formatDay(ms, timeZone) {
+export function formatDay(ms, timeZone) {
   return new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short', day: 'numeric', month: 'short' }).format(
     new Date(ms)
   );
@@ -64,7 +64,7 @@ function formatDay(ms, timeZone) {
  * @param {number} ms
  * @param {string} timeZone
  */
-function formatClock(ms, timeZone) {
+export function formatClock(ms, timeZone) {
   return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
     new Date(ms)
   );

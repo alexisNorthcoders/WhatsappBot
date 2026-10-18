@@ -34,10 +34,6 @@ const BAILEYS_AUTH_BACKUP_DIR = path.join(path.dirname(BAILEYS_AUTH_DIR), 'baile
 import { initializeLightCache } from './hue/index.js';
 import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
-import {
-  startReminderScheduler,
-  stopReminderScheduler,
-} from './whatsapp/reminders/reminderScheduler.js';
 import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.js';
 import dotenv from 'dotenv';
 dotenv.config();
@@ -160,10 +156,6 @@ async function startSock() {
       reconnectAttempt = 0;
       logger.info('✅ WhatsApp connected.');
       void resolveOwnerLids(sock, { logger });
-      startReminderScheduler({
-        getSocket: () => waSocket,
-        logger,
-      });
       startCalendarNudges({
         getSocket: () => waSocket,
         getOwnerJid: ownerJidFromMyPhone,
@@ -179,7 +171,6 @@ async function startSock() {
         });
       }
     } else if (connection === 'close') {
-      stopReminderScheduler();
       stopCalendarNudges();
       agentRunner.outbox.stop();
       const statusCode = lastDisconnect?.error?.output?.statusCode;
