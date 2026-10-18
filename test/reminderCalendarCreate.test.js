@@ -193,15 +193,49 @@ describe('reminder agent: create on the Owner\'s calendar (#127)', () => {
     assert.deepEqual(lastLists.get(second, NOW)?.map((e) => e.id), [evt.id]);
   });
 
+  it('"cancel 1" after a creation reply deletes that event, never a local-store one', async () => {
+    const calendar = createFakeCalendar();
+    const lastLists = createLastLists();
+    const text = 'Dentist Friday 3–4pm';
+    const { extract } = fakeExtractor({
+      [text]: { ok: true, title: 'Dentist', start: '2026-10-23T15:00', allDay: false, kind: 'appointment' },
+    });
+    const noList = await send('cancel 1', { calendar, extractReminder: extract, lastLists });
+    assert.match(noList.replyText, /No recent reminder list/);
+
+    await send(text, { calendar, extractReminder: extract, lastLists });
+    const outOfRange = await send('cancel 2', { calendar, extractReminder: extract, lastLists });
+    assert.match(outOfRange.replyText, /no #2/);
+    assert.equal(calendar.all().length, 1);
+
+    const r = await send('cancel 1', { calendar, extractReminder: extract, lastLists });
+    assert.equal(r.replyText, 'Cancelled #1: Dentist');
+    assert.equal(calendar.all().length, 0);
+  });
+
   it('only allowlisted actors can create; others get the existing refusal', async () => {
     const calendar = createFakeCalendar();
-    const text = 'Dentist Friday 3–4pm';
+    const text = 'remind me tomorrow at 9 to call the dentist';
     const { extract, calls } = fakeExtractor({});
     const r = await send(text, { calendar, extractReminder: extract, isAllowedActor: () => false }, { actorId: 'x@s.whatsapp.net' });
     assert.equal(r.handled, true);
     assert.match(r.replyText, /Not allowed to manage reminders/);
     assert.equal(calls.length, 0);
     assert.equal(calendar.all().length, 0);
+
+    const guess = await send('meeting tomorrow at 3pm', { calendar, extractReminder: extract, isAllowedActor: () => false });
+    assert.equal(guess.handled, false);
+  });
+
+  it('reads an overnight range as ending the next day', async () => {
+    const calendar = createFakeCalendar();
+    const text = 'Party Saturday 10pm-1am';
+    const { extract } = fakeExtractor({
+      [text]: { ok: true, title: 'Party', start: '2026-10-17T22:00', end: '2026-10-17T01:00', allDay: false, kind: 'appointment' },
+    });
+    await send(text, { calendar, extractReminder: extract });
+    const [evt] = calendar.all();
+    assert.equal(evt.endMs - evt.startMs, 3 * 60 * MIN);
   });
 });
 

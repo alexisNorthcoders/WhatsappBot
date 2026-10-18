@@ -205,7 +205,9 @@ export async function createCalendarReminder(m, deps) {
         `so I didn't add "${fields.title}". When should it be?`
       );
     }
-    const endFromText = fields.end ? localDateTimeMs(fields.end, timeZone) : NaN;
+    let endFromText = fields.end ? localDateTimeMs(fields.end, timeZone) : NaN;
+    // "10pm–1am" read with one date: the end is the next day.
+    if (endFromText <= startMs && endFromText + DAY > startMs) endFromText += DAY;
     const endMs = endFromText > startMs ? endFromText : startMs + defaultDurationMin * MIN;
     input = { title: fields.title, allDay: false, startMs, endMs };
   }

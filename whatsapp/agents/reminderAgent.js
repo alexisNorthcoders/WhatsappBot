@@ -108,6 +108,10 @@ export async function runReminderAgent(m, deps) {
   const isAllowed =
     typeof deps?.isAllowedActor === 'function' ? deps.isAllowedActor(m.actorId, m.actorAltId) : false;
   if (!isAllowed) {
+    // Appointment phrasing without "remind me" is only a guess; strangers fall through to chat.
+    if (intent === 'create' && classifyReminderIntent(text) == null) {
+      return { handled: false, replyText: '' };
+    }
     const hint = lidExtraJidsHint(m.actorId);
     return {
       handled: true,
@@ -135,6 +139,33 @@ export async function runReminderAgent(m, deps) {
     const parsed = parseCancelReminder(text);
     if (!parsed.ok) {
       return { handled: true, replyText: parsed.message };
+    }
+    // Calendar mode: the number refers to the last list shown in this chat (a creation reply
+    // is a one-item list), never to the local store's ids.
+    if (deps.calendar && deps.lastLists) {
+      const list = deps.lastLists.get(m.chatId, nowMs);
+      const evt = list?.[parsed.id - 1];
+      if (!evt) {
+        return {
+          handled: true,
+          replyText: list
+            ? `There's no #${parsed.id} in the last list (it has ${list.length}).`
+            : 'No recent reminder list in this chat to cancel from.',
+        };
+      }
+      if (!evt.isOrganizer) {
+        return {
+          handled: true,
+          replyText: `"${evt.title}" is an invite organised by someone else. Decline it in Google Calendar instead.`,
+        };
+      }
+      try {
+        await deps.calendar.deleteEvent(evt.id);
+      } catch (err) {
+        deps.logger?.warn?.({ err: err instanceof Error ? err.message : String(err) }, 'calendar: delete event failed');
+        return { handled: true, replyText: "Couldn't reach Google Calendar, so nothing was cancelled. Please try again." };
+      }
+      return { handled: true, replyText: `Cancelled #${parsed.id}: ${evt.title}` };
     }
     const cancelled = await cancelReminder(parsed.id, { chatId: m.chatId, filePath });
     if (!cancelled) {
