@@ -31,7 +31,7 @@ const CANCEL_RE =
  * "anything on next week"
  */
 const WINDOW_RE =
-  /^(?:please\s+)?(?:what(?:['’]?s|\s+is)?\s+(?:on|happening|planned)|what\s+(?:have|do)\s+i\s+(?:got|have)(?:\s+on)?|anything\s+on|(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:reminders|calendar|events))(?:\s+(?:on|in)\s+(?:my|the)\s+(?:calendar|diary))?\s+(?:for\s+)?(today|tonight|tomorrow|this\s+week|next\s+week)\s*[.!?]?\s*$/i;
+  /^(?:please\s+)?(?:what(?:['’]?s|\s+is)?\s+(?:on|happening|planned)|what\s+(?:have|do)\s+i\s+(?:got|have)(?:\s+on)?|anything\s+on|(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:reminders|calendar|events))(?:\s+(?:(?:on|in)\s+)?(?:my|the)\s+(?:calendar|diary))?\s+(?:for\s+)?(today|tonight|tomorrow|this\s+week|next\s+week)\s*[.!?]?\s*$/i;
 
 /** List upcoming: "list reminders", "show my reminders", "what are my reminders", bare "reminders". */
 const LIST_RE =
