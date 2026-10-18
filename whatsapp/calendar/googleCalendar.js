@@ -28,18 +28,34 @@ function timeMs(t) {
 }
 
 /**
+ * Google `{ minutes }` reminder entries → deduped minute offsets.
+ * @param {unknown} list
+ * @returns {number[]}
+ */
+function offsetsFromReminders(list) {
+  return [
+    ...new Set(
+      (Array.isArray(list) ? list : [])
+        .map((/** @type {any} */ r) => Number(r?.minutes))
+        .filter(Number.isFinite)
+    ),
+  ];
+}
+
+/**
+ * @param {string} date `YYYY-MM-DD`
+ */
+function nextDay(date) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + 24 * 60 * 60_000).toISOString().slice(0, 10);
+}
+
+/**
  * @param {any} reminders Google `event.reminders`
  * @returns {CalendarNotifications}
  */
 function normalizeNotifications(reminders) {
   if (!reminders || reminders.useDefault !== false) return { mode: 'default' };
-  const offsetsMin = [
-    ...new Set(
-      (Array.isArray(reminders.overrides) ? reminders.overrides : [])
-        .map((/** @type {any} */ o) => Number(o?.minutes))
-        .filter(Number.isFinite)
-    ),
-  ];
+  const offsetsMin = offsetsFromReminders(reminders.overrides);
   return offsetsMin.length ? { mode: 'explicit', offsetsMin } : { mode: 'none' };
 }
 
@@ -106,7 +122,8 @@ function toGoogleEvent(input) {
   };
   if (input.allDay) {
     body.start = { date: input.startDate };
-    body.end = { date: input.endDate ?? input.startDate };
+    // Google's end date is exclusive: a one-day event ends the next day.
+    body.end = { date: input.endDate ?? nextDay(String(input.startDate)) };
   } else {
     body.start = { dateTime: new Date(Number(input.startMs)).toISOString() };
     body.end = { dateTime: new Date(Number(input.endMs)).toISOString() };
@@ -253,13 +270,7 @@ export function createGoogleCalendar(opts) {
         return settingsCache.value;
       }
       const body = await api(`${API}/users/me/calendarList/primary`, {}, 'read settings');
-      const defaultOffsetsMin = [
-        ...new Set(
-          (body?.defaultReminders ?? [])
-            .map((/** @type {any} */ r) => Number(r?.minutes))
-            .filter(Number.isFinite)
-        ),
-      ];
+      const defaultOffsetsMin = offsetsFromReminders(body?.defaultReminders);
       const value = { timeZone: String(body?.timeZone || 'UTC'), defaultOffsetsMin };
       settingsCache = { value, at: now() };
       return value;

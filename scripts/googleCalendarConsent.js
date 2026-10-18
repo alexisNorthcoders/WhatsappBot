@@ -18,7 +18,8 @@ dotenv.config();
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  // calendarList.get on primary: timezone and default notifications
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 ];
 const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim();
 const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim();

@@ -204,4 +204,12 @@ describe('calendar nudge tick', () => {
     await advance(30 * MIN);
     assert.equal(sent.length, 1);
   });
+
+  it('does not nudge again when an event is extended after its nudge', async () => {
+    const evt = calendar.seed({ title: 'Long', startMs: T0 + 5 * MIN, endMs: T0 + 30 * MIN });
+    await tick();
+    calendar.move(evt.id, T0 + 5 * MIN, T0 + 120 * MIN);
+    await advance(60 * MIN);
+    assert.equal(sent.length, 1);
+  });
 });

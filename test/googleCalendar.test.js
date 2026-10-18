@@ -199,3 +199,21 @@ describe('normalizeGoogleEvent', () => {
     assert.equal(e.startMs, Date.parse('2026-10-25T00:00:00Z'));
   });
 });
+
+describe('google calendar adapter: all-day create', () => {
+  it('ends a one-day all-day event on the next day (exclusive end)', async () => {
+    /** @type {any} */
+    let posted;
+    const { fetch } = fakeFetch({
+      [TOKEN]: () => ({ body: { access_token: 'at', expires_in: 3600 } }),
+      'POST https://www.googleapis.com/calendar/v3/calendars/primary/events': ({ init }) => {
+        posted = JSON.parse(String(init.body));
+        return { body: { id: 'd1', ...posted } };
+      },
+    });
+    const cal = createGoogleCalendar({ ...creds, fetch });
+    const evt = await cal.createEvent({ title: 'Birthday', allDay: true, startDate: '2026-10-31' });
+    assert.deepEqual(posted.end, { date: '2026-11-01' });
+    assert.equal(evt.allDay, true);
+  });
+});

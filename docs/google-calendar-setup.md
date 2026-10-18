@@ -13,7 +13,7 @@ an OAuth refresh token. This is a one-time setup.
    its client ID and secret into `.env` as `GOOGLE_CALENDAR_CLIENT_ID` and
    `GOOGLE_CALENDAR_CLIENT_SECRET`.
 4. On the Pi, run `npm run calendar:consent`. Open the printed URL, sign in as the calendar
-   owner and allow access (scopes: `calendar.events`, `calendar.readonly`).
+   owner and allow access (scopes: `calendar.events`, `calendar.calendarlist.readonly`).
    - Browser on the same machine: the script receives the code on `http://127.0.0.1:53682`
      (override with `GOOGLE_CALENDAR_CONSENT_PORT`).
    - Browser elsewhere (SSH to the Pi): the redirect page fails to load; copy its full address

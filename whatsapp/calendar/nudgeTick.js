@@ -129,7 +129,7 @@ export async function runNudgeTick(deps) {
   });
 
   const log = await readNudgedLog(logPath);
-  const pruned = pruneEndedNudges(log, nowMs);
+  let changed = false;
 
   /** @type {CalendarEvent[]} */
   const due = [];
@@ -141,14 +141,23 @@ export async function runNudgeTick(deps) {
     for (const offsetMin of alertOffsetsFor(event, settings.defaultOffsetsMin)) {
       if (event.startMs - offsetMin * MIN > nowMs) continue;
       const key = nudgeKey(event.id, event.startMs, offsetMin);
-      if (log.entries[key]) continue;
+      const existing = log.entries[key];
+      if (existing) {
+        // Track the current end so an extended event isn't pruned (and re-nudged) early.
+        if (existing.endMs !== event.endMs) {
+          existing.endMs = event.endMs;
+          changed = true;
+        }
+        continue;
+      }
       log.entries[key] = { endMs: event.endMs };
       eventDue = true;
     }
     if (eventDue) due.push(event);
   }
 
-  if (due.length > 0 || pruned > 0) await writeNudgedLog(logPath, log);
+  const pruned = pruneEndedNudges(log, nowMs);
+  if (due.length > 0 || pruned > 0 || changed) await writeNudgedLog(logPath, log);
   if (due.length === 0) return { nudged: 0, messages: 0, pruned };
 
   const text = formatNudgeMessage(due, { nowMs, timeZone: settings.timeZone });
