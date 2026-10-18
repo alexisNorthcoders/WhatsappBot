@@ -103,11 +103,12 @@ function formatAlert(startMs, offsetMin, timeZone) {
 /**
  * @param {CalendarEvent} event
  * @param {{ timeZone: string, defaultOffsetsMin: number[], allDayNudgeMin?: number }} settings
- * @param {number} listNumber
+ * @param {number | null} listNumber the event's number in the chat's last list, or null when
+ *   there is no list to cancel from (the reply then omits the number and the cancel hint)
  */
 export function formatCreatedReply(event, settings, listNumber) {
   const { timeZone } = settings;
-  const lines = [`Added to your calendar (#${listNumber}): ${event.title}`];
+  const lines = [`Added to your calendar${listNumber == null ? '' : ` (#${listNumber})`}: ${event.title}`];
   /** @type {number} */
   let alertBaseMs;
   if (event.allDay) {
@@ -152,7 +153,7 @@ export function formatCreatedReply(event, settings, listNumber) {
   } else {
     lines.push('🔔 No alert (your calendar has no default notifications)');
   }
-  lines.push(`Say "cancel ${listNumber}" to undo.`);
+  if (listNumber != null) lines.push(`Say "cancel ${listNumber}" to undo.`);
   return lines.join('\n');
 }
 
@@ -228,6 +229,13 @@ export async function createCalendarReminder(m, deps) {
     logger?.warn?.({ err: err instanceof Error ? err.message : String(err) }, 'calendar: create event failed');
     return CALENDAR_UNREACHABLE_REPLY;
   }
-  lastLists?.set(m.chatId, [event], nowMs);
-  return formatCreatedReply(event, { ...settings, allDayNudgeMin: deps.allDayNudgeMin }, 1);
+  // A creation reply is a one-item list: it replaces the chat's last list, so "cancel <n>"
+  // resolves against it. The number shown is derived from that stored list.
+  let listNumber = null;
+  if (lastLists) {
+    const list = [event];
+    lastLists.set(m.chatId, list, nowMs);
+    listNumber = list.indexOf(event) + 1;
+  }
+  return formatCreatedReply(event, { ...settings, allDayNudgeMin: deps.allDayNudgeMin }, listNumber);
 }

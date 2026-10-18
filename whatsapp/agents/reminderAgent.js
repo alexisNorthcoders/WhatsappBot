@@ -140,8 +140,9 @@ export async function runReminderAgent(m, deps) {
     if (!parsed.ok) {
       return { handled: true, replyText: parsed.message };
     }
-    // Calendar mode: the number refers to the last list shown in this chat (a creation reply
-    // is a one-item list), never to the local store's ids.
+    // Calendar mode: the number refers to the last list shown in this chat, never to the local
+    // store's ids. A creation reply stores a one-item list, so its event is always "cancel 1";
+    // without `lastLists` the creation reply shows no number at all.
     if (deps.calendar && deps.lastLists) {
       const list = deps.lastLists.get(m.chatId, nowMs);
       const evt = list?.[parsed.id - 1];

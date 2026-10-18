@@ -45,7 +45,7 @@ describe('reminder agent: create on the Owner\'s calendar (#127)', () => {
     const { extract } = fakeExtractor({
       [text]: { ok: true, title: 'Take the bins out', start: '2026-10-17T14:20', allDay: false, kind: 'remind' },
     });
-    const r = await send(text, { calendar, extractReminder: extract });
+    const r = await send(text, { calendar, extractReminder: extract, lastLists: createLastLists() });
     assert.equal(r.handled, true);
     const [evt] = calendar.all();
     assert.equal(evt.title, 'Take the bins out');
@@ -211,6 +211,17 @@ describe('reminder agent: create on the Owner\'s calendar (#127)', () => {
     const r = await send('cancel 1', { calendar, extractReminder: extract, lastLists });
     assert.equal(r.replyText, 'Cancelled #1: Dentist');
     assert.equal(calendar.all().length, 0);
+  });
+
+  it('omits the number and cancel hint when there is no last list to cancel from', async () => {
+    const calendar = createFakeCalendar();
+    const text = 'Dentist Friday 3–4pm';
+    const { extract } = fakeExtractor({
+      [text]: { ok: true, title: 'Dentist', start: '2026-10-23T15:00', allDay: false, kind: 'appointment' },
+    });
+    const r = await send(text, { calendar, extractReminder: extract });
+    assert.match(r.replyText, /^Added to your calendar: Dentist/);
+    assert.doesNotMatch(r.replyText, /#\d|cancel/);
   });
 
   it('only allowlisted actors can create; others get the existing refusal', async () => {
