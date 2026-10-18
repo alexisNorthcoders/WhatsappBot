@@ -21,16 +21,32 @@ export function createFakeCalendar(settings = {}) {
   };
 
   /**
-   * @param {Partial<CalendarEvent> & { startMs: number }} partial
+   * All-day events may be seeded by `startDate` (and optional exclusive `endDate`, default the
+   * next day); `startMs`/`endMs` become those dates' UTC midnights, like the Google adapter.
+   * @param {Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })} partial
    * @returns {CalendarEvent}
    */
   function build(partial) {
+    if (partial.startMs === undefined && partial.startDate) {
+      const startMs = Date.parse(`${partial.startDate}T00:00:00Z`);
+      const endDate =
+        partial.endDate ?? new Date(startMs + 24 * 60 * MIN).toISOString().slice(0, 10);
+      partial = {
+        allDay: true,
+        ...partial,
+        endDate,
+        startMs,
+        endMs: Date.parse(`${endDate}T00:00:00Z`),
+      };
+    }
+    const startMs = /** @type {number} */ (partial.startMs);
     const id = partial.id ?? `evt${nextId++}`;
     return {
       id,
       title: 'Event',
       allDay: false,
-      endMs: partial.startMs + 30 * MIN,
+      startMs,
+      endMs: startMs + 30 * MIN,
       location: '',
       description: '',
       notifications: { mode: 'default' },
@@ -43,7 +59,7 @@ export function createFakeCalendar(settings = {}) {
   }
 
   return {
-    /** @param {Partial<CalendarEvent> & { startMs: number }} partial */
+    /** @param {Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })} partial */
     seed(partial) {
       const evt = build(partial);
       events.set(evt.id, evt);

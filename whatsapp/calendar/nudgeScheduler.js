@@ -1,6 +1,6 @@
 import { createGoogleCalendar } from './googleCalendar.js';
 import { nudgedLogPath } from './nudgedLog.js';
-import { runNudgeTick } from './nudgeTick.js';
+import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.js';
 
 const DEFAULT_POLL_MS = 60_000;
 
@@ -57,6 +57,11 @@ export function startCalendarNudges(opts) {
   const parsed = parseInt(String(process.env.CALENDAR_NUDGES_POLL_MS ?? ''), 10);
   const pollMs = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_POLL_MS;
   const logPath = nudgedLogPath();
+  const rawAllDay = process.env.CALENDAR_ALLDAY_NUDGE_TIME;
+  const allDayNudgeMin = parseAllDayNudgeTime(rawAllDay) ?? DEFAULT_ALL_DAY_NUDGE_MIN;
+  if (rawAllDay?.trim() && parseAllDayNudgeTime(rawAllDay) === null) {
+    logger?.warn?.({ value: rawAllDay }, 'calendar nudges: bad CALENDAR_ALLDAY_NUDGE_TIME, using 09:00');
+  }
 
   const tick = async () => {
     if (inFlight) return;
@@ -71,6 +76,7 @@ export function startCalendarNudges(opts) {
           if (!live?.sendMessage) throw new Error('socket unavailable before send');
           await live.sendMessage(chatId, { text });
         },
+        allDayNudgeMin,
         logPath,
         logger,
       });
@@ -86,7 +92,7 @@ export function startCalendarNudges(opts) {
 
   intervalId = setInterval(() => void tick(), pollMs);
   void tick();
-  logger?.info?.({ pollMs, logPath }, 'calendar nudges: started');
+  logger?.info?.({ pollMs, allDayNudgeMin, logPath }, 'calendar nudges: started');
 }
 
 /** Stop polling (connection close). A tick still running keeps the `inFlight` guard. */
