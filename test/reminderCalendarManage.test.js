@@ -280,6 +280,12 @@ describe('reminder agent: access and setup (#128)', () => {
       const r = await send(text, { calendar: undefined });
       assert.equal(r.replyText, CALENDAR_NOT_CONNECTED_REPLY, text);
     }
+    for (const text of ['reminder help', 'help reminders', 'help with reminders', '!reminders', '!reminder']) {
+      for (const extractReminder of [undefined, noExtraction]) {
+        const r = await send(text, { calendar: undefined, extractReminder, isAllowedActor: undefined });
+        assert.equal(r.replyText, REMINDER_HELP_TEXT, text);
+      }
+    }
     const guess = await send('dentist Friday 3pm', { calendar: undefined });
     assert.equal(guess.handled, false);
   });

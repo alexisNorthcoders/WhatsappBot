@@ -29,6 +29,10 @@ import { createJevRouter } from './jevRouter.js';
  * @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage
  */
 
+// One store per process, keyed by chat id: ports are rebuilt on every socket reconnect, and a
+// list shown just before a reconnect must still answer "cancel N".
+const reminderLastLists = createLastLists();
+
 /**
  * @param {object} deps
  * @param {import('@whiskeysockets/baileys').WASocket} deps.sock
@@ -68,7 +72,7 @@ export function createProductionPorts(deps) {
         }),
         defaultDurationMin: Number(process.env.CALENDAR_DEFAULT_DURATION_MIN) || undefined,
         allDayNudgeMin: parseAllDayNudgeTime(process.env.CALENDAR_ALLDAY_NUDGE_TIME) ?? DEFAULT_ALL_DAY_NUDGE_MIN,
-        lastLists: createLastLists(),
+        lastLists: reminderLastLists,
         logger,
       }
     : {};
