@@ -18,6 +18,10 @@ import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.js';
 import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.js';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
+import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.js';
+import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.js';
+import { createLlmReminderExtractor } from '../calendar/reminderExtraction.js';
+import { createLastLists } from '../calendar/lastLists.js';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
 import { createJevRouter } from './jevRouter.js';
 
@@ -54,6 +58,21 @@ export function createProductionPorts(deps) {
     await sock.sendMessage(recipient, { text: summary });
   }
 
+  // Reminders go to the Owner's calendar when Google credentials are set (#127).
+  const calendar = googleCalendarFromEnv();
+  const reminderCalendarDeps = calendar
+    ? {
+        calendar,
+        extractReminder: createLlmReminderExtractor({
+          complete: (prompt) => deepInfraAPI(prompt, undefined, { temperature: 0 }),
+        }),
+        defaultDurationMin: Number(process.env.CALENDAR_DEFAULT_DURATION_MIN) || undefined,
+        allDayNudgeMin: parseAllDayNudgeTime(process.env.CALENDAR_ALLDAY_NUDGE_TIME) ?? DEFAULT_ALL_DAY_NUDGE_MIN,
+        lastLists: createLastLists(),
+        logger,
+      }
+    : {};
+
   const agentChainDeps = {
     logger,
     messaging: {
@@ -68,6 +87,7 @@ export function createProductionPorts(deps) {
     runReminderAgent: async (m) =>
       runReminderAgent(m, {
         isAllowedActor,
+        ...reminderCalendarDeps,
       }),
     shouldTryLightsAgent,
     runLightsAgent,

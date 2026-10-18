@@ -132,6 +132,11 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   most once per (event, occurrence start, offset) via a local nudged log. Runs
   alongside the local reminder scheduler for now; off without `GOOGLE_CALENDAR_*` credentials.
   Setup: `docs/google-calendar-setup.md`. Tests use the in-memory `test/helpers/fakeCalendar.js`.
+  With credentials set, the reminder agent creates Reminders on the calendar
+  (`createReminder.js`): an injected extraction function (`reminderExtraction.js`, DeepInfra
+  in production) turns text into wall-clock fields in the calendar's timezone, and the
+  duration/alert/past-time rules are applied after it. Without credentials, creation still
+  uses the local store.
 - `whatsapp/agents/redditCronDigest.js` — polls a status file written by a *different* project
   (`reddit-bot`) and forwards a daily digest once it's fresh for the current UTC day.
 

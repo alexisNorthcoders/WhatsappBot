@@ -1,4 +1,5 @@
 import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { createCalendarReminder } from '../calendar/createReminder.js';
 import {
   classifyReminderIntent,
   formatReminderDue,
@@ -13,12 +14,39 @@ import {
   listPendingReminders,
 } from '../reminders/reminderStore.js';
 
+const CALENDAR_PHRASE_RE =
+  /\b(?:(?:in|to|on|into)\s+(?:my|the)\s+(?:calendar|diary)|(?:add|put|book|schedule)\b.*\b(?:calendar|diary)|appointment)\b/i;
+const DAY_RE =
+  /\b(?:today|tonight|tomorrow|(?:mon|tues?|wed(?:nes)?|thu(?:rs?)?|fri|sat(?:ur)?|sun)(?:day)?|(?:next|this)\s+(?:week|month)|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|\d{1,2}(?:st|nd|rd|th))\b/i;
+const TIME_RE = /\b(?:at\s+\d{1,2}|\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}:\d{2}|noon|midday|all\s+day|birthday|anniversary)\b/i;
+const QUESTION_RE = /\?\s*$|^(?:what|when|will|is|are|how|do|does|did|can|could|should|would|who|where|why)\b/i;
+
+/**
+ * Appointment phrasing with no "remind me": "dentist Friday 3–4pm", "gym tomorrow at 7",
+ * "Mum's birthday on the 25th", "put … in my calendar". Questions ("will it rain tomorrow?")
+ * are left to other agents; the extractor can still answer `notReminder` to fall through.
+ * @param {string} text
+ */
+export function looksLikeAppointment(text) {
+  const t = String(text || '').trim();
+  if (!t || QUESTION_RE.test(t)) return false;
+  return CALENDAR_PHRASE_RE.test(t) || (DAY_RE.test(t) && TIME_RE.test(t));
+}
+
+/**
+ * @param {string} text
+ * @returns {'create' | 'help' | 'cancel' | 'list' | null}
+ */
+function reminderIntent(text) {
+  return classifyReminderIntent(text) ?? (looksLikeAppointment(text) ? 'create' : null);
+}
+
 /**
  * @param {string} text
  * @returns {boolean}
  */
 export function shouldTryReminderAgent(text) {
-  return classifyReminderIntent(text) != null;
+  return reminderIntent(text) != null;
 }
 
 /**
@@ -54,12 +82,20 @@ function formatUpcomingList(reminders, nowMs, meta = {}) {
  *   isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean,
  *   nowMs?: number,
  *   filePath?: string,
+ *   calendar?: import('../calendar/calendarPort.js').CalendarPort,
+ *   extractReminder?: import('../calendar/reminderExtraction.js').ExtractReminder,
+ *   defaultDurationMin?: number,
+ *   allDayNudgeMin?: number,
+ *   lastLists?: ReturnType<typeof import('../calendar/lastLists.js').createLastLists>,
+ *   logger?: { warn?: Function },
  * }} deps
+ *   With `calendar` + `extractReminder`, Reminders are created on the Owner's calendar (#127);
+ *   without them, on the local store.
  * @returns {Promise<{ handled: boolean, replyText: string }>}
  */
 export async function runReminderAgent(m, deps) {
   const text = m.text;
-  const intent = classifyReminderIntent(text);
+  const intent = reminderIntent(text);
   if (!intent) {
     return { handled: false, replyText: '' };
   }
@@ -108,6 +144,19 @@ export async function runReminderAgent(m, deps) {
       };
     }
     return { handled: true, replyText: `Cancelled reminder #${cancelled.id}` };
+  }
+
+  if (deps.calendar && typeof deps.extractReminder === 'function') {
+    const replyText = await createCalendarReminder(m, {
+      calendar: deps.calendar,
+      extractReminder: deps.extractReminder,
+      nowMs,
+      defaultDurationMin: deps.defaultDurationMin,
+      allDayNudgeMin: deps.allDayNudgeMin,
+      lastLists: deps.lastLists,
+      logger: deps.logger,
+    });
+    return replyText === null ? { handled: false, replyText: '' } : { handled: true, replyText };
   }
 
   const parsed = parseReminder(text, nowMs);

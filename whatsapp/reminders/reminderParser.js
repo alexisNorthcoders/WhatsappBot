@@ -95,6 +95,11 @@ export const REMINDER_HELP_TEXT = `*Reminders help*
 • "remind me at 6 to take the bins out" (bare 1–7 → PM, 8–12 → AM/noon)
 • "remind me tomorrow at 9 to call the dentist"
 
+*Add to your calendar* (when Google Calendar is connected)
+• "dentist Friday 3–4pm" / "gym tomorrow at 7 for an hour"
+• "Mum's birthday on the 25th" (all day)
+• "…and remind me an hour before" to set the alert
+
 *List upcoming*
 • "list reminders" / "show my reminders" / "reminders"
 
