@@ -9,8 +9,12 @@
  * connect (see resolveOwnerLids). Anything malformed or unresolved denies.
  */
 
-/** User parts of owner @lid ids resolved from the LID mapping store; replaced on each v7 connect. */
-let ownerLidUsers = new Set();
+/**
+ * User parts of owner @lid ids resolved from the LID mapping store, each mapped to the phone
+ * digits it was resolved from; replaced on each v7 connect.
+ * @type {Map<string, string>}
+ */
+let ownerLidUsers = new Map();
 
 function digitsOnly(s) {
   return String(s ?? '').replace(/\D/g, '');
@@ -124,6 +128,30 @@ export function isAllowedActor(actorJid, altJid) {
 }
 
 /**
+ * Phone digits an actor id stands for: a phone JID's own, or those of the MY_PHONE /
+ * SECOND_PHONE number a resolved owner LID maps from. '' when unknown.
+ * @param {string | null | undefined} jid
+ */
+function phoneDigitsOf(jid) {
+  return phoneDigitsFromPnJid(jid) || ownerLidUsers.get(lidUserPart(jid)) || '';
+}
+
+/**
+ * SECOND_PHONE's phone JID when the actor is SECOND_PHONE (by phone JID, alternate id or a LID
+ * resolved from it), else null. The owner (MY_PHONE, its LIDs, CLAUDE_AGENT_EXTRA_JIDS) and
+ * strangers are null, as is SECOND_PHONE set to the owner's own number.
+ * @param {string | null | undefined} actorJid
+ * @param {string | null | undefined} [altJid]
+ * @returns {string | null}
+ */
+export function secondPhoneJid(actorJid, altJid) {
+  const second = digitsOnly(process.env.SECOND_PHONE);
+  if (!second || second === digitsOnly(process.env.MY_PHONE)) return null;
+  const isSecond = [actorJid, altJid].some((j) => j && phoneDigitsOf(j) === second);
+  return isSecond ? `${second}@s.whatsapp.net` : null;
+}
+
+/**
  * Resolve the owner's LIDs from MY_PHONE / SECOND_PHONE via `sock.signalRepository.lidMapping`
  * (Baileys 7.x only; feature-detected). A lookup pass replaces any previously resolved set, so a
  * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
@@ -135,12 +163,12 @@ export async function resolveOwnerLids(sock, { logger } = {}) {
   const lidMapping = sock?.signalRepository?.lidMapping;
   if (typeof lidMapping?.getLIDForPN !== 'function') return;
 
-  const next = new Set();
+  const next = new Map();
   for (const digits of allowedPhoneDigitsSet()) {
     try {
       const lid = await lidMapping.getLIDForPN(`${digits}@s.whatsapp.net`);
       const user = lidUserPart(lid);
-      if (user) next.add(user);
+      if (user) next.set(user, digits);
       else logger?.warn({ phone: digits }, 'No LID mapping for owner phone');
     } catch (err) {
       logger?.warn({ err, phone: digits }, 'Owner LID lookup failed');
@@ -152,7 +180,7 @@ export async function resolveOwnerLids(sock, { logger } = {}) {
 
 /** Forget resolved owner LIDs (tests). */
 export function clearOwnerLids() {
-  ownerLidUsers = new Set();
+  ownerLidUsers = new Map();
 }
 
 /** Hint for denied @lid senders (same env as Claude agent). */

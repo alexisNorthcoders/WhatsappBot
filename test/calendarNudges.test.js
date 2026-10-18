@@ -213,6 +213,78 @@ describe('calendar nudge tick', () => {
     assert.equal(sent.length, 1);
   });
 
+  describe('Reminders created by SECOND_PHONE (#129)', () => {
+    const SECOND = '447700900002@s.whatsapp.net';
+    const SECOND_LID = '222222222222222@lid';
+    /** Stand-in for the allowlist: SECOND_PHONE's chat for its own ids, else null. */
+    const creatorChatId = (/** @type {string} */ id) => (id === SECOND || id === SECOND_LID ? SECOND : null);
+    const tickWithCreators = () => tick({ creatorChatId });
+
+    it('Nudges both the owner and SECOND_PHONE at each Alert time', async () => {
+      calendar.seed({
+        title: 'Vet',
+        startMs: T0 + 30 * MIN,
+        notifications: { mode: 'explicit', offsetsMin: [30, 0] },
+        createdByBot: true,
+        creatorActorId: SECOND,
+      });
+      await tickWithCreators();
+      assert.deepEqual(sent.map((s) => s.chatId).sort(), [OWNER, SECOND]);
+      assert.match(sent[0].text, /Vet/);
+      assert.equal(sent[0].text, sent[1].text);
+      now += 30 * MIN;
+      await tickWithCreators();
+      assert.equal(sent.length, 4);
+      assert.deepEqual(sent.slice(2).map((s) => s.chatId).sort(), [OWNER, SECOND]);
+    });
+
+    it('Nudges only the owner for Reminders the owner created, or not created by the bot', async () => {
+      calendar.seed({ title: 'Mine', startMs: T0, createdByBot: true, creatorActorId: OWNER });
+      calendar.seed({ title: 'From Google', startMs: T0, creatorActorId: null });
+      await tickWithCreators();
+      assert.deepEqual(sent.map((s) => s.chatId), [OWNER]);
+    });
+
+    it('ignores a recorded creator on an event the bot did not create', async () => {
+      calendar.seed({ title: 'Odd', startMs: T0, createdByBot: false, creatorActorId: SECOND });
+      await tickWithCreators();
+      assert.deepEqual(sent.map((s) => s.chatId), [OWNER]);
+    });
+
+    it('without a creator lookup, Nudges only the owner', async () => {
+      calendar.seed({ title: 'Vet', startMs: T0, createdByBot: true, creatorActorId: SECOND });
+      await tick();
+      assert.deepEqual(sent.map((s) => s.chatId), [OWNER]);
+    });
+
+    it('catch-up merges per recipient: one message each, SECOND_PHONE sees only its own', async () => {
+      calendar.seed({ title: 'Owner thing', startMs: T0 + 50 * MIN, endMs: T0 + 120 * MIN });
+      calendar.seed({ title: 'Vet', startMs: T0 + 60 * MIN, createdByBot: true, creatorActorId: SECOND });
+      calendar.seed({ title: 'School run', startMs: T0 + 70 * MIN, createdByBot: true, creatorActorId: SECOND_LID });
+      now = T0 + 80 * MIN;
+      await tickWithCreators();
+      assert.equal(sent.length, 2);
+      const owner = sent.find((s) => s.chatId === OWNER);
+      const second = sent.find((s) => s.chatId === SECOND);
+      assert.match(owner?.text ?? '', /3 reminders/);
+      assert.match(second?.text ?? '', /2 reminders/);
+      assert.doesNotMatch(second?.text ?? '', /Owner thing/);
+    });
+
+    it("a failed send to one recipient doesn't stop the other", async () => {
+      calendar.seed({ title: 'Vet', startMs: T0, createdByBot: true, creatorActorId: SECOND });
+      const r = await tick({
+        creatorChatId,
+        sendText: async (chatId, text) => {
+          if (chatId === OWNER) throw new Error('boom');
+          sent.push({ chatId, text });
+        },
+      });
+      assert.deepEqual(sent.map((s) => s.chatId), [SECOND]);
+      assert.equal(r.messages, 1);
+    });
+  });
+
   describe('all-day Reminders', () => {
     const DAY = 24 * 60 * MIN;
     // Mon 19 Oct 2026, 00:00 London (BST)

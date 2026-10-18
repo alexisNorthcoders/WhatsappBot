@@ -233,6 +233,24 @@ function errMsg(e) {
 }
 
 /**
+ * Who gets which due Reminders: the owner gets all of them; a Reminder the bot created for
+ * someone else (`creatorChatId` maps its recorded creator to a chat) goes to that chat too.
+ * @param {CalendarEvent[]} due
+ * @param {{ ownerChatId: string, creatorChatId?: (creatorActorId: string) => string | null }} deps
+ * @returns {Map<string, CalendarEvent[]>}
+ */
+function nudgesByRecipient(due, { ownerChatId, creatorChatId }) {
+  const byChat = new Map([[ownerChatId, [...due]]]);
+  for (const event of due) {
+    if (!event.createdByBot || !event.creatorActorId || !creatorChatId) continue;
+    const chatId = creatorChatId(event.creatorActorId);
+    if (!chatId || chatId === ownerChatId) continue;
+    byChat.set(chatId, [...(byChat.get(chatId) ?? []), event]);
+  }
+  return byChat;
+}
+
+/**
  * One nudge tick: Nudge every Reminder occurrence (timed or all-day, see `alertTimesFor`)
  * whose Alert time has arrived and that hasn't ended, at most once per (event, occurrence
  * start, alert offset).
@@ -240,13 +258,16 @@ function errMsg(e) {
  * Alert times are recomputed from the calendar each tick, so an event moved or deleted in
  * Google never Nudges at its old time. Alerts that came due while the bot or Google was
  * unreachable are still sent if the occurrence hasn't ended, and dropped (counted in
- * `dropped`) if it has. Everything due in one tick goes out as one message per recipient.
+ * `dropped`) if it has. Everything due in one tick goes out as one message per recipient:
+ * the owner, plus the creator of a Reminder the bot made for someone else (SECOND_PHONE, via
+ * `creatorChatId`).
  * Nudged-log entries are written before sending (at-most-once), and entries for ended
  * occurrences are pruned.
  *
  * @param {{
  *   calendar: CalendarPort,
  *   ownerChatId: string,
+ *   creatorChatId?: (creatorActorId: string) => string | null,
  *   sendText: (chatId: string, text: string) => Promise<unknown>,
  *   nowMs?: number,
  *   allDayNudgeMin?: number,
@@ -314,18 +335,19 @@ export async function runNudgeTick(deps) {
   if (dropped > 0) deps.logger?.info?.({ dropped }, 'calendar nudges: dropped, Reminder already ended');
   if (due.length === 0) return { nudged: 0, messages: 0, pruned, dropped };
 
-  const text = formatNudgeMessage(due, { nowMs, timeZone });
   let messages = 0;
-  try {
-    await deps.sendText(deps.ownerChatId, text);
-    messages += 1;
-    deps.logger?.info?.({ nudged: due.length }, 'calendar nudges: sent');
-  } catch (e) {
-    // Already logged as nudged: at-most-once, no retry.
-    deps.logger?.warn?.(
-      { err: errMsg(e), nudged: due.length },
-      'calendar nudges: send failed (not retried)'
-    );
+  for (const [chatId, events] of nudgesByRecipient(due, deps)) {
+    try {
+      await deps.sendText(chatId, formatNudgeMessage(events, { nowMs, timeZone }));
+      messages += 1;
+      deps.logger?.info?.({ nudged: events.length }, 'calendar nudges: sent');
+    } catch (e) {
+      // Already logged as nudged: at-most-once, no retry.
+      deps.logger?.warn?.(
+        { err: errMsg(e), nudged: events.length },
+        'calendar nudges: send failed (not retried)'
+      );
+    }
   }
   return { nudged: due.length, messages, pruned, dropped };
 }
