@@ -26,9 +26,12 @@ const HELP_RE =
 const CANCEL_RE =
   /^(?:please\s+)?(?:cancel|delete|remove)\s+(?:(?:my\s+)?(?:upcoming\s+)?reminder\s+)?(?:(?:number|no\.?)\s*)?#?\s*(\d+)\s*[.!]?\s*$/i;
 
-/** "what's on tomorrow", "what have I got this week", "what's on today?", "anything on next week" */
+/**
+ * "what's on tomorrow", "what have I got on this week", "what's on my calendar today?",
+ * "anything on next week"
+ */
 const WINDOW_RE =
-  /^(?:please\s+)?(?:what(?:['’]?s|\s+is)?\s+(?:on|happening|planned)|what\s+(?:have|do)\s+i\s+(?:got|have)(?:\s+on)?|anything\s+on|(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:reminders|calendar|events))\s+(?:for\s+)?(today|tonight|tomorrow|this\s+week|next\s+week)\s*[.!?]?\s*$/i;
+  /^(?:please\s+)?(?:what(?:['’]?s|\s+is)?\s+(?:on|happening|planned)|what\s+(?:have|do)\s+i\s+(?:got|have)(?:\s+on)?|anything\s+on|(?:show|list)\s+(?:me\s+)?(?:my\s+)?(?:reminders|calendar|events))(?:\s+(?:on|in)\s+(?:my|the)\s+(?:calendar|diary))?\s+(?:for\s+)?(today|tonight|tomorrow|this\s+week|next\s+week)\s*[.!?]?\s*$/i;
 
 /** List upcoming: "list reminders", "show my reminders", "what are my reminders", bare "reminders". */
 const LIST_RE =

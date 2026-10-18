@@ -53,6 +53,8 @@ describe('reminder intents (#128)', () => {
       'what is on next week': 'nextWeek',
       'what have I got on today': 'today',
       "what's on for this week?": 'thisWeek',
+      "what's on my calendar tomorrow": 'tomorrow',
+      "what's on the calendar next week": 'nextWeek',
       'list reminders': 'upcoming',
       'show my reminders': 'upcoming',
       reminders: 'upcoming',
