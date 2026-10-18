@@ -27,7 +27,8 @@
     "test": "node --test ./test/**/*.test.js",
     "eval:summarize": "node eval/summarize/run.mjs",
     "start": "node --no-deprecation whatsapp.js",
-    "start:joplin": "node --no-deprecation test-joplin.js"
+    "start:joplin": "node --no-deprecation test-joplin.js",
+    "calendar:consent": "node scripts/googleCalendarConsent.js"
   },
   "keywords": [],
   "author": "",
