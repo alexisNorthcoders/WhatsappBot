@@ -1,3 +1,4 @@
+import { secondPhoneJid } from '../whatsAppActorAllowlist.js';
 import { createGoogleCalendar } from './googleCalendar.js';
 import { nudgedLogPath } from './nudgedLog.js';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.js';
@@ -75,6 +76,8 @@ export function startCalendarNudges(opts) {
       await runNudgeTick({
         calendar,
         ownerChatId,
+        // SECOND_PHONE is also Nudged for the Reminders it created (#129).
+        creatorChatId: (creatorActorId) => secondPhoneJid(creatorActorId),
         sendText: async (chatId, text) => {
           const live = getSocket();
           if (!live?.sendMessage) throw new Error('socket unavailable before send');

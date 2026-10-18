@@ -53,6 +53,7 @@ export function shouldTryReminderAgent(text) {
  * }} m
  * @param {{
  *   isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean,
+ *   creatorIdFor?: (actorId: string | null, actorAltId?: string | null) => string | null,
  *   nowMs?: number,
  *   calendar?: import('../calendar/calendarPort.js').CalendarPort,
  *   extractReminder?: import('../calendar/reminderExtraction.js').ExtractReminder,
@@ -61,7 +62,9 @@ export function shouldTryReminderAgent(text) {
  *   lastLists?: ReturnType<typeof import('../calendar/lastLists.js').createLastLists>,
  *   logger?: { warn?: Function },
  * }} deps
- *   Without `calendar` (no Google credentials) only help works.
+ *   Without `calendar` (no Google credentials) only help works. `creatorIdFor` picks the
+ *   creator id recorded on a new Reminder (default: the actor id); the nudge tick reads it to
+ *   Nudge SECOND_PHONE for its own Reminders.
  * @returns {Promise<{ handled: boolean, replyText: string }>}
  */
 export async function runReminderAgent(m, deps) {
@@ -109,7 +112,8 @@ export async function runReminderAgent(m, deps) {
     return { handled: true, replyText: await cancelReminder(m, intent.n, manageDeps) };
   }
 
-  const replyText = await createCalendarReminder(m, {
+  const creatorActorId = deps.creatorIdFor ? deps.creatorIdFor(m.actorId, m.actorAltId) : m.actorId;
+  const replyText = await createCalendarReminder({ ...m, creatorActorId }, {
     calendar,
     extractReminder: deps.extractReminder,
     nowMs,

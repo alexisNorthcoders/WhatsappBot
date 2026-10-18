@@ -1,7 +1,7 @@
 import restartCommand from '../commands/restart.js';
 import { spriteIterateCommand } from '../commands/sprite.js';
 import { sdxlIterateCommand } from '../commands/sdxl.js';
-import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { lidExtraJidsHint, secondPhoneJid } from '../whatsAppActorAllowlist.js';
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.js';
 import { pickRandomTopic } from '../../data/helper.js';
 import { topics } from '../../data/topics.js';
@@ -91,6 +91,7 @@ export function createProductionPorts(deps) {
     runReminderAgent: async (m) =>
       runReminderAgent(m, {
         isAllowedActor,
+        creatorIdFor: (actorId, actorAltId) => secondPhoneJid(actorId, actorAltId) ?? actorId,
         ...reminderCalendarDeps,
       }),
     shouldTryLightsAgent,

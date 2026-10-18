@@ -135,6 +135,9 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   "list reminders" (`manageReminders.js`) reply with a numbered list remembered per chat for
   30 minutes (`lastLists.js`); "cancel N" deletes item N of it (Owner-organised only). Calendar
   is the only reminder store: without credentials, only reminder help works.
+  SECOND_PHONE manages Reminders like the owner; the bot records it as the creator (as its
+  phone JID, even from a LID, via `secondPhoneJid`), and the nudge tick then Nudges both the
+  owner and SECOND_PHONE, one merged message per recipient.
 - `whatsapp/agents/redditCronDigest.js` — polls a status file written by a *different* project
   (`reddit-bot`) and forwards a daily digest once it's fresh for the current UTC day.
 

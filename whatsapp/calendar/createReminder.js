@@ -158,7 +158,8 @@ export function formatCreatedReply(event, settings, listNumber) {
 }
 
 /**
- * @param {{ text: string, chatId: string, actorId: string | null }} m
+ * @param {{ text: string, chatId: string, actorId: string | null, creatorActorId?: string | null }} m
+ *   `creatorActorId` is recorded as the Reminder's creator (default: `actorId`).
  * @param {{
  *   calendar: CalendarPort,
  *   extractReminder: ExtractReminder,
@@ -220,7 +221,7 @@ export async function createCalendarReminder(m, deps) {
       ? { mode: 'explicit', offsetsMin: [0] }
       : { mode: 'default' };
   input.notifications = notifications;
-  input.creatorActorId = m.actorId;
+  input.creatorActorId = m.creatorActorId !== undefined ? m.creatorActorId : m.actorId;
 
   let event;
   try {

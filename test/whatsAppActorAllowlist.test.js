@@ -5,6 +5,7 @@ import {
   clearOwnerLids,
   isAllowedActor,
   resolveOwnerLids,
+  secondPhoneJid,
 } from '../whatsapp/whatsAppActorAllowlist.js';
 import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBaileysMessage.js';
 
@@ -231,6 +232,47 @@ describe('whatsAppActorAllowlist', () => {
       );
       assert.equal(called, false);
       assert.equal(isAllowedActor(OWNER_LID), false);
+    });
+  });
+
+  describe('secondPhoneJid: is this actor SECOND_PHONE, not the owner? (#129)', () => {
+    const SECOND_PN = '447700900002@s.whatsapp.net';
+    const SECOND_LID = '222222222222222@lid';
+    beforeEach(() => {
+      process.env.SECOND_PHONE = '447700900002';
+    });
+
+    it('maps SECOND_PHONE in either phone form to its phone JID', () => {
+      assert.equal(secondPhoneJid(SECOND_PN), SECOND_PN);
+      assert.equal(secondPhoneJid('447700900002@c.us'), SECOND_PN);
+      assert.equal(secondPhoneJid('447700900002:3@s.whatsapp.net'), SECOND_PN);
+    });
+
+    it('recognises a SECOND_PHONE LID by its alternate id or the resolved mapping', async () => {
+      assert.equal(secondPhoneJid(SECOND_LID, SECOND_PN), SECOND_PN);
+      assert.equal(secondPhoneJid(SECOND_LID), null, 'unresolved LID');
+      await resolveOwnerLids(
+        sockWithLidMapping(async (pn) => (pn === SECOND_PN ? SECOND_LID : OWNER_LID)),
+        { logger: silentLogger },
+      );
+      assert.equal(secondPhoneJid(SECOND_LID), SECOND_PN);
+      assert.equal(secondPhoneJid(OWNER_LID), null);
+    });
+
+    it('treats the owner, owner LIDs and CLAUDE_AGENT_EXTRA_JIDS as not SECOND_PHONE', () => {
+      process.env.CLAUDE_AGENT_EXTRA_JIDS = SECOND_LID;
+      assert.equal(secondPhoneJid(OWNER_PN), null);
+      assert.equal(secondPhoneJid(OWNER_LID, OWNER_PN), null);
+      assert.equal(secondPhoneJid(SECOND_LID), null);
+      assert.equal(secondPhoneJid(STRANGER_LID), null);
+      assert.equal(secondPhoneJid(null), null);
+    });
+
+    it('is null without SECOND_PHONE, or when it is the same number as MY_PHONE', () => {
+      process.env.SECOND_PHONE = '+44 7700 900001';
+      assert.equal(secondPhoneJid(OWNER_PN), null);
+      delete process.env.SECOND_PHONE;
+      assert.equal(secondPhoneJid(SECOND_PN), null);
     });
   });
 });
