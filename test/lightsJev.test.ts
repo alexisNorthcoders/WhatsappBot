@@ -26,8 +26,8 @@ function fakeHue() {
   };
 }
 
-/** @param {Record<string, [string, number]>} picks question id → [choice, probability] */
-function answers(picks) {
+/** @param picks question id → [choice, probability] */
+function answers(picks: Record<string, [string, number]>) {
   return Object.fromEntries(
     Object.entries(picks).map(([id, [choice, p]]) => [id, { type: 'choice', choice, probabilities: { [choice]: p } }]),
   );

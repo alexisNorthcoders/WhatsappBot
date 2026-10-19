@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { openaiChatTokenOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
 
@@ -47,8 +48,7 @@ Rules:
 - After the tool succeeds, reply in a short, friendly WhatsApp style confirming the email was sent. Do not expose SKIP to the user.`;
 }
 
-/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
-const TOOLS = [
+const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
@@ -120,8 +120,7 @@ export async function runEmailAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
-    const messages = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },
     ];

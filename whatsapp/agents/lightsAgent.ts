@@ -15,6 +15,7 @@ import {
 } from '../../hue/api.ts';
 import { openaiChatTokenOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
 
@@ -84,8 +85,7 @@ Rules:
 - Otherwise give a short, friendly WhatsApp-style reply after tools succeed (you may call multiple tools). Do not mention "SKIP" to the user unless they asked about it.`;
 }
 
-/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
-const TOOLS = [
+const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
@@ -330,9 +330,9 @@ export async function executeLightsTool(name, args) {
 }
 
 /**
- * @returns {Promise<string>} Final user-facing text, or LIGHTS_AGENT_SKIP to fall through to other handlers.
+ * @returns Final user-facing text, or LIGHTS_AGENT_SKIP to fall through to other handlers.
  */
-export async function runLightsAgent(userMessage) {
+export async function runLightsAgent(userMessage): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = LIGHTS_AGENT_MODEL;
   let outcome = 'error';
@@ -342,8 +342,7 @@ export async function runLightsAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
-    const messages = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },
     ];

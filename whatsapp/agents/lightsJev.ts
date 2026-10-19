@@ -13,6 +13,7 @@ import {
   setLightColorTemperature,
 } from '../../hue/api.ts';
 import { logAgentInvocation } from './agentUsageLog.ts';
+import type { Logger } from '../types.ts';
 
 const PREMISE = 'Assume `message` is a request to the home\'s Philips Hue lights.';
 
@@ -30,10 +31,9 @@ const COLOURS = {
 const WHITES = { warm: 450, cool: 190 };
 
 /**
- * @param {Array<{ id: string; name: string; room: string }>} [lights]
- * @returns {Record<string, object>} Jev questions, empty when there are no lights to target
+ * @returns Jev questions, empty when there are no lights to target
  */
-export function lightsJevQuestions(lights = getCachedLights()) {
+export function lightsJevQuestions(lights: Array<{ id: string; name: string; room: string }> = getCachedLights()): Record<string, object> {
   if (!lights.length) return {};
   const targets = {
     all: { what: 'Every light in the house, including when it just says "the lights" without naming a room or light.', examples: ['lights off', 'turn everything off'] },
@@ -92,17 +92,12 @@ export function lightsJevQuestions(lights = getCachedLights()) {
 }
 
 /**
- * @param {string} text the user's message
- * @param {Record<string, { choice?: string; probabilities?: Record<string, number> }>} answers Jev answers
- * @param {object} [deps]
- * @param {Array<{ id: string; name: string; room: string; state: string }>} [deps.lights]
- * @param {{ switchLight: Function; switchOffAllLights: Function; setLightBrightness: Function; setLightColor: Function; setLightColorTemperature: Function }} [deps.hue]
- * @param {number} [deps.minProbability] every answer used must reach this, else null
- * @param {Pick<import('../types.ts').Logger, 'info'>} [deps.logger]
- * @param {typeof logAgentInvocation} [deps.logUsage]
- * @returns {Promise<string | null>} the reply, or null to hand over to the GPT lights agent
+ * @param text the user's message
+ * @param answers Jev answers
+ * @param deps.minProbability every answer used must reach this, else null
+ * @returns the reply, or null to hand over to the GPT lights agent
  */
-export async function runLightsFromJev(text, answers, deps = {}) {
+export async function runLightsFromJev(text: string, answers: Record<string, { choice?: string; probabilities?: Record<string, number> }>, deps: { lights?: Array<{ id: string; name: string; room: string; state: string }>; hue?: { switchLight: Function; switchOffAllLights: Function; setLightBrightness: Function; setLightColor: Function; setLightColorTemperature: Function }; minProbability?: number; logger?: Pick<Logger, 'info'>; logUsage?: typeof logAgentInvocation } = {}): Promise<string | null> {
   const {
     lights = getCachedLights(),
     hue = { switchLight, switchOffAllLights, setLightBrightness, setLightColor, setLightColorTemperature },

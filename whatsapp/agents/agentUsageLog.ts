@@ -18,10 +18,7 @@ function logPath() {
   return p ? resolve(p) : resolve(process.cwd(), 'logs', 'agent-usage.csv');
 }
 
-/**
- * @param {{ agent: string, model: string, promptTokens: number, completionTokens: number, totalTokens: number, outcome: string }} row
- */
-export function logAgentInvocation(row) {
+export function logAgentInvocation(row: { agent: string; model: string; promptTokens: number; completionTokens: number; totalTokens: number; outcome: string }) {
   const path = logPath();
   const line =
     [
