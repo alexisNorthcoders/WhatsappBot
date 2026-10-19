@@ -18,7 +18,7 @@
   "type": "module",
   "scripts": {
     "test": "npm run typecheck && node --test \"./test/**/*.test.js\" \"./test/**/*.test.ts\"",
-    "typecheck": "tsc -p . && tsc -p tsconfig.checkjs.json",
+    "typecheck": "tsc -p . && node scripts/typecheckJs.ts",
     "eval:summarize": "node eval/summarize/run.mjs",
     "start": "node --no-deprecation whatsapp.js",
     "start:joplin": "node --no-deprecation test-joplin.js",
