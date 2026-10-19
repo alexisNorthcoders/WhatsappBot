@@ -176,7 +176,8 @@ These share the root `package.json` but are not imported by `whatsapp.js`:
 `.env.example` is the source of truth for optional/tunable env vars (cron intervals, disable
 flags, file paths for reminders/reddit-digest state, storage limits). When adding a new
 env-gated feature, add a commented example there rather than only documenting it in code
-comments.
+comments. `test/envExample.test.js` fails when the bot's code reads an env var that
+`.env.example` doesn't list.
 
 ## Agent skills
 
