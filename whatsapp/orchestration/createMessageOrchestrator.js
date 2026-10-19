@@ -2,31 +2,21 @@ import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
 
 /** @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage */
 
-const DEFAULT_BUTTONS = ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'];
-
 /**
  * @param {object} ports
  * @param {{ markRead(m: InboundMessage): Promise<void> }} ports.receipts
  * @param {{ sendText(chatId: string, text: string): Promise<void>; sendPoll(chatId: string, poll: { name: string; values: string[]; selectableCount: number }): Promise<void>; sendImage(chatId: string, image: { buffer: Buffer; caption?: string }): Promise<void> }} ports.messaging
  * @param {{ downloadImageBuffer(m: InboundMessage): Promise<Buffer> }} ports.media
- * @param {{ writeButton(button: string): Promise<void> }} ports.buttonSink
  * @param {{ get(chatId: string): Promise<Array<{ role: 'user'|'assistant'; content: string }>>; append(chatId: string, role: 'user'|'assistant', content: string): Promise<void>; clear(chatId: string): Promise<number> }} ports.chatMemory
  * @param {{ visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user'|'assistant'; content: string }>): Promise<string> }} ports.ai
  * @param {{ runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }} ports.routes
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
  * @param {{ info: Function; warn: Function; error: Function }} ports.logger
- * @param {{ labels: string[] }} [ports.buttons]
  * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} ports.access
  * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} ports.agentRunner
  *   `claude…` commands go to agent-runner, never the command registry.
  */
 export function createMessageOrchestrator(ports) {
-  const buttonLabels = ports.buttons?.labels ?? DEFAULT_BUTTONS;
-
-  function isButtonLabel(lowerText) {
-    return buttonLabels.includes(lowerText);
-  }
-
   /**
    * `claude…` → agent-runner (`claude:missed` is answered from the bot's own outbox cursor).
    * @param {InboundMessage} m
@@ -84,20 +74,13 @@ export function createMessageOrchestrator(ports) {
   async function handleInbound(m) {
     const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
     const messageType = raw.message ? Object.keys(raw.message)[0] : 'unknown';
-    const button = m.text.toLowerCase();
     const command = m.text.split(' ')[0].toLowerCase();
 
     ports.logger.info('Processing message:', {
       messageId: m.id,
       type: messageType,
       command,
-      isButton: isButtonLabel(button),
     });
-
-    if (isButtonLabel(button)) {
-      await ports.buttonSink.writeButton(button);
-      ports.logger.info('Button processed:', button);
-    }
 
     if (raw.message?.imageMessage) {
       const buffer = await ports.media.downloadImageBuffer(m);

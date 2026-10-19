@@ -12,7 +12,6 @@ describe('createProductionPorts privileged routes', () => {
         createProductionPorts({
           sock: {},
           downloadMediaMessage: async () => Buffer.from(''),
-          fs: { writeFile: async () => {} },
           logger: { info() {}, warn() {}, error() {} },
           commands: {},
           secondPhone: undefined,
@@ -34,7 +33,6 @@ describe('createProductionPorts privileged routes', () => {
     const ports = createProductionPorts({
       sock,
       downloadMediaMessage: async () => Buffer.from(''),
-      fs: { writeFile: async () => {} },
       logger: { info() {}, warn() {}, error() {} },
       commands: {},
       secondPhone: undefined,
@@ -80,7 +78,6 @@ describe('createProductionPorts privileged routes', () => {
           },
         },
         downloadMediaMessage: async () => Buffer.from(''),
-        fs: { writeFile: async () => {} },
         logger: { info() {}, warn() {}, error() {} },
         commands,
         secondPhone: undefined,

@@ -235,7 +235,6 @@ async function startSock() {
       createProductionPorts({
         sock,
         downloadMediaMessage,
-        fs,
         logger,
         commands,
         secondPhone,

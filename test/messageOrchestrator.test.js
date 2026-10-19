@@ -49,11 +49,6 @@ function basePorts(overrides = {}) {
         return Buffer.from('x');
       },
     },
-    buttonSink: {
-      writeButton: async (b) => {
-        log.push({ op: 'button', b });
-      },
-    },
     chatMemory: {
       get: async () => [],
       append: async (chatId, role, content) => {
@@ -95,7 +90,6 @@ function basePorts(overrides = {}) {
       missedReport: async () => '',
     },
     logger: noopLogger(),
-    buttons: { labels: ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'] },
     ...rest,
     __log: log,
   };
@@ -234,13 +228,12 @@ describe('createMessageOrchestrator', () => {
     assert(log.some((e) => e.op === 'visionHelp'));
   });
 
-  it('writes button then falls through to assistant when nothing else handles', async () => {
+  it('falls through to assistant when nothing else handles', async () => {
     const log = [];
     const ports = basePorts({ __log: log });
     const { handleInbound } = createMessageOrchestrator(ports);
     await handleInbound(fakeInbound({ text: 'a', raw: { key: {}, message: { conversation: 'a' } } }));
     const ops = log.filter((x) => typeof x === 'object' && x.op).map((x) => x.op);
-    assert(ops.includes('button'));
     assert(ops.includes('assistant'));
   });
 
