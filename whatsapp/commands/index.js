@@ -9,7 +9,6 @@ import spriteCommand from './sprite.js';
 import danielCommand from './daniel.js';
 import summarizeCommand from './summarize.js';
 import homeCommand from './home.js';
-import * as lightsCommands from './lights.js';
 
 export {
     gpt4Command as gpt4,
@@ -25,18 +24,3 @@ export {
     summarizeCommand as summarise,
     homeCommand as home,
 };
-
-export const hue = {
-    lightOn: lightsCommands.lightOn,
-    lightOff: lightsCommands.lightOff,
-    lightsOff: lightsCommands.allOff,
-    listLights: lightsCommands.listLights,
-    listLightsByRoom: lightsCommands.listLightsByRoom,
-    setBrightness: lightsCommands.setBrightness,
-    setColorTemp: lightsCommands.setColorTemp,
-    setColor: lightsCommands.setColor,
-    lightInfo: lightsCommands.lightInfo,
-    refreshCache: lightsCommands.refreshCache,
-    cacheStatus: lightsCommands.cacheStatus
-}
-

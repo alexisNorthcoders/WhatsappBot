@@ -151,7 +151,7 @@ These share the root `package.json` but are not imported by `whatsapp.js`:
   talks to this server's OpenAI-proxying routes (see `index.js` for the Express routes it hits:
   `/gpt3`, `/gpt4`, `/dalle`, `/instruct`, `/recipe`, `/weather`, `/whatsapp?:number`).
 - `hue/` — Philips Hue bridge client (`HUE_IP`/`HUE_USERNAME`), wired into the WhatsApp agent
-  chain via `whatsapp/agents/lightsAgent.js` + `whatsapp/commands/lights.js`.
+  chain via `whatsapp/agents/lightsAgent.js`.
 - `joplin/` — Joplin Data API client, wired in via `whatsapp/agents/joplinAgent.js` +
   `whatsapp/commands/joplin.js`, and reused as a prompt source for `claude joplin:<note>`.
 - `simongame/` — a standalone browser music game (Bluey's Musical Keyboard), not part of the
