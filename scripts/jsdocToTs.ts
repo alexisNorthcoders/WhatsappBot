@@ -102,10 +102,11 @@ function hoistTypeImports(text: string): string {
   if (byModule.size === 0) return text;
   const lines = [...byModule].map(([mod, names]) => `import type { ${[...names].join(', ')} } from '${mod}';\n`);
   const imports = [...text.matchAll(/^import [^;]*;\n/gm)];
-  const header = /^\/\*\*[\s\S]*?\*\/\n\n?/.exec(text);
+  const header = /^\/\*\*(?:(?!\*\/)[\s\S])*\*\/\n\n/.exec(text);
   const at = imports.length > 0 ? imports.at(-1)!.index! + imports.at(-1)![0].length : header ? header[0].length : 0;
-  const block = lines.join('') + (imports.length > 0 ? '' : '\n');
-  return text.slice(0, at) + block + text.slice(at);
+  const rest = text.slice(at);
+  const after = imports.length > 0 ? rest.replace(/^\n{2,}/, '\n') : `\n${rest.replace(/^\n+/, '')}`;
+  return text.slice(0, at) + lines.join('') + after;
 }
 
 function isOptionalParam(param: ts.ParameterDeclaration): boolean {
