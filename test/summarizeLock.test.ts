@@ -5,10 +5,10 @@ import {
   releaseSummarizeLock,
   resetSummarizeLockState,
   tryAcquireSummarizeLock,
-} from '../whatsapp/utils/summarizeLock.js';
+} from '../whatsapp/utils/summarizeLock.ts';
 
 describe('summarizeLock', () => {
-  let prevTtl;
+  let prevTtl: string | undefined;
 
   beforeEach(() => {
     prevTtl = process.env.SUMMARIZE_LOCK_TTL_MS;
@@ -64,9 +64,7 @@ describe('summarizeLock', () => {
 
   it('TTL expiring during work keeps the lock busy until release (no concurrent leases)', async () => {
     process.env.SUMMARIZE_LOCK_TTL_MS = '30';
-    const { leaseId, signal } = /** @type {NonNullable<ReturnType<typeof tryAcquireSummarizeLock>>} */ (
-      tryAcquireSummarizeLock()
-    );
+    const { leaseId, signal } = tryAcquireSummarizeLock()!;
 
     async function mockedSummarizePipeline() {
       try {

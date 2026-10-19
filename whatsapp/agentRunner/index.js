@@ -13,7 +13,7 @@ const REDIS_CONNECT_TIMEOUT_MS = 3000;
  *   redisUrl?: string,
  *   sendText: (chatId: string, text: string) => Promise<void>,
  *   getOwnerJid: () => string | null,
- *   logger: import('../types.js').Logger,
+ *   logger: import('../types.ts').Logger,
  * }} p
  */
 export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwnerJid, logger }) {

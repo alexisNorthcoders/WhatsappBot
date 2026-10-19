@@ -9,7 +9,7 @@ import {
   getBotFetchTimeoutMs,
   isUrlAllowedForFetch,
   readResponseBodyBuffer,
-} from '../whatsapp/utils/urlFetchSafety.js';
+} from '../whatsapp/utils/urlFetchSafety.ts';
 
 describe('isUrlAllowedForFetch', () => {
   it('allows public https URLs', () => {
@@ -242,9 +242,9 @@ describe('botFetch redirect validation', () => {
   });
 
   it('passes a fresh RequestInit (signal) on each redirect hop', async () => {
-    const signals = [];
+    const signals: (AbortSignal | null | undefined)[] = [];
     globalThis.fetch = async (_url, init) => {
-      signals.push(init.signal);
+      signals.push(init?.signal);
       if (signals.length === 1) {
         return new Response(null, {
           status: 302,

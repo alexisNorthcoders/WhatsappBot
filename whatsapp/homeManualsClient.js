@@ -1,6 +1,6 @@
 /**
  * Thin client for the home-manuals service (`POST /ask` -> { answer, sources }).
- * Unlike whatsapp/utils/urlFetchSafety.js, this targets a trusted local service
+ * Unlike whatsapp/utils/urlFetchSafety.ts, this targets a trusted local service
  * (HOME_MANUALS_URL, e.g. http://127.0.0.1:3100) so the public-URL SSRF guardrails
  * (which block localhost/private ranges) do not apply here.
  */
@@ -11,7 +11,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  * @param {string} question
  * @param {object} [opts]
  * @param {string} [opts.baseUrl] Defaults to process.env.HOME_MANUALS_URL
- * @param {import('./types.js').FetchLike} [opts.fetchImpl]
+ * @param {import('./types.ts').FetchLike} [opts.fetchImpl]
  * @param {number} [opts.timeoutMs]
  * @returns {Promise<
  *   | { ok: true, answer: string, sources: Array<object|string> }

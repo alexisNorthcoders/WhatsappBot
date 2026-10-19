@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatHomeAnswerReply } from '../whatsapp/utils/formatHomeAnswer.js';
+import { formatHomeAnswerReply } from '../whatsapp/utils/formatHomeAnswer.ts';
 
 describe('formatHomeAnswerReply', () => {
   it('returns the answer alone when there are no sources', () => {

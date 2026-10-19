@@ -27,7 +27,7 @@ const FIRST_LINE_MAX = 120;
  *   store: OutboxStore,
  *   sendText: (chatId: string, text: string) => Promise<void>,
  *   getOwnerJid: () => string | null,
- *   logger: import('../types.js').Logger,
+ *   logger: import('../types.ts').Logger,
  * }} deps
  */
 export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {

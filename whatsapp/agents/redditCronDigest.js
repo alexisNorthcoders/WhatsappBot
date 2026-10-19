@@ -244,7 +244,7 @@ function errMsg(err) {
  * status file appears later, the real digest is still sent once.
  *
  * @param {{
- *   getSocket?: () => import('../types.js').MessageSender | null | undefined,
+ *   getSocket?: () => import('../types.ts').MessageSender | null | undefined,
  *   getOwnerJid?: () => string | null | undefined,
  *   getSecondJid?: () => string | null | undefined,
  *   logger?: { info?: (o: object | string, msg?: string) => void, warn?: (o: object | string, msg?: string) => void },
@@ -423,7 +423,7 @@ function truthyEnv(raw) {
  * Polls until a fresh, day-matching digest arrives; missing/stale alerts do not
  * suppress a later digest the same UTC day.
  * @param {{
- *   getSocket: () => import('../types.js').MessageSender | null | undefined,
+ *   getSocket: () => import('../types.ts').MessageSender | null | undefined,
  *   getOwnerJid: () => string | null | undefined,
  *   logger: { info?: (o: object | string, msg?: string) => void, warn?: (o: object | string, msg?: string) => void },
  *   pollMs?: number,

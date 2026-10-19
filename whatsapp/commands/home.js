@@ -1,5 +1,5 @@
 import { askHomeManuals } from '../homeManualsClient.js';
-import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.js';
+import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.ts';
 
 /** Test-only: marks injected `{ askHomeManuals? }` so raw WhatsApp messages are never mistaken for deps. */
 const homeInjectedDepsBrand = Symbol.for('WhatsappBot.home.injectedDeps');
@@ -34,7 +34,7 @@ const USAGE = 'Usage: home <question>, e.g. "home what model is the oven?"';
 
 /**
  * `home <question>` — asks the home-manuals service and replies with the answer + Sources.
- * @param {import('../types.js').MessageSender} sock
+ * @param {import('../types.ts').MessageSender} sock
  * @param {string} chatId
  * @param {string} text
  * @param {unknown} [fourthArg] raw Baileys message in production, or {@link homeInjectedDeps} in tests

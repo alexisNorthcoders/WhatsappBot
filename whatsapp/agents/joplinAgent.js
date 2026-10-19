@@ -8,7 +8,7 @@ import {
   getBotFetchMaxHtmlChars,
   isUrlAllowedForFetch,
   readResponseBodyBuffer,
-} from '../utils/urlFetchSafety.js';
+} from '../utils/urlFetchSafety.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();

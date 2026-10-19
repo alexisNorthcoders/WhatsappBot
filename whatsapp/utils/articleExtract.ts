@@ -6,19 +6,16 @@ const MIN_READABILITY_CHARS = 120;
 /** Lower bar for tag-stripped body text fallback. */
 const MIN_FALLBACK_CHARS = 80;
 
-function normalizeWhitespace(text) {
+function normalizeWhitespace(text: string): string {
   return String(text || '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-/**
- * @param {Document} document
- */
-function fallbackPlainText(document) {
+function fallbackPlainText(document: Document): string {
   const body = document.body;
   if (!body) return '';
-  const clone = /** @type {HTMLElement} */ (body.cloneNode(true));
+  const clone = body.cloneNode(true) as HTMLElement;
   for (const sel of ['script', 'style', 'noscript', 'template', 'iframe']) {
     clone.querySelectorAll(sel).forEach((el) => el.remove());
   }
@@ -27,10 +24,8 @@ function fallbackPlainText(document) {
 
 /**
  * Extract main article text using Readability, then a simple DOM fallback.
- * @param {string} html
- * @param {string} documentUrl resolved URL for relative links (Readability)
  */
-export function extractArticleTextFromHtml(html, documentUrl) {
+export function extractArticleTextFromHtml(html: string, documentUrl: string): string {
   const globals = { location: { href: documentUrl } };
   const doc = parseHTML(html, globals).document;
   const reader = new Readability(doc);

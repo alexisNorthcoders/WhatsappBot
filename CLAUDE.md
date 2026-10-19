@@ -21,17 +21,25 @@ Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `p
 
 ```bash
 npm start              # node --no-deprecation whatsapp.js — main bot process
-npm test               # type check, then node --test ./test/**/*.test.js (node:test, no framework)
-npm run typecheck      # tsc -p . — type check only (~7s on the Pi)
+npm test               # type check, then node --test on test/**/*.test.{js,ts} (node:test, no framework)
+npm run typecheck      # both tsc passes below — type check only (~7s on the Pi)
+node scripts/renameToTs.ts <file.js>…  # rename to .ts and rewrite every import and path mention
 node --test test/foo.test.js          # run a single test file
 node --test --test-name-pattern="…" test/foo.test.js   # run a single test by name
 npm run eval:summarize -- --all       # offline eval for the `summarize` command against fixtures/gold
 npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Joplin integration check
 ```
 
-`tsc` type-checks the JS through its JSDoc types (`tsconfig.json`: `checkJs`, `strictNullChecks`,
-no emit). `test/` is not checked yet; tests join as they move to TypeScript. Shared JSDoc types
-(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.js`: take the narrowest one a
+The repo is moving from JS to TypeScript, leaf modules first. Node 24 runs `.ts` directly (type
+stripping), so there is no build step: imports name the real `.ts` extension, and only erasable
+syntax is allowed (no enums, namespaces or parameter properties; `import type` for types).
+Typechecking runs two `tsc` passes, both with no emit. `tsconfig.json` checks every `.ts` file with
+`strict`. `tsconfig.checkjs.json` checks the remaining JS through its JSDoc types with
+`strictNullChecks` only; delete it once no `.js` is left. A `.ts` file can't import a `.js` module,
+so convert a module's dependencies first. Convert a file with `scripts/renameToTs.ts`, then add
+the types by hand, and move the module's tests to `.ts` in the same PR. JS tests in `test/` are
+not type-checked. Shared types
+(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
 function needs so tests can pass small fakes.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are

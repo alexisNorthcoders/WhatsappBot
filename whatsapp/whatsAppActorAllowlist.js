@@ -157,7 +157,7 @@ export function secondPhoneJid(actorJid, altJid) {
  * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
  * no-op, and any previously resolved set is kept.
  * @param {any} sock
- * @param {{ logger?: Pick<import('./types.js').Logger, 'warn' | 'info'> }} [opts]
+ * @param {{ logger?: Pick<import('./types.ts').Logger, 'warn' | 'info'> }} [opts]
  */
 export async function resolveOwnerLids(sock, { logger } = {}) {
   const lidMapping = sock?.signalRepository?.lidMapping;

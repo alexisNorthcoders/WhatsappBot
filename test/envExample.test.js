@@ -12,7 +12,7 @@ const BOT_SOURCES = ['whatsapp.js', 'whatsapp', 'models', 'hue', 'joplin', 'scri
 function envVarsReadByBot() {
   const files = execFileSync('git', ['ls-files', '--', ...BOT_SOURCES], { cwd: root, encoding: 'utf8' })
     .split('\n')
-    .filter((f) => /\.m?js$/.test(f));
+    .filter((f) => /\.(m?js|ts)$/.test(f));
   const vars = new Map();
   for (const file of files) {
     for (const [, name] of readFileSync(path.join(root, file), 'utf8').matchAll(/\benv\.([A-Z][A-Z0-9_]*)/g)) {

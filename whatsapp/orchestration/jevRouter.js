@@ -61,7 +61,7 @@ export const ROUTE_CRITERIA = {
 /**
  * @param {object} opts
  * @param {string} opts.apiKey
- * @param {import('../types.js').FetchLike} [opts.fetch]
+ * @param {import('../types.ts').FetchLike} [opts.fetch]
  * @param {string} [opts.url]
  * @param {string} [opts.model]
  * @param {number} [opts.timeoutMs]
@@ -69,7 +69,7 @@ export const ROUTE_CRITERIA = {
  * @param {string[]} [opts.agents] agent keys to offer (chat is always offered)
  * @param {() => Record<string, object>} [opts.extraQuestions] speculative agent-specific questions
  *   asked in the same request (answers come back on `answers` whatever the route)
- * @param {Pick<import('../types.js').Logger, 'info' | 'warn'>} opts.logger
+ * @param {Pick<import('../types.ts').Logger, 'info' | 'warn'>} opts.logger
  * @returns {(text: string) => Promise<{ agent: string; probability: number; answers: Record<string, any> } | null>}
  *   null when Jev could not be reached (caller falls back to the keyword gates)
  */
