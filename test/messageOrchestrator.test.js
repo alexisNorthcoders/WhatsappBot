@@ -2,22 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMessageOrchestrator } from '../whatsapp/orchestration/createMessageOrchestrator.js';
 import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
-
-function fakeInbound(overrides = {}) {
-  const base = {
-    id: '1',
-    chatId: '111@s.whatsapp.net',
-    actorId: '111@s.whatsapp.net',
-    fromMe: false,
-    text: 'hello',
-    features: { hasImage: false },
-    raw: {
-      key: { remoteJid: '111@s.whatsapp.net', id: '1', fromMe: false },
-      message: { conversation: 'hello' },
-    },
-  };
-  return { ...base, ...overrides, features: { ...base.features, ...overrides.features } };
-}
+import { fakeInbound } from './helpers/fakeInbound.js';
 
 function noopLogger() {
   return {

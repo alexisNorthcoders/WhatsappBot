@@ -10,6 +10,7 @@ const BACKEND = (process.env.CHAT_MEMORY_BACKEND || 'memory').toLowerCase() === 
 const REDIS_KEY_PREFIX = 'whatsapp:chat:';
 
 /** @type {Map<string, { role: string, content: string }[]>} */
+/** @type {Map<string, { role: 'user' | 'assistant', content: string }[]>} */
 const memoryStore = new Map();
 
 /** @type {import('redis').RedisClientType | null} */
@@ -114,8 +115,8 @@ export async function appendMessage(jid, role, content) {
     return;
   }
 
-  if (!memoryStore.has(jid)) memoryStore.set(jid, []);
-  const arr = memoryStore.get(jid);
+  let arr = memoryStore.get(jid);
+  if (!arr) memoryStore.set(jid, (arr = []));
   arr.push(entry);
   trimToCap(arr);
 }

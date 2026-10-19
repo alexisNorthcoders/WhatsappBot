@@ -11,7 +11,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  * @param {string} question
  * @param {object} [opts]
  * @param {string} [opts.baseUrl] Defaults to process.env.HOME_MANUALS_URL
- * @param {typeof fetch} [opts.fetchImpl]
+ * @param {import('./types.js').FetchLike} [opts.fetchImpl]
  * @param {number} [opts.timeoutMs]
  * @returns {Promise<
  *   | { ok: true, answer: string, sources: Array<object|string> }

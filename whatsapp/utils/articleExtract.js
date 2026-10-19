@@ -13,7 +13,7 @@ function normalizeWhitespace(text) {
 }
 
 /**
- * @param {import('linkedom').Document} document
+ * @param {Document} document
  */
 function fallbackPlainText(document) {
   const body = document.body;

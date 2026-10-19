@@ -146,7 +146,7 @@ export class GoogleCalendarError extends Error {
 }
 
 /**
- * @param {Response} res
+ * @param {Pick<Response, 'ok' | 'status' | 'json'>} res
  * @param {string} what
  */
 async function failure(res, what) {
@@ -168,7 +168,7 @@ async function failure(res, what) {
  *   clientId: string,
  *   clientSecret: string,
  *   refreshToken: string,
- *   fetch?: typeof fetch,
+ *   fetch?: import('../types.js').FetchLike,
  *   nowMs?: () => number,
  * }} opts
  * @returns {CalendarPort}
