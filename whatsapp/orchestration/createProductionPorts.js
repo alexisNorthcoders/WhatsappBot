@@ -37,7 +37,6 @@ const reminderLastLists = createLastLists();
  * @param {object} deps
  * @param {import('@whiskeysockets/baileys').WASocket} deps.sock
  * @param {typeof import('@whiskeysockets/baileys').downloadMediaMessage} deps.downloadMediaMessage
- * @param {typeof import('fs').promises} deps.fs
  * @param {{ info: Function; warn: Function; error: Function }} deps.logger
  * @param {Record<string, unknown>} deps.commands
  * @param {string | undefined} deps.secondPhone
@@ -45,7 +44,7 @@ const reminderLastLists = createLastLists();
  * @param {object} deps.agentRunner the orchestrator's `agentRunner` port
  */
 export function createProductionPorts(deps) {
-  const { sock, downloadMediaMessage, fs, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
+  const { sock, downloadMediaMessage, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
   if (typeof isAllowedActor !== 'function') {
     throw new TypeError('createProductionPorts: isAllowedActor is required');
   }
@@ -153,15 +152,6 @@ export function createProductionPorts(deps) {
         );
       },
     },
-    buttonSink: {
-      async writeButton(button) {
-        if (['a', 'b'].includes(button)) {
-          await fs.writeFile('button.txt', button.toUpperCase(), 'utf8');
-        } else {
-          await fs.writeFile('button.txt', button, 'utf8');
-        }
-      },
-    },
     chatMemory: {
       get: getMessages,
       append: appendMessage,
@@ -260,6 +250,5 @@ export function createProductionPorts(deps) {
     access: { isAllowedActor },
     agentRunner,
     logger,
-    buttons: { labels: ['a', 'b', 'up', 'down', 'left', 'right', 'start', 'select'] },
   };
 }

@@ -14,7 +14,6 @@ export function createBaileysMessageHandler(opts) {
   const { sock, createPorts, commands } = opts;
   const ports = createPorts();
   const { handleInbound } = createMessageOrchestrator(ports);
-  const buttonLabels = ports.buttons?.labels ?? [];
 
   return {
     /**
@@ -45,7 +44,6 @@ export function createBaileysMessageHandler(opts) {
         || msg.message.documentMessage?.caption
         || ''
       ).trim();
-      const button = text.toLowerCase();
       const command = text.split(' ')[0].toLowerCase();
 
       try {
@@ -67,7 +65,6 @@ export function createBaileysMessageHandler(opts) {
           text,
           command,
           context: {
-            isButton: buttonLabels.includes(button),
             isImage: !!msg.message.imageMessage,
             isCommand: !!commands[command],
           },

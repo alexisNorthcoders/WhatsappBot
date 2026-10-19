@@ -41,24 +41,6 @@ Backend server made in **Node.js**:
 <img src="image-3.png" alt="react app with code block highlight" width="300"/>
 
 
-**Stream.js**:
-
-- Node.js server using Node-media-server to stream content, for example with OBS streaming software.
-
-**AI plays Pokemon Red with Vision.js** :
-
-- small app that uses OpenAI vision model (gpt-4-vision-preview) to play Pokemon Red.
-- It sends a screenshot from the state of the game and asks which button to press next.
-- AI gives the response back as a JSON object with properties of button and a message with the thought process.
-- Writes the button to press in a text file (button.txt).
-- Emulator running the game and the pokemon.lua script will read the file and press the button.
-- We can also use our Node.js API to sending a Whatsapp message with the key to play. Multiple people could play at the same time.
-
-   <img src="image-7.png" alt="response from gpt vision" width="400"/>
-   
-   <img src="image-9.png" alt="pokemon game initial state" width="200"/>
-   <img src="image-8.png" alt="pokemon game going right" width="200"/>
-
 ## Claude agent
 
 `claude…` WhatsApp messages are forwarded to [agent-runner](../agent-runner) (`AGENT_RUNNER_URL`), which runs the headless Claude agent, the GitHub issue pipeline and the cron issue tracer. Monitoring (`npm run agent:status`, `agent:watch`, `agent:history`, `agent:logs`) lives there too. Old `logs/claude-agent/` data from the in-process pipeline can be archived or deleted by hand.

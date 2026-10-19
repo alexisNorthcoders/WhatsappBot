@@ -17,7 +17,6 @@ function recordingPorts(log) {
     receipts: { markRead: record('markRead') },
     messaging: { sendText: record('sendText'), sendPoll: record('sendPoll'), sendImage: record('sendImage') },
     media: { downloadImageBuffer: async () => Buffer.alloc(0) },
-    buttonSink: { writeButton: record('writeButton') },
     chatMemory: { get: async () => [], append: async () => {}, clear: async () => 0 },
     ai: {
       visionText: async () => '',
@@ -39,7 +38,6 @@ function recordingPorts(log) {
       missedReport: async () => '',
     },
     logger: { info: noop, warn: noop, error: noop },
-    buttons: { labels: [] },
   };
 }
 

@@ -13,7 +13,7 @@ headlessly — including working GitHub issues end-to-end and the cron issue tra
 no longer spawns `claude`.
 
 The repo also contains several loosely-related side projects (a React chat UI, a Philips Hue
-controller, a Joplin notes integration, a Pokémon-playing vision demo, a streaming server) that
+controller, a Joplin notes integration, a browser music game) that
 share this top-level `package.json`/`node_modules` but are otherwise independent — see
 "Side projects" below.
 
@@ -65,13 +65,12 @@ hexagonal/ports architecture:
   factory out (see `test/messageOrchestrator.test.js`) to test orchestration logic without a
   socket.
 - `createMessageOrchestrator.js` — the actual routing decision tree, in priority order:
-  1. button-label side effect (writes `button.txt`, used by the Pokémon-playing Lua script)
-  2. inbound image + caption (`Text`/`Text high`/`Help` → vision commands)
-  3. `sprite+` / `sdxl+` prefix → iterate-on-last-image commands
-  4. first whitespace token matches a registered command (`whatsapp/commands/index.js`)
-  5. legacy inline routes (`!help`, `!restart`, `!clear`, `!sendpoll`, `Send`, `Altweather`)
-  6. the sequential **agent chain** (see below)
-  7. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.js`)
+  1. inbound image + caption (`Text`/`Text high`/`Help` → vision commands)
+  2. `sprite+` / `sdxl+` prefix → iterate-on-last-image commands
+  3. first whitespace token matches a registered command (`whatsapp/commands/index.js`)
+  4. legacy inline routes (`!help`, `!restart`, `!clear`, `!sendpoll`, `Send`, `Altweather`)
+  5. the sequential **agent chain** (see below)
+  6. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.js`)
 - `agentsTryHandle.js` (`runAgentsChainSequential`) — runs NL-intent agents in a fixed order
   (reminder → lights → weather → joplin → email → home → books), each with a `shouldTryX(text)` gate and a
   `SKIP` sentinel string convention: an agent's LLM call can return exactly `LIGHTS_AGENT_SKIP`
@@ -155,10 +154,8 @@ These share the root `package.json` but are not imported by `whatsapp.js`:
   chain via `whatsapp/agents/lightsAgent.js` + `whatsapp/commands/lights.js`.
 - `joplin/` — Joplin Data API client, wired in via `whatsapp/agents/joplinAgent.js` +
   `whatsapp/commands/joplin.js`, and reused as a prompt source for `claude joplin:<note>`.
-- `codeHelper/`, `simongame/`, `stream.js`/`stream.html` (node-media-server RTMP relay),
-  `vision.js`/`pokemon.lua` (GPT-4 Vision plays Pokémon Red by writing button presses to
-  `button.txt`, read by the Lua script in an emulator) — standalone demos, not part of the bot's
-  runtime message path.
+- `simongame/` — a standalone browser music game (Bluey's Musical Keyboard), not part of the
+  bot's runtime message path.
 
 ## Testing
 
