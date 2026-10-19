@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { backupAuthDirOnce } from '../whatsapp/baileysAuthBackup.js';
+import { backupAuthDirOnce } from '../whatsapp/baileysAuthBackup.ts';
 
 async function withTmp(fn) {
   const root = await mkdtemp(path.join(tmpdir(), 'auth-backup-'));

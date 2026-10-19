@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOutboxDrain } from '../whatsapp/agentRunner/agentRunnerOutbox.js';
+import { createOutboxDrain } from '../whatsapp/agentRunner/agentRunnerOutbox.ts';
 
 const OWNER_JID = '447000000000@s.whatsapp.net';
 

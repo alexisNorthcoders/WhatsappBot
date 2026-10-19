@@ -4,7 +4,7 @@ import NodeCache from '@cacheable/node-cache';
 import {
   createMsgRetryCounterCache,
   socketCacheOptions,
-} from '../whatsapp/socketCacheOptions.js';
+} from '../whatsapp/socketCacheOptions.ts';
 
 test('msgRetryCounterCache is a TTL-backed node-cache', () => {
   const cache = createMsgRetryCounterCache();

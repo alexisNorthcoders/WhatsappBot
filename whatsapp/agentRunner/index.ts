@@ -1,6 +1,6 @@
 import { createClient } from 'redis';
-import { createAgentRunnerClient } from './agentRunnerClient.js';
-import { createOutboxDrain, createRedisOutboxStore } from './agentRunnerOutbox.js';
+import { createAgentRunnerClient } from './agentRunnerClient.ts';
+import { createOutboxDrain, createRedisOutboxStore } from './agentRunnerOutbox.ts';
 
 const REDIS_CONNECT_TIMEOUT_MS = 3000;
 

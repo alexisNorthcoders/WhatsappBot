@@ -62,7 +62,7 @@ unattended.
 
 `whatsapp.js` owns the Baileys socket lifecycle (auth, QR pairing, reconnect/backoff, logout
 handling) and wires up cron-style background jobs on `connection === 'open'`. Baileys is pinned
-to 7.x (currently `7.0.0-rc14`). Before the first socket opens, `whatsapp/baileysAuthBackup.js`
+to 7.x (currently `7.0.0-rc14`). Before the first socket opens, `whatsapp/baileysAuthBackup.ts`
 copies `.auth/baileys` once to `.auth/baileys-pre-v7-backup` (never overwritten; 7.x migrates
 stored sessions to LID format one-way) — restoring that folder plus pinning `6.7.24` is the
 rollback path. It delegates all message handling to `whatsapp/orchestration/`, which is a small
@@ -79,17 +79,17 @@ hexagonal/ports architecture:
 - `createMessageOrchestrator.ts` — the actual routing decision tree, in priority order:
   1. inbound image + caption (`Text`/`Text high`/`Help` → vision commands)
   2. `sprite+` / `sdxl+` prefix → iterate-on-last-image commands
-  3. first whitespace token matches a registered command (`whatsapp/commands/index.js`)
+  3. first whitespace token matches a registered command (`whatsapp/commands/index.ts`)
   4. legacy inline routes (`!help`, `!restart`, `!clear`, `!sendpoll`, `Send`, `Altweather`)
   5. the sequential **agent chain** (see below)
-  6. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.js`)
+  6. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.ts`)
 - `agentsTryHandle.ts` (`runAgentsChainSequential`) — runs NL-intent agents in a fixed order
   (reminder → lights → weather → joplin → email → home → books), each with a `shouldTryX(text)` gate and a
   `SKIP` sentinel string convention: an agent's LLM call can return exactly `LIGHTS_AGENT_SKIP`
   (etc.) to mean "not actually for me," letting the chain fall through to the next agent instead
   of committing to a reply.
 
-When adding a new command or agent, wire it through `commands/index.js` or the agent chain in
+When adding a new command or agent, wire it through `commands/index.ts` or the agent chain in
 `createProductionPorts.js`/`agentsTryHandle.ts` — don't special-case it directly in
 `whatsapp.js`.
 
@@ -97,7 +97,7 @@ When adding a new command or agent, wire it through `commands/index.js` or the a
 (WhatsApp's privacy id) instead of a phone-number JID. The other form, when WhatsApp sends it,
 lives on the message key — `remoteJidAlt` in DMs, `participantAlt` in groups (surfaced as
 `actorAltId`). Never assume an inbound id carries a phone number; match on both forms. Anything
-keyed by chat id (e.g. per-chat assistant memory in `chatMemory.js`) sees a LID chat as a new
+keyed by chat id (e.g. per-chat assistant memory in `chatMemory.ts`) sees a LID chat as a new
 chat. Sending to a phone-number JID still works.
 
 ### Access control

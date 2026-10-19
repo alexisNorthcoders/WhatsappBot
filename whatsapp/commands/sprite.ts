@@ -4,7 +4,7 @@ import {
   setLastSpritePath,
   getLastSpritePath,
   resolveGeneratedPngBasename,
-} from '../spriteLastPath.js';
+} from '../spriteLastPath.ts';
 
 const VALID_SIZES = ['16x16', '32x32', '48x48', '64x64', '128x128'];
 const DEFAULT_SIZE = '32x32';

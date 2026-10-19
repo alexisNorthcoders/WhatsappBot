@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import homeCommand, { homeInjectedDeps } from '../whatsapp/commands/home.js';
+import homeCommand, { homeInjectedDeps } from '../whatsapp/commands/home.ts';
 
 function fakeSock() {
   const sent = [];

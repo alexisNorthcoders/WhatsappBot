@@ -1,4 +1,4 @@
-import { resolveGeneratedPngBasename } from './spriteLastPath.js';
+import { resolveGeneratedPngBasename } from './spriteLastPath.ts';
 
 const TTL_MS = parseInt(process.env.SDXL_LAST_PATH_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createAgentRunnerClient,
   AgentRunnerUnreachableError,
-} from '../whatsapp/agentRunner/agentRunnerClient.js';
+} from '../whatsapp/agentRunner/agentRunnerClient.ts';
 
 const jsonResponse = (status, body) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });

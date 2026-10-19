@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSentMessageStore } from '../whatsapp/sentMessageStore.js';
+import { createSentMessageStore } from '../whatsapp/sentMessageStore.ts';
 
 function fakeClock(start = 1_000_000) {
   let t = start;

@@ -5,7 +5,7 @@ import {
   setLastSdxlPath,
   getLastSdxlPath,
   resolveSdxlGeneratedPngBasename,
-} from '../sdxlLastPath.js';
+} from '../sdxlLastPath.ts';
 
 const VALID_SIZES = ['256x256', '512x512', '768x768', '1024x1024'];
 const DEFAULT_SIZE = '1024x1024';

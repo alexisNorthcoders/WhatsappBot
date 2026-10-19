@@ -13,7 +13,7 @@ import summarizeCommand, {
   SUMMARIZE_ACK,
   SUMMARIZE_BUSY,
   summarizeInjectedDeps,
-} from '../whatsapp/commands/summarize.js';
+} from '../whatsapp/commands/summarize.ts';
 import {
   resetSummarizeLockState,
   tryAcquireSummarizeLock,

@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import helpCommand from '../whatsapp/commands/help.js';
+import helpCommand from '../whatsapp/commands/help.ts';
 import { SUMMARIZE_USAGE } from '../whatsapp/utils/summarizeArgs.ts';
 import {
   REMINDER_COMMAND_HELP_SNIPPET,

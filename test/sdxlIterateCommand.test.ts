@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { sdxlIterateCommand } from '../whatsapp/commands/sdxl.js';
+import { sdxlIterateCommand } from '../whatsapp/commands/sdxl.ts';
 
 const JID = '15550001111@s.whatsapp.net';
 
