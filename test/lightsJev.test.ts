@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { lightsJevQuestions, runLightsFromJev } from '../whatsapp/agents/lightsJev.js';
+import { lightsJevQuestions, runLightsFromJev } from '../whatsapp/agents/lightsJev.ts';
 
 const LIGHTS = [
   { id: '1', name: 'Bedside', room: 'Bedroom', state: 'ON' },

@@ -9,7 +9,7 @@ import {
   isUrlAllowedForFetch,
   readResponseBodyBuffer,
 } from '../utils/urlFetchSafety.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 
 dotenv.config();
 

@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import { getWeatherData, openaiChatTokenOpts } from '../../models/models.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 
 dotenv.config();
 

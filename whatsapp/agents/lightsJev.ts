@@ -12,7 +12,7 @@ import {
   setLightColor,
   setLightColorTemperature,
 } from '../../hue/api.ts';
-import { logAgentInvocation } from './agentUsageLog.js';
+import { logAgentInvocation } from './agentUsageLog.ts';
 
 const PREMISE = 'Assume `message` is a request to the home\'s Philips Hue lights.';
 

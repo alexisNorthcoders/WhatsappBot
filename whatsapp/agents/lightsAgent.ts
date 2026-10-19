@@ -14,7 +14,7 @@ import {
   getCachedLights,
 } from '../../hue/api.ts';
 import { openaiChatTokenOpts } from '../../models/models.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 
 dotenv.config();
 

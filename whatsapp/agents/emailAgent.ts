@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { openaiChatTokenOpts } from '../../models/models.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 
 dotenv.config();
 
