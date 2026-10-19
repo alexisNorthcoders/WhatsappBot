@@ -15,7 +15,7 @@ import {
   readRedditCronDigestState,
   writeRedditCronDigestLastSentDay,
   writeRedditCronDigestState,
-} from '../whatsapp/agents/redditCronDigest.js';
+} from '../whatsapp/agents/redditCronDigest.ts';
 
 describe('isStatusFileFresh', () => {
   it('accepts mtime within max age', () => {
@@ -137,8 +137,8 @@ describe('shouldAttemptDigestSend', () => {
 });
 
 describe('runRedditCronDigestTick', () => {
-  let prevLastSent;
-  let tmpDir;
+  let prevLastSent: string | undefined;
+  let tmpDir: string;
 
   beforeEach(async () => {
     prevLastSent = process.env.REDDIT_CRON_DIGEST_LAST_SENT_FILE;
@@ -153,12 +153,11 @@ describe('runRedditCronDigestTick', () => {
   });
 
   function mockSock() {
-    /** @type {{ jid: string, text: string }[]} */
-    const sent = [];
+    const sent: { jid: string; text: string }[] = [];
     return {
       sent,
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
+      sendMessage: async (jid: string, content: { text: string }) => {
+        sent.push({ jid, text: content.text });
       },
     };
   }

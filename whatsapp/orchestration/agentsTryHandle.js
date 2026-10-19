@@ -2,7 +2,7 @@
  * Agent chain. With `routeIntent` (Jev), one call picks the agent and only that agent runs;
  * otherwise (or when Jev is unreachable) agents are tried in order behind their keyword gates,
  * with SKIP fallthrough (same semantics as legacy whatsapp.js).
- * @param {import('./normalizeBaileysMessage.js').InboundMessage} m
+ * @param {import('./normalizeBaileysMessage.ts').InboundMessage} m
  * @param {object} deps
  * @param {import('../types.ts').Logger} deps.logger
  * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
@@ -11,7 +11,7 @@
  * @param {(text: string, answers: Record<string, any>) => Promise<string | null>} [deps.runLightsFromJev]
  *   Jev-answered lights request; null hands over to runLightsAgent
  * @param {(text: string) => boolean} [deps.shouldTryReminderAgent]
- * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<{ handled: boolean, replyText?: string }>} [deps.runReminderAgent]
+ * @param {(m: import('./normalizeBaileysMessage.ts').InboundMessage) => Promise<{ handled: boolean, replyText?: string }>} [deps.runReminderAgent]
  * @param {(text: string) => boolean} deps.shouldTryLightsAgent
  * @param {(text: string) => Promise<string>} deps.runLightsAgent
  * @param {string} deps.LIGHTS_AGENT_SKIP
@@ -28,7 +28,7 @@
  * @param {(text: string) => Promise<string>} [deps.runHomeAgent]
  * @param {string} [deps.HOME_AGENT_SKIP]
  * @param {(text: string) => boolean} [deps.shouldTryBookAgent]
- * @param {(m: import('./normalizeBaileysMessage.js').InboundMessage) => Promise<string>} [deps.runBookAgent]
+ * @param {(m: import('./normalizeBaileysMessage.ts').InboundMessage) => Promise<string>} [deps.runBookAgent]
  *   gets the whole message (owner check needs the actor)
  * @param {string} [deps.BOOK_AGENT_SKIP]
  * @param {(actorId: string | null, actorAltId?: string | null) => boolean} [deps.isAllowedActor]
@@ -76,7 +76,7 @@ export async function runAgentsChainSequential(m, deps) {
 }
 
 /**
- * Keys match the Choice options in jevRouter.js. `run(m, route?)` returns the reply, or null to
+ * Keys match the Choice options in jevRouter.ts. `run(m, route?)` returns the reply, or null to
  * fall through; `route` is the Jev route when Jev picked this agent.
  * @param {Parameters<typeof runAgentsChainSequential>[1]} deps
  */

@@ -1,4 +1,7 @@
 import { askBookRecs } from '../bookRecsClient.ts';
+import type { InboundMessage } from '../orchestration/normalizeBaileysMessage.ts';
+import type { isAllowedActor } from '../whatsAppActorAllowlist.ts';
+import type { Logger } from '../types.ts';
 
 export const BOOK_AGENT_SKIP = 'SKIP';
 export const BOOK_RECS_UNAVAILABLE = 'Book recommendations are unavailable right now.';
@@ -17,10 +20,8 @@ const KEYWORD_PATTERN = new RegExp(
 
 /**
  * Keyword gate; the service itself decides whether a hit is really a request (`not_a_request`).
- * @param {string} text
- * @returns {boolean}
  */
-export function shouldTryBookAgent(text) {
+export function shouldTryBookAgent(text: string): boolean {
   if (process.env.BOOK_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   return KEYWORD_PATTERN.test(text);
@@ -28,15 +29,13 @@ export function shouldTryBookAgent(text) {
 
 /**
  * Owner-only. Non-owners never reach the service.
- * @param {import('../orchestration/normalizeBaileysMessage.js').InboundMessage} m
- * @param {{
- *   askBookRecs?: typeof askBookRecs,
- *   isAllowedActor?: (actorId: string | null, actorAltId?: string | null) => boolean,
- *   logger?: { warn: Function },
- * }} [deps]
- * @returns {Promise<string>} The service's answer as is, the "unavailable" message, or BOOK_AGENT_SKIP.
+ * @returns The service's answer as is, the "unavailable" message, or BOOK_AGENT_SKIP.
  */
-export async function runBookAgent(m, deps = {}) {
+export async function runBookAgent(m: InboundMessage, deps: {
+  askBookRecs?: typeof askBookRecs;
+  isAllowedActor?: typeof isAllowedActor;
+  logger?: Pick<Logger, 'warn'>;
+} = {}): Promise<string> {
   const allowed = typeof deps.isAllowedActor === 'function' && deps.isAllowedActor(m.actorId, m.actorAltId);
   if (!allowed) return BOOK_AGENT_SKIP;
 

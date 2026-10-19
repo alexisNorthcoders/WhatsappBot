@@ -1,23 +1,22 @@
-import { actorAltJid } from '../whatsAppActorAllowlist.js';
+import { actorAltJid } from '../whatsAppActorAllowlist.ts';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
-/**
- * @typedef {object} InboundMessage
- * @property {string} id
- * @property {string} chatId
- * @property {string | null} actorId
- * @property {string | null} actorAltId sender's alternate id (PN ↔ LID) from the message key, if any
- * @property {boolean} fromMe
- * @property {string} text
- * @property {{ hasImage: boolean }} features
- * @property {unknown} raw
- */
+export type InboundMessage = {
+  id: string;
+  chatId: string;
+  actorId: string | null;
+  /** sender's alternate id (PN ↔ LID) from the message key, if any */
+  actorAltId: string | null;
+  fromMe: boolean;
+  text: string;
+  features: { hasImage: boolean };
+  raw: unknown;
+};
 
 /**
  * Map a Baileys WAMessage into a stable inbound shape for the orchestrator.
- * @param {import('@whiskeysockets/baileys').WAMessage} msg
- * @returns {InboundMessage}
  */
-export function normalizeBaileysMessage(msg) {
+export function normalizeBaileysMessage(msg: WAMessage): InboundMessage {
   const message = msg.message;
   const text = (
     message?.conversation

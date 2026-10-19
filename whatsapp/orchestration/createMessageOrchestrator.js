@@ -1,6 +1,6 @@
-import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { lidExtraJidsHint } from '../whatsAppActorAllowlist.ts';
 
-/** @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage */
+/** @typedef {import('./normalizeBaileysMessage.ts').InboundMessage} InboundMessage */
 
 /**
  * @param {object} ports

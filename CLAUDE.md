@@ -43,7 +43,7 @@ module, so convert a module's dependencies first. Convert files with `scripts/re
 its own, then fix the remaining strict errors by hand. Move the module's tests to `.ts` in the
 same PR. JS tests in `test/` are
 not type-checked. Shared types
-(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
+(`Logger`, `MessageSender`, `TextSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
 function needs so tests can pass small fakes.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are
@@ -70,7 +70,7 @@ hexagonal/ports architecture:
 
 - `createBaileysMessageHandler.js` — thin Baileys-specific adapter: dedupes `fromMe`, marks read
   receipts, normalizes the raw message, catches/reports errors back to the sender.
-- `normalizeBaileysMessage.js` — maps a raw Baileys `WAMessage` into a plain
+- `normalizeBaileysMessage.ts` — maps a raw Baileys `WAMessage` into a plain
   `InboundMessage` (`{ id, chatId, actorId, actorAltId, text, raw, features }`).
 - `createProductionPorts.js` — builds the concrete ports object (real Baileys `sock`, real
   filesystem, real command registry, real agents) that the orchestrator runs against. Swap this
@@ -102,7 +102,7 @@ chat. Sending to a phone-number JID still works.
 
 ### Access control
 
-`whatsapp/whatsAppActorAllowlist.js` gates privileged actions (the `claude` command, `!restart`).
+`whatsapp/whatsAppActorAllowlist.ts` gates privileged actions (the `claude` command, `!restart`).
 It matches `MY_PHONE`/`SECOND_PHONE` against both `@s.whatsapp.net` and `@c.us` JID forms, and
 separately allowlists `@lid` (linked-device) identities via `CLAUDE_AGENT_EXTRA_JIDS` since those
 don't carry a matchable phone number. The owner is also recognised from a `@lid` when the
@@ -134,7 +134,7 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
 
 - `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.ts`),
   its Google Calendar v3 adapter (`googleCalendar.ts`, plain `fetch` + OAuth refresh token), and
-  a nudge tick (`nudgeTick.ts`, started by `nudgeScheduler.js`) that Nudges the owner at each
+  a nudge tick (`nudgeTick.ts`, started by `nudgeScheduler.ts`) that Nudges the owner at each
   Alert time (all-day events without overrides: once at `CALENDAR_ALLDAY_NUDGE_TIME`), at
   most once per (event, occurrence start, offset) via a local nudged log. Off without
   `GOOGLE_CALENDAR_*` credentials.
@@ -149,7 +149,7 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   SECOND_PHONE manages Reminders like the owner; the bot records it as the creator (as its
   phone JID, even from a LID, via `secondPhoneJid`), and the nudge tick then Nudges both the
   owner and SECOND_PHONE, one merged message per recipient.
-- `whatsapp/agents/redditCronDigest.js` — polls a status file written by a *different* project
+- `whatsapp/agents/redditCronDigest.ts` — polls a status file written by a *different* project
   (`reddit-bot`) and forwards a daily digest once it's fresh for the current UTC day.
 
 Both are feature-flagged/tunable entirely through env vars documented in `.env.example` — check

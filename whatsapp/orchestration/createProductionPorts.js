@@ -1,7 +1,7 @@
 import restartCommand from '../commands/restart.js';
 import { spriteIterateCommand } from '../commands/sprite.js';
 import { sdxlIterateCommand } from '../commands/sdxl.js';
-import { lidExtraJidsHint, secondPhoneJid } from '../whatsAppActorAllowlist.js';
+import { lidExtraJidsHint, secondPhoneJid } from '../whatsAppActorAllowlist.ts';
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.ts';
 import { pickRandomTopic } from '../../data/helper.js';
 import { topics } from '../../data/topics.js';
@@ -15,18 +15,18 @@ import {
 } from '../agents/weatherAgent.js';
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.js';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.js';
-import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.js';
-import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.js';
-import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
-import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.js';
+import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.ts';
+import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.ts';
+import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.ts';
+import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.ts';
 import { createLlmReminderExtractor } from '../calendar/reminderExtraction.ts';
 import { createLastLists } from '../calendar/lastLists.ts';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
-import { createJevRouter } from './jevRouter.js';
+import { createJevRouter } from './jevRouter.ts';
 
 /**
- * @typedef {import('./normalizeBaileysMessage.js').InboundMessage} InboundMessage
+ * @typedef {import('./normalizeBaileysMessage.ts').InboundMessage} InboundMessage
  */
 
 // One store per process, keyed by chat id: ports are rebuilt on every socket reconnect, and a

@@ -63,7 +63,8 @@ function convertCasts(text: string): string {
     if (exprClose < 0) continue;
     const type = text.slice(typeOpen + 1, typeClose).trim();
     const expr = text.slice(exprOpen + 1, exprClose).trim();
-    out += `${text.slice(from, m.index)}(${expr} as ${type})`;
+    const whole = /(?:=|\breturn)\s*$/.test(text.slice(from, m.index)) && /^\s*;/.test(text.slice(exprClose + 1));
+    out += `${text.slice(from, m.index)}${whole ? `${expr} as ${type}` : `(${expr} as ${type})`}`;
     from = exprClose + 1;
     cast.lastIndex = from;
   }
@@ -107,10 +108,80 @@ function hoistTypeImports(text: string): string {
   return text.slice(0, at) + block + text.slice(at);
 }
 
+function isOptionalParam(param: ts.ParameterDeclaration): boolean {
+  if (param.initializer || param.questionToken || param.dotDotDotToken) return true;
+  return ts.getJSDocParameterTags(param).some(
+    (tag) => tag.isBracketed || tag.typeExpression?.type.kind === ts.SyntaxKind.JSDocOptionalType,
+  );
+}
+
+function markOptionalParams(file: string, text: string): string {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const edits: ts.TextChange[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionLike(node)) {
+      const params = node.parameters;
+      params.forEach((param, i) => {
+        const bare = !param.initializer && !param.questionToken && !param.dotDotDotToken;
+        if (bare && isOptionalParam(param) && params.slice(i + 1).every(isOptionalParam)) {
+          edits.push({ span: { start: param.name.end, length: 0 }, newText: '?' });
+        }
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return applyEdits(text, edits);
+}
+
+function propertyDocs(file: string, text: string): Map<string, Map<string, string>> {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const docs = new Map<string, Map<string, string>>();
+  const visit = (node: ts.Node) => {
+    if (ts.isJSDocTypedefTag(node) && node.name && node.typeExpression && ts.isJSDocTypeLiteral(node.typeExpression)) {
+      const props = new Map<string, string>();
+      for (const tag of node.typeExpression.jsDocPropertyTags ?? []) {
+        const comment = ts.getTextOfJSDocComment(tag.comment)?.trim();
+        if (comment) props.set(tag.name.getText(source), comment);
+      }
+      docs.set(node.name.text, props);
+    }
+    ts.forEachChild(node, visit);
+  };
+  const walk = (node: ts.Node) => {
+    for (const doc of (node as { jsDoc?: ts.JSDoc[] }).jsDoc ?? []) visit(doc);
+    ts.forEachChild(node, walk);
+  };
+  walk(source);
+  return docs;
+}
+
+function interfacesToTypes(file: string, text: string, docs: Map<string, Map<string, string>>): string {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const edits: ts.TextChange[] = [];
+  for (const node of source.statements) {
+    if (!ts.isInterfaceDeclaration(node) || node.heritageClauses || !docs.has(node.name.text)) continue;
+    const start = node.getStart(source);
+    const brace = text.indexOf('{', node.name.end);
+    edits.push({ span: { start, length: brace - start }, newText: `export type ${node.name.text} = ` });
+    for (const member of node.members) {
+      const comment = member.name && docs.get(node.name.text)!.get(member.name.getText(source));
+      if (!comment) continue;
+      const at = member.getStart(source);
+      const indent = text.slice(text.lastIndexOf('\n', at) + 1, at);
+      edits.push({ span: { start: at, length: 0 }, newText: `/** ${comment} */\n${indent}` });
+    }
+    edits.push({ span: { start: node.end, length: 0 }, newText: ';' });
+  }
+  return applyEdits(text, edits);
+}
+
 function stripJsDocTypes(text: string): string {
   return hoistTypeImports(stripTypeBraces(text))
-    .replace(/^[ \t]*\*[ \t]*@(?:param|returns?)[ \t]*(?:\[[\w.$]+(?:=[^\]]*)?\]|[\w.$]+)?[ \t]*\n(?![ \t]*\*[ \t]{2,}[^\s@*/])/gm, '')
+    .replace(/(@returns?)[ \t]*\n[ \t]*\*[ \t]{2,}(?=[^\s@*\/])/g, '$1 ')
+    .replace(/^[ \t]*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:\[[\w.$]+(?:=[^\]]*)?\]|[\w.$]+)?[ \t]*\n(?![ \t]*\*[ \t]{2,}[^\s@*/])/gm, '')
     .replace(/[ \t]*\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*\n?/g, '')
+    .replace(/^[ \t]*\*[ \t]*\n(?=[ \t]*\*\/)/gm, '')
     .replace(/^[ \t]*\/\*\*(?:[ \t]*\n[ \t]*\*)*[ \t]*\/\n/gm, '')
     .replace(/^export \{\};\n/m, '')
     .replace(/^type (?=\w+ =)/gm, 'export type ')
@@ -118,6 +189,8 @@ function stripJsDocTypes(text: string): string {
 }
 
 for (const file of files) texts.set(file, convertCasts(texts.get(file)!));
+const docs = new Map(files.map((f) => [f, propertyDocs(f, texts.get(f)!)]));
+for (const file of files) texts.set(file, markOptionalParams(file, texts.get(file)!));
 
 for (const fixId of FIX_IDS) {
   for (const file of files) {
@@ -135,7 +208,7 @@ for (const fixId of FIX_IDS) {
 }
 
 for (const file of files) {
-  const text = stripJsDocTypes(texts.get(file)!);
+  const text = stripJsDocTypes(interfacesToTypes(file, texts.get(file)!, docs.get(file)!));
   if (text !== readFileSync(file, 'utf8')) {
     writeFileSync(file, text);
     console.log(`converted ${path.relative(process.cwd(), file)}`);

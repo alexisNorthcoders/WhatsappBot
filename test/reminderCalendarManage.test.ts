@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runReminderAgent, shouldTryReminderAgent, CALENDAR_NOT_CONNECTED_REPLY } from '../whatsapp/agents/reminderAgent.js';
+import { runReminderAgent, shouldTryReminderAgent, CALENDAR_NOT_CONNECTED_REPLY } from '../whatsapp/agents/reminderAgent.ts';
 import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../whatsapp/calendar/reminderIntent.ts';
 import { createLastLists } from '../whatsapp/calendar/lastLists.ts';
 import { CALENDAR_UNREACHABLE_LIST_REPLY, LIST_LIMIT } from '../whatsapp/calendar/manageReminders.ts';
@@ -11,18 +11,13 @@ const MIN = 60_000;
 const NOW = Date.parse('2026-10-17T14:00:00+01:00');
 const OWNER = '447700900001@s.whatsapp.net';
 const CHAT = OWNER;
-const at = (/** @type {string} */ local) => Date.parse(`${local}+01:00`);
+const at = (local: string) => Date.parse(`${local}+01:00`);
 
 const noExtraction = async () => {
   throw new Error('extraction should not run');
 };
 
-/**
- * @param {string} text
- * @param {object} deps
- * @param {Partial<{ actorId: string | null, chatId: string, nowMs: number }>} [over]
- */
-function send(text, deps, over = {}) {
+function send(text: string, deps: object, over: Partial<{ actorId: string | null; chatId: string; nowMs: number }> = {}) {
   const { nowMs = NOW, ...m } = over;
   return runReminderAgent(
     { text, chatId: CHAT, actorId: OWNER, ...m },
@@ -66,7 +61,8 @@ describe('reminder intents (#128)', () => {
   });
 
   it('reads "cancel N" only as a whole message', () => {
-    for (const [text, n] of [['cancel 2', 2], ['Cancel #3', 3], ['delete reminder 12', 12], ['remove 1.', 1], ['cancel my reminder #4', 4]]) {
+    const cases: [string, number][] = [['cancel 2', 2], ['Cancel #3', 3], ['delete reminder 12', 12], ['remove 1.', 1], ['cancel my reminder #4', 4]];
+    for (const [text, n] of cases) {
       assert.deepEqual(classifyReminderIntent(text), { kind: 'cancel', n }, text);
     }
     for (const text of ['remove 2 eggs from the list', 'cancel the 3 meetings please', 'cancel']) {
@@ -146,7 +142,7 @@ describe('reminder agent: list Reminders from the Owner\'s calendar (#128)', () 
   });
 
   it('replies clearly when Google Calendar is unreachable', async () => {
-    const down = { ...createFakeCalendar(), listEvents: async () => { throw new Error('503'); } };
+    const down = { ...createFakeCalendar(), listEvents: async () => { throw new Error('503') } };
     const lastLists = createLastLists();
     const r = await send('list reminders', { calendar: down, lastLists });
     assert.equal(r.replyText, CALENDAR_UNREACHABLE_LIST_REPLY);
@@ -255,7 +251,7 @@ describe('reminder agent: cancel N from the last list (#128)', () => {
     const calendar = seededCalendar();
     const lastLists = createLastLists();
     await send("what's on tomorrow", { calendar, lastLists });
-    const failing = { ...calendar, deleteEvent: async () => { throw new Error('503'); } };
+    const failing = { ...calendar, deleteEvent: async () => { throw new Error('503') } };
     const r = await send('cancel 1', { calendar: failing, lastLists });
     assert.match(r.replyText, /nothing was cancelled/);
     assert.equal(calendar.all().some((e) => e.id === 'bday'), true);

@@ -1,7 +1,13 @@
-import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { lidExtraJidsHint } from '../whatsAppActorAllowlist.ts';
+import type { isAllowedActor } from '../whatsAppActorAllowlist.ts';
 import { createCalendarReminder } from '../calendar/createReminder.ts';
 import { cancelReminder, listReminders } from '../calendar/manageReminders.ts';
 import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../calendar/reminderIntent.ts';
+import type { ReminderIntent } from '../calendar/reminderIntent.ts';
+import type { CalendarPort } from '../calendar/calendarPort.ts';
+import type { ExtractReminder } from '../calendar/reminderExtraction.ts';
+import type { createLastLists } from '../calendar/lastLists.ts';
+import type { Logger } from '../types.ts';
 
 export const CALENDAR_NOT_CONNECTED_REPLY =
   "Reminders live on Google Calendar, which isn't connected to this bot " +
@@ -18,56 +24,46 @@ const QUESTION_RE = /\?\s*$|^(?:what|when|will|is|are|how|do|does|did|can|could|
  * Appointment phrasing with no "remind me": "dentist Friday 3–4pm", "gym tomorrow at 7",
  * "Mum's birthday on the 25th", "put … in my calendar". Questions ("will it rain tomorrow?")
  * are left to other agents; the extractor can still answer `notReminder` to fall through.
- * @param {string} text
  */
-export function looksLikeAppointment(text) {
+export function looksLikeAppointment(text: string) {
   const t = String(text || '').trim();
   if (!t || QUESTION_RE.test(t)) return false;
   return CALENDAR_PHRASE_RE.test(t) || (DAY_RE.test(t) && TIME_RE.test(t));
 }
 
-/**
- * @param {string} text
- * @returns {import('../calendar/reminderIntent.ts').ReminderIntent | null}
- */
-function reminderIntent(text) {
+function reminderIntent(text: string): ReminderIntent | null {
   return classifyReminderIntent(text) ?? (looksLikeAppointment(text) ? { kind: 'create' } : null);
 }
 
-/**
- * @param {string} text
- * @returns {boolean}
- */
-export function shouldTryReminderAgent(text) {
+export function shouldTryReminderAgent(text: string): boolean {
   return reminderIntent(text) != null;
 }
+
+/** Without `calendar` (no Google credentials) only help works. */
+type ReminderAgentDeps = {
+  isAllowedActor: typeof isAllowedActor;
+  /**
+   * Picks the creator id recorded on a new Reminder (default: the actor id); the nudge tick
+   * reads it to Nudge SECOND_PHONE for its own Reminders.
+   */
+  creatorIdFor?: (actorId: string | null, actorAltId?: string | null) => string | null;
+  nowMs?: number;
+  calendar?: CalendarPort;
+  extractReminder?: ExtractReminder;
+  defaultDurationMin?: number;
+  allDayNudgeMin?: number;
+  lastLists?: ReturnType<typeof createLastLists>;
+  logger?: Pick<Logger, 'warn'>;
+};
 
 /**
  * Handle reminder help / create / list / cancel against the Owner's calendar.
  * Help is available to everyone; create/list/cancel require allowlisted actors.
- * @param {{
- *   text: string,
- *   chatId: string,
- *   actorId: string | null,
- *   actorAltId?: string | null,
- * }} m
- * @param {{
- *   isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean,
- *   creatorIdFor?: (actorId: string | null, actorAltId?: string | null) => string | null,
- *   nowMs?: number,
- *   calendar?: import('../calendar/calendarPort.ts').CalendarPort,
- *   extractReminder?: import('../calendar/reminderExtraction.ts').ExtractReminder,
- *   defaultDurationMin?: number,
- *   allDayNudgeMin?: number,
- *   lastLists?: ReturnType<typeof import('../calendar/lastLists.ts').createLastLists>,
- *   logger?: Pick<import('../types.ts').Logger, 'warn'>,
- * }} deps
- *   Without `calendar` (no Google credentials) only help works. `creatorIdFor` picks the
- *   creator id recorded on a new Reminder (default: the actor id); the nudge tick reads it to
- *   Nudge SECOND_PHONE for its own Reminders.
- * @returns {Promise<{ handled: boolean, replyText: string }>}
  */
-export async function runReminderAgent(m, deps) {
+export async function runReminderAgent(
+  m: { text: string; chatId: string; actorId: string | null; actorAltId?: string | null },
+  deps: ReminderAgentDeps,
+): Promise<{ handled: boolean; replyText: string }> {
   const text = m.text;
   const intent = reminderIntent(text);
   if (!intent) {

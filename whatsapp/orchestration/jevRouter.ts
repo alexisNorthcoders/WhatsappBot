@@ -4,6 +4,8 @@
  * when TYPESAFE_API_KEY is set. See https://docs.typesafe.ai/api.
  */
 
+import type { FetchLike, Logger } from '../types.ts';
+
 const DEFAULT_URL = 'https://api.typesafe.ai/v1/systemone';
 
 export const ROUTE_CHAT = 'chat';
@@ -58,22 +60,30 @@ export const ROUTE_CRITERIA = {
   },
 };
 
+type JevRouterOptions = {
+  apiKey: string;
+  fetch?: FetchLike;
+  url?: string;
+  model?: string;
+  timeoutMs?: number;
+  /** below this, the message goes to chat */
+  minProbability?: number;
+  /** agent keys to offer (chat is always offered) */
+  agents?: string[];
+  /**
+   * speculative agent-specific questions asked in the same request (answers come back on
+   * `answers` whatever the route)
+   */
+  extraQuestions?: () => Record<string, object>;
+  logger: Pick<Logger, 'info' | 'warn'>;
+};
+
+type JevRoute = { agent: string; probability: number; answers: Record<string, any> };
+
 /**
- * @param {object} opts
- * @param {string} opts.apiKey
- * @param {import('../types.ts').FetchLike} [opts.fetch]
- * @param {string} [opts.url]
- * @param {string} [opts.model]
- * @param {number} [opts.timeoutMs]
- * @param {number} [opts.minProbability] below this, the message goes to chat
- * @param {string[]} [opts.agents] agent keys to offer (chat is always offered)
- * @param {() => Record<string, object>} [opts.extraQuestions] speculative agent-specific questions
- *   asked in the same request (answers come back on `answers` whatever the route)
- * @param {Pick<import('../types.ts').Logger, 'info' | 'warn'>} opts.logger
- * @returns {(text: string) => Promise<{ agent: string; probability: number; answers: Record<string, any> } | null>}
- *   null when Jev could not be reached (caller falls back to the keyword gates)
+ * @returns null when Jev could not be reached (caller falls back to the keyword gates)
  */
-export function createJevRouter(opts) {
+export function createJevRouter(opts: JevRouterOptions): (text: string) => Promise<JevRoute | null> {
   const {
     apiKey,
     fetch: fetchImpl = globalThis.fetch,
@@ -118,7 +128,7 @@ export function createJevRouter(opts) {
       }
       body = await res.json();
     } catch (err) {
-      logger.warn({ err: err?.message || err, ms: Date.now() - started }, 'Jev routing failed, using keyword gates');
+      logger.warn({ err: (err as Error).message, ms: Date.now() - started }, 'Jev routing failed, using keyword gates');
       return null;
     }
 
