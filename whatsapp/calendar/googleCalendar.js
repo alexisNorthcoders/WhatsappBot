@@ -168,7 +168,7 @@ async function failure(res, what) {
  *   clientId: string,
  *   clientSecret: string,
  *   refreshToken: string,
- *   fetch?: import('../types.js').FetchLike,
+ *   fetch?: import('../types.ts').FetchLike,
  *   nowMs?: () => number,
  * }} opts
  * @returns {CalendarPort}

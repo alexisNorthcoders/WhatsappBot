@@ -5,7 +5,7 @@ import {
   releaseSummarizeLock,
   resetSummarizeLockState,
   tryAcquireSummarizeLock,
-} from '../whatsapp/utils/summarizeLock.js';
+} from '../whatsapp/utils/summarizeLock.ts';
 
 describe('summarizeLock', () => {
   let prevTtl;

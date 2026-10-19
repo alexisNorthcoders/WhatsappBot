@@ -4,7 +4,7 @@
  * with SKIP fallthrough (same semantics as legacy whatsapp.js).
  * @param {import('./normalizeBaileysMessage.js').InboundMessage} m
  * @param {object} deps
- * @param {import('../types.js').Logger} deps.logger
+ * @param {import('../types.ts').Logger} deps.logger
  * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
  * @param {{ append(chatId: string, role: 'user'|'assistant', content: string): Promise<void> }} deps.chatMemory
  * @param {(text: string) => Promise<{ agent: string; probability: number; answers?: Record<string, any> } | null>} [deps.routeIntent]

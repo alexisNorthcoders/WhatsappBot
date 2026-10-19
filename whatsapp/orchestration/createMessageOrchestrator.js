@@ -11,7 +11,7 @@ import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
  * @param {{ visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user'|'assistant'; content: string }>): Promise<string> }} ports.ai
  * @param {{ runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }} ports.routes
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
- * @param {import('../types.js').Logger} ports.logger
+ * @param {import('../types.ts').Logger} ports.logger
  * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} ports.access
  * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} ports.agentRunner
  *   `claude…` commands go to agent-runner, never the command registry.

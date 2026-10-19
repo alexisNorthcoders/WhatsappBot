@@ -9,7 +9,7 @@ import {
   getBotFetchTimeoutMs,
   isUrlAllowedForFetch,
   readResponseBodyBuffer,
-} from '../whatsapp/utils/urlFetchSafety.js';
+} from '../whatsapp/utils/urlFetchSafety.ts';
 
 describe('isUrlAllowedForFetch', () => {
   it('allows public https URLs', () => {

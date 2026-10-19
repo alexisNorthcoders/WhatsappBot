@@ -39,7 +39,7 @@ Typechecking runs two `tsc` passes, both with no emit. `tsconfig.json` checks ev
 so convert a module's dependencies first. Convert a file with `scripts/renameToTs.ts`, then add
 the types by hand, and move the module's tests to `.ts` in the same PR. JS tests in `test/` are
 not type-checked. Shared types
-(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.js`: take the narrowest one a
+(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
 function needs so tests can pass small fakes.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are

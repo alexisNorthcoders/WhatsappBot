@@ -5,9 +5,9 @@ import {
   normalizeUrlToken,
   parseSummarizeMessage,
   SUMMARIZE_USAGE,
-} from '../whatsapp/utils/summarizeArgs.js';
-import { isHtmlLikeResponse } from '../whatsapp/utils/htmlResponse.js';
-import { extractArticleTextFromHtml } from '../whatsapp/utils/articleExtract.js';
+} from '../whatsapp/utils/summarizeArgs.ts';
+import { isHtmlLikeResponse } from '../whatsapp/utils/htmlResponse.ts';
+import { extractArticleTextFromHtml } from '../whatsapp/utils/articleExtract.ts';
 import { DEEPINFRA_DEFAULT_CHAT_MODEL } from '../models/models.js';
 import summarizeCommand, {
   SUMMARIZE_ACK,
@@ -18,7 +18,7 @@ import {
   resetSummarizeLockState,
   tryAcquireSummarizeLock,
   releaseSummarizeLock,
-} from '../whatsapp/utils/summarizeLock.js';
+} from '../whatsapp/utils/summarizeLock.ts';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -192,7 +192,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
     const articleHtml = readFileSync(path.join(fixturesDir, 'article.html'), 'utf8');
 
     /**
-     * @type {typeof import('../whatsapp/utils/urlFetchSafety.js').botFetch}
+     * @type {typeof import('../whatsapp/utils/urlFetchSafety.ts').botFetch}
      */
     async function fakeBotFetch(_url, _init) {
       return new Response(articleHtml, {

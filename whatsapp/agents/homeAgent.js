@@ -1,5 +1,5 @@
 import { askHomeManuals } from '../homeManualsClient.js';
-import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.js';
+import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.ts';
 
 export const HOME_AGENT_SKIP = 'SKIP';
 

@@ -6,7 +6,7 @@ import { createMessageOrchestrator } from './createMessageOrchestrator.js';
  * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.js)
  * are dropped silently: no read receipt, no reply, so another bot can't start a reply loop.
  * @param {object} opts
- * @param {import('../types.js').MessageSender} opts.sock
+ * @param {import('../types.ts').MessageSender} opts.sock
  * @param {() => object} opts.createPorts factory returning full orchestrator ports
  * @param {Record<string, unknown>} opts.commands registry object (for error context only)
  */

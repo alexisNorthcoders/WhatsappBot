@@ -4,14 +4,14 @@ import {
   botFetch,
   buildBotFetchRequestInit,
   readResponseBodyBuffer,
-} from '../utils/urlFetchSafety.js';
-import { parseSummarizeMessage } from '../utils/summarizeArgs.js';
-import { extractArticleTextFromHtml } from '../utils/articleExtract.js';
-import { isHtmlLikeResponse } from '../utils/htmlResponse.js';
+} from '../utils/urlFetchSafety.ts';
+import { parseSummarizeMessage } from '../utils/summarizeArgs.ts';
+import { extractArticleTextFromHtml } from '../utils/articleExtract.ts';
+import { isHtmlLikeResponse } from '../utils/htmlResponse.ts';
 import {
   releaseSummarizeLock,
   tryAcquireSummarizeLock,
-} from '../utils/summarizeLock.js';
+} from '../utils/summarizeLock.ts';
 
 /** Test-only: marks injected `{ botFetch?, deepInfraAPI?, logger? }` so raw WhatsApp messages are never mistaken for deps. */
 const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDeps');
@@ -19,7 +19,7 @@ const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDep
 /**
  * Wrap test-only `{ botFetch?, deepInfraAPI?, logger? }`. Production passes the raw Baileys
  * message as the 4th argument; it must not be mistaken for injected deps.
- * @param {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.js').Logger, 'info'> }} partial
+ * @param {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.ts').Logger, 'info'> }} partial
  */
 export function summarizeInjectedDeps(partial) {
   return { [summarizeInjectedDepsBrand]: true, ...partial };
@@ -39,7 +39,7 @@ function resolveSummarizeDeps(fourthArg) {
     const { [summarizeInjectedDepsBrand]: _b, ...rest } = /** @type {Record<symbol | string, unknown>} */ (
       fourthArg
     );
-    return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.js').Logger, 'info'> }} */ (
+    return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.ts').Logger, 'info'> }} */ (
       rest
     );
   }
@@ -103,7 +103,7 @@ function buildSummaryPrompt(extractedText, extra) {
 }
 
 /**
- * @param {import('../types.js').MessageSender} sock
+ * @param {import('../types.ts').MessageSender} sock
  * @param {string} sender
  * @param {string} text full message
  * @param {unknown} [fourthArg] raw Baileys message in production, or {@link summarizeInjectedDeps} in tests

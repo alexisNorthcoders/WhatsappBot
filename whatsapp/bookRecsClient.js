@@ -10,7 +10,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
  * @param {string} question
  * @param {object} [opts]
  * @param {string} [opts.baseUrl] Defaults to process.env.BOOK_RECS_URL
- * @param {import('./types.js').FetchLike} [opts.fetchImpl]
+ * @param {import('./types.ts').FetchLike} [opts.fetchImpl]
  * @param {number} [opts.timeoutMs]
  * @returns {Promise<
  *   | { ok: true, kind: string, answer: string, sources: Array<object|string> }
