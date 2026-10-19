@@ -4,31 +4,22 @@ export const SUMMARIZE_USAGE =
 
 const CMD_RE = /^summari(ze|se)\b\s*(.*)$/is;
 
-/**
- * Strip common trailing punctuation from a URL token matched inside user text.
- * @param {string} raw
- */
-export function normalizeUrlToken(raw) {
+/** Strip common trailing punctuation from a URL token matched inside user text. */
+export function normalizeUrlToken(raw: string): string {
   return raw.replace(/[.,;:!?)\]]+$/u, '');
 }
 
 const URL_IN_TEXT_RE = /https?:\/\/[^\s<>"']+/gi;
 
-/**
- * @param {string} s
- * @returns {string[]}
- */
-export function findHttpUrlsInString(s) {
+export function findHttpUrlsInString(s: string): string[] {
   const matches = s.match(URL_IN_TEXT_RE);
   if (!matches) return [];
   return matches.map(normalizeUrlToken);
 }
 
-/**
- * @param {string} fullText full WhatsApp message (starts with summarize / summarise)
- * @returns {{ ok: true, url: string, extra: string } | { ok: false, error: string }}
- */
-export function parseSummarizeMessage(fullText) {
+export function parseSummarizeMessage(
+  fullText: string,
+): { ok: true; url: string; extra: string } | { ok: false; error: string } {
   const m = String(fullText || '').match(CMD_RE);
   if (!m) {
     return { ok: false, error: SUMMARIZE_USAGE };

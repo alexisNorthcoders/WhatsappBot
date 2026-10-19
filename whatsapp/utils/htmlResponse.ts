@@ -1,8 +1,4 @@
-/**
- * @param {string} contentType value of Content-Type without parameters normalization optional
- * @param {string} bodyText decoded response body
- */
-export function isHtmlLikeResponse(contentType, bodyText) {
+export function isHtmlLikeResponse(contentType: string, bodyText: string): boolean {
   const ct = String(contentType || '')
     .split(';')[0]
     .trim()

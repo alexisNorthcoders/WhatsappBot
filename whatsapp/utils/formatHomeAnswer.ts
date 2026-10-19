@@ -1,10 +1,10 @@
 const WHATSAPP_MAX_CHARS = 4096;
 
-/**
- * @param {object|string} source
- * @returns {string}
- */
-function formatSourceLine(source) {
+export type HomeSource =
+  | string
+  | { item?: string; name?: string; manual?: string; page?: string | number | null };
+
+function formatSourceLine(source: HomeSource): string {
   if (typeof source === 'string') return `• ${source}`;
   const item = source?.item ?? source?.name ?? '';
   const manual = source?.manual ?? '';
@@ -16,13 +16,8 @@ function formatSourceLine(source) {
   return line === '•' ? '• (unknown source)' : line;
 }
 
-/**
- * Format a home-manuals answer plus a short Sources line, capped to the WhatsApp message limit.
- * @param {string} answer
- * @param {Array<object|string>} [sources]
- * @returns {string}
- */
-export function formatHomeAnswerReply(answer, sources = []) {
+/** Format a home-manuals answer plus a short Sources line, capped to the WhatsApp message limit. */
+export function formatHomeAnswerReply(answer: string, sources: HomeSource[] = []): string {
   let message = String(answer || '').trim();
   if (sources.length > 0) {
     const lines = sources.map(formatSourceLine);

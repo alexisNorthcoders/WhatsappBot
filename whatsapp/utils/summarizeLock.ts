@@ -2,16 +2,11 @@
 
 let nextLeaseId = 1;
 
-/** @type {number | null} */
-let currentLeaseId = null;
+let currentLeaseId: number | null = null;
+let leaseAbortController: AbortController | null = null;
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** @type {AbortController | null} */
-let leaseAbortController = null;
-
-/** @type {ReturnType<typeof setTimeout> | null} */
-let watchdogTimer = null;
-
-function ttlMsFromEnv() {
+function ttlMsFromEnv(): number {
   const n = parseInt(process.env.SUMMARIZE_LOCK_TTL_MS || '600000', 10);
   if (!Number.isFinite(n) || n < 1) return 600_000;
   return Math.min(n, 3_600_000);
@@ -21,7 +16,7 @@ function ttlMsFromEnv() {
  * Clears timer + lease state unconditionally (tests / process hygiene).
  * @internal
  */
-export function resetSummarizeLockState() {
+export function resetSummarizeLockState(): void {
   if (watchdogTimer !== null) {
     clearTimeout(watchdogTimer);
     watchdogTimer = null;
@@ -31,17 +26,12 @@ export function resetSummarizeLockState() {
   leaseAbortController = null;
 }
 
-/**
- * @returns {boolean} whether the summarize lock is currently held
- */
-export function isSummarizeLockHeld() {
+export function isSummarizeLockHeld(): boolean {
   return currentLeaseId !== null;
 }
 
-/**
- * @returns {{ leaseId: number, signal: AbortSignal } | null} lease + combined abort (TTL watchdog + caller), or null if busy
- */
-export function tryAcquireSummarizeLock() {
+/** Returns the lease and its abort signal (fired by the TTL watchdog), or null if busy. */
+export function tryAcquireSummarizeLock(): { leaseId: number; signal: AbortSignal } | null {
   if (currentLeaseId !== null) return null;
   const leaseId = nextLeaseId++;
   currentLeaseId = leaseId;
@@ -56,9 +46,7 @@ export function tryAcquireSummarizeLock() {
     leaseAbortController?.abort();
   }, ttl);
 
-  if (typeof watchdogTimer.unref === 'function') {
-    watchdogTimer.unref();
-  }
+  watchdogTimer.unref();
 
   return { leaseId, signal };
 }
@@ -66,9 +54,8 @@ export function tryAcquireSummarizeLock() {
 /**
  * Releases the summarize lock only if `leaseId` matches the active lease.
  * Stale timeouts and late `finally` paths must not drop a newer holder.
- * @param {number} leaseId from {@link tryAcquireSummarizeLock}
  */
-export function releaseSummarizeLock(leaseId) {
+export function releaseSummarizeLock(leaseId: number): void {
   if (currentLeaseId !== leaseId) return;
   if (watchdogTimer !== null) {
     clearTimeout(watchdogTimer);
