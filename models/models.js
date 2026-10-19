@@ -43,8 +43,6 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() || 'missi
 
 const DEFAULT_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-5-mini';
 
-const CODE_CHAT_MODEL = process.env.OPENAI_CODE_CHAT_MODEL || 'gpt-5-mini';
-
 /**
  * GPT-5 and o-series chat models use `max_completion_tokens` instead of `max_tokens`.
  * @param {string} model
@@ -71,18 +69,23 @@ export const DEEPINFRA_DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V3';
  * Build the body passed to `deepInfra.chat.completions.create` (pure; used by tests for option plumbing).
  * @param {string} content
  * @param {string} model
- * @param {{ signal?: AbortSignal; temperature?: number | null }} [options]
+ * @param {{ temperature?: number | null }} [options]
+ * @returns {import('openai/resources/chat/completions').ChatCompletionCreateParamsNonStreaming}
  */
 export function buildDeepInfraCompletionCreateArgs(content, model, options = {}) {
-  const { signal, temperature } = options;
+  const { temperature } = options;
   return {
     messages: [{ role: 'user', content }],
     model,
     ...(temperature !== undefined && temperature !== null ? { temperature } : {}),
-    ...(signal !== undefined ? { signal } : {}),
   };
 }
 
+/**
+ * @param {string} content
+ * @param {string} [model]
+ * @param {{ signal?: AbortSignal; temperature?: number | null }} [options]
+ */
 export async function deepInfraAPI(
   content,
   model = DEEPINFRA_DEFAULT_CHAT_MODEL,
@@ -91,13 +94,15 @@ export async function deepInfraAPI(
   if (!process.env.DEEPINFRA_API_KEY?.trim()) {
     throw new Error('DEEPINFRA_API_KEY is not set; cannot call the DeepInfra chat model.');
   }
+  // The SDK reads `signal` from its request options; inside the body it's ignored.
   const completion = await deepInfra.chat.completions.create(
     buildDeepInfraCompletionCreateArgs(content, model, options),
+    { signal: options.signal },
   );
 
-  console.log(completion.usage.prompt_tokens, completion.usage.completion_tokens);
+  console.log(completion.usage?.prompt_tokens, completion.usage?.completion_tokens);
 
-  return completion.choices[0].message.content
+  return completion.choices[0]?.message?.content ?? '';
 }
 
 export async function getGeocoding(city) {
@@ -166,7 +171,7 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
               typeof m.content === 'string'
           )
           .map((m) => ({
-            role: m.role,
+            role: /** @type {'user' | 'assistant'} */ (m.role),
             content: String(m.content).slice(0, CHAT_HISTORY_CONTENT_CAP),
           }))
       : [];
@@ -216,51 +221,13 @@ export async function gPT4generateResponse(userMessage) {
       ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1000),
 
     });
-    return completion.choices[0].message.content.trim();
+    const text = completion.choices[0]?.message?.content;
+    if (!text) throw new Error('No text in completion');
+    return text.trim();
   } catch (error) {
     console.error('Error generating GPT-3 response:', error);
     throw new Error('Error generating response');
   }
-}
-export async function codeResponse(userMessage) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: CODE_CHAT_MODEL,
-      temperature: 0.7,
-      messages: [
-        { "role": "system", "content": "You are a senior software engineer. You will respond just with typescript code unless asked otherwise." },
-        { "role": "user", "content": userMessage }],
-      ...openaiChatTokenOpts(CODE_CHAT_MODEL, 1000),
-
-    });
-    return completion.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-export async function dallegenerateResponse(userMessage) {
-  try {
-    const response = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt: userMessage,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard"
-    });
-    await saveGeneratedImage(response, userMessage);
-    imageUrl = response.data[0].url;
-
-    return imageUrl;
-  } catch (error) {
-    console.error('Error generating Dall-e response:', error);
-    throw new Error('Error generating response');
-  }
-}
-export function convertToBase64(file) {
-  let fileData = fs.readFileSync(file);
-  return new Buffer.from(fileData).toString("base64");
-
 }
 export async function visionQuality(base64) {
   const response = await openai.chat.completions.create({
@@ -364,7 +331,9 @@ export async function pixelArtGenerateResponse(userMessage, size = '32x32') {
     });
 
     const filepath = await saveGeneratedImage(response, `sprite_${size}_${userMessage}`);
-    const buffer = Buffer.from(response.data[0].b64_json, 'base64');
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) throw new Error('No image data in generate response');
+    const buffer = Buffer.from(b64, 'base64');
     return { buffer, filepath };
   } catch (error) {
     console.error('Error generating pixel art sprite:', error);
@@ -396,7 +365,9 @@ async function spriteRefinePromptFromImageFile(absPath, editInstruction, size) {
     ],
     ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 400),
   });
-  return response.choices[0].message.content.trim().slice(0, 400);
+  const text = response.choices[0]?.message?.content;
+  if (!text) throw new Error('No text in sprite refine completion');
+  return text.trim().slice(0, 400);
 }
 
 /**
@@ -443,7 +414,7 @@ export async function pixelArtEditFromFile(resolvedPath, editInstruction, size =
       }
     }
 
-    const entry = response.data[0];
+    const entry = response.data?.[0];
     let outBuf;
     if (entry?.b64_json) {
       outBuf = Buffer.from(entry.b64_json, 'base64');
@@ -471,7 +442,9 @@ export async function gptImageGenerateResponse(userMessage) {
       size: "1024x1024",
     });
     await saveGeneratedImage(response, userMessage);
-    return response.data[0].url;
+    const url = response.data?.[0]?.url;
+    if (!url) throw new Error('No image url in generate response');
+    return url;
   } catch (error) {
     console.error('Error generating Dall-e response:', error);
     throw new Error('Error generating response');
@@ -616,7 +589,7 @@ export async function deepInfraImagesEdit(args, options = {}) {
 
   const fields = buildDeepInfraImageEditsFormFields({ model, size, n, prompt });
   const form = new FormData();
-  const blob = new Blob([image], { type: imageMimeType });
+  const blob = new Blob([new Uint8Array(image)], { type: imageMimeType });
   form.append('image', blob, imageFilename);
   for (const [key, value] of Object.entries(fields)) {
     form.append(key, typeof value === 'number' ? String(value) : value);
@@ -734,21 +707,6 @@ export async function recipeGenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-export async function instructGenerateResponse(userMessage) {
-  try {
-    const completion = await openai.completions.create({
-      model: 'gpt-3.5-turbo-instruct',
-      temperature: 0.7,
-      prompt: userMessage,
-      max_tokens: 1400
-    });
-
-    return completion.choices[0].text.trim();
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
 export async function gPT3WizardgenerateResponse(userMessage) {
   try {
     const completion = await openai.chat.completions.create({
@@ -760,7 +718,9 @@ export async function gPT3WizardgenerateResponse(userMessage) {
     });
 
 
-    return completion.choices[0].message.content.trim();
+    const text = completion.choices[0]?.message?.content;
+    if (!text) throw new Error('No text in completion');
+    return text.trim();
   } catch (error) {
     console.error('Error generating GPT-3 response:', error);
     throw new Error('Error generating response');

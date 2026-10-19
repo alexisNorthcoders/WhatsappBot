@@ -13,7 +13,7 @@ const REDIS_CONNECT_TIMEOUT_MS = 3000;
  *   redisUrl?: string,
  *   sendText: (chatId: string, text: string) => Promise<void>,
  *   getOwnerJid: () => string | null,
- *   logger: { info: Function, warn: Function, error: Function },
+ *   logger: import('../types.js').Logger,
  * }} p
  */
 export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwnerJid, logger }) {
@@ -21,7 +21,7 @@ export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwner
 
   // node-redis keeps retrying a failed connect (and queues commands while offline) without ever
   // settling, which would hang `claude:missed`. Time-box the connect and fail commands fast instead.
-  /** @type {Promise<import('redis').RedisClientType> | null} */
+  /** @type {Promise<ReturnType<typeof createClient>> | null} */
   let connecting = null;
   const connect = () => {
     if (!connecting) {

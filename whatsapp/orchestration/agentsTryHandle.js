@@ -4,7 +4,7 @@
  * with SKIP fallthrough (same semantics as legacy whatsapp.js).
  * @param {import('./normalizeBaileysMessage.js').InboundMessage} m
  * @param {object} deps
- * @param {{ info: Function; warn: Function; error: Function }} deps.logger
+ * @param {import('../types.js').Logger} deps.logger
  * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
  * @param {{ append(chatId: string, role: 'user'|'assistant', content: string): Promise<void> }} deps.chatMemory
  * @param {(text: string) => Promise<{ agent: string; probability: number; answers?: Record<string, any> } | null>} [deps.routeIntent]
@@ -86,12 +86,13 @@ export function listAgents(deps) {
     return reply.trim().toUpperCase() === skip ? null : reply;
   };
   const agents = [];
-  if (typeof deps.shouldTryReminderAgent === 'function') {
+  const { runReminderAgent, isAllowedActor } = deps;
+  if (typeof deps.shouldTryReminderAgent === 'function' && typeof runReminderAgent === 'function') {
     agents.push({
       key: 'reminder',
       shouldTry: deps.shouldTryReminderAgent,
       run: async (m) => {
-        const r = await deps.runReminderAgent(m);
+        const r = await runReminderAgent(m);
         return r?.handled ? (r.replyText ?? '') : null;
       },
       logLabel: 'Reminder agent error',
@@ -146,14 +147,14 @@ export function listAgents(deps) {
   if (
     typeof deps.shouldTryBookAgent === 'function' &&
     typeof deps.runBookAgent === 'function' &&
-    typeof deps.isAllowedActor === 'function'
+    typeof isAllowedActor === 'function'
   ) {
     const runBooks = skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP', (m) => m);
     agents.push({
       key: 'books',
       shouldTry: deps.shouldTryBookAgent,
       // Owner-only: non-owners fall through without reaching the service.
-      run: async (m) => (deps.isAllowedActor(m.actorId, m.actorAltId) ? runBooks(m) : null),
+      run: async (m) => (isAllowedActor(m.actorId, m.actorAltId) ? runBooks(m) : null),
       logLabel: 'Book agent error',
       errorLabel: 'Book recommendations error',
     });
