@@ -3,15 +3,51 @@ import type { InboundMessage } from './normalizeBaileysMessage.ts';
 import type { Logger } from '../types.ts';
 import type { WAMessage } from '@whiskeysockets/baileys';
 
-/**
- * @param ports.agentRunner
- *   `claude…` commands go to agent-runner, never the command registry.
- */
-export function createMessageOrchestrator(ports: { receipts: { markRead(m: InboundMessage): Promise<void> }; messaging: { sendText(chatId: string, text: string): Promise<void>; sendPoll(chatId: string, poll: { name: string; values: string[]; selectableCount: number }): Promise<void>; sendImage(chatId: string, image: { buffer: Buffer; caption?: string }): Promise<void> }; media: { downloadImageBuffer(m: InboundMessage): Promise<Buffer> }; chatMemory: { get(chatId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>>; append(chatId: string, role: 'user' | 'assistant', content: string): Promise<void>; clear(chatId: string): Promise<number> }; ai: { visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<string> }; routes: { runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }; agents: { tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }; logger: Logger; access: { isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }; agentRunner: { sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> } }) {
+type ChatTurn = { role: 'user' | 'assistant'; content: string };
+type Handled = { handled: boolean };
+type RouteHandler = (m: InboundMessage) => Promise<Handled>;
+
+export type OrchestratorPorts = {
+  receipts: { markRead(m: InboundMessage): Promise<void> };
+  messaging: {
+    sendText(chatId: string, text: string): Promise<void>;
+    sendPoll(chatId: string, poll: { name: string; values: string[]; selectableCount: number }): Promise<void>;
+    sendImage(chatId: string, image: { buffer: Buffer; caption?: string }): Promise<void>;
+  };
+  media: { downloadImageBuffer(m: InboundMessage): Promise<Buffer> };
+  chatMemory: {
+    get(chatId: string): Promise<ChatTurn[]>;
+    append(chatId: string, role: ChatTurn['role'], content: string): Promise<void>;
+    clear(chatId: string): Promise<number>;
+  };
+  ai: {
+    visionText(b64: string): Promise<string | null>;
+    visionTextHigh(b64: string): Promise<string | null>;
+    visionHelp(b64: string): Promise<string | null>;
+    assistant(userText: string, prior: ChatTurn[]): Promise<string>;
+  };
+  routes: {
+    runSpritePlus: RouteHandler;
+    runSdxlPlus: RouteHandler;
+    runCommandByFirstToken: RouteHandler;
+    runLegacyRoutes: RouteHandler;
+  };
+  agents: { tryHandle(m: InboundMessage): Promise<Handled & { replyText?: string }> };
+  logger: Logger;
+  access: { isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean };
+  /** `claude…` commands go to agent-runner, never the command registry. */
+  agentRunner: {
+    sendCommand(req: { text: string; replyTo: string }): Promise<string>;
+    status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>;
+    missedReport(): Promise<string>;
+  };
+};
+
+export function createMessageOrchestrator(ports: OrchestratorPorts) {
   /**
    * `claude…` → agent-runner (`claude:missed` is answered from the bot's own outbox cursor).
    */
-  async function delegateToAgentRunner(m: InboundMessage, command) {
+  async function delegateToAgentRunner(m: InboundMessage, command: string) {
     if (!ports.access.isAllowedActor(m.actorId, m.actorAltId)) {
       await ports.messaging.sendText(
         m.chatId,
@@ -23,12 +59,12 @@ export function createMessageOrchestrator(ports: { receipts: { markRead(m: Inbou
       await ports.messaging.sendText(m.chatId, await ports.agentRunner.missedReport());
       return;
     }
-    let reply;
+    let reply: string;
     try {
       reply = await ports.agentRunner.sendCommand({ text: m.text, replyTo: m.chatId });
     } catch (err) {
-      ports.logger.warn({ err: err?.message || err }, 'agent-runner command failed');
-      reply = err?.timedOut
+      ports.logger.warn({ err: (err as Error)?.message || err }, 'agent-runner command failed');
+      reply = (err as { timedOut?: boolean })?.timedOut
         ? "Agent runner didn't answer in time. It may still be working on it, check `claude:status`."
         : 'Agent runner is not reachable';
     }
@@ -46,7 +82,7 @@ export function createMessageOrchestrator(ports: { receipts: { markRead(m: Inbou
     try {
       status = await ports.agentRunner.status();
     } catch (err) {
-      ports.logger.warn({ err: err?.message || err }, 'agent-runner status failed, restarting anyway');
+      ports.logger.warn({ err: (err as Error)?.message || err }, 'agent-runner status failed, restarting anyway');
       return false;
     }
     if (!status?.busy) return false;
@@ -72,13 +108,13 @@ export function createMessageOrchestrator(ports: { receipts: { markRead(m: Inbou
       const buffer = await ports.media.downloadImageBuffer(m);
       if (m.text.startsWith('Text high')) {
         const res = await ports.ai.visionTextHigh(buffer.toString('base64'));
-        await ports.messaging.sendText(m.chatId, res);
+        await ports.messaging.sendText(m.chatId, res!);
       } else if (m.text.startsWith('Text')) {
         const res = await ports.ai.visionText(buffer.toString('base64'));
-        await ports.messaging.sendText(m.chatId, res);
+        await ports.messaging.sendText(m.chatId, res!);
       } else if (m.text.startsWith('Help')) {
         const res = await ports.ai.visionHelp(buffer.toString('base64'));
-        await ports.messaging.sendText(m.chatId, res);
+        await ports.messaging.sendText(m.chatId, res!);
       } else if (!m.text) {
         await ports.messaging.sendText(
           m.chatId,

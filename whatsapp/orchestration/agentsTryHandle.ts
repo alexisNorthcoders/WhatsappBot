@@ -1,24 +1,62 @@
 import type { InboundMessage } from './normalizeBaileysMessage.ts';
 import type { Logger } from '../types.ts';
 
+type TextGate = (text: string) => boolean;
+type TextAgent = (text: string) => Promise<string>;
+type Route = { agent: string; probability: number; answers?: Record<string, any> };
+
+export type AgentChainDeps = {
+  logger: Pick<Logger, 'error'>;
+  messaging: { sendText(chatId: string, text: string): Promise<unknown> };
+  chatMemory: { append(chatId: string, role: 'user' | 'assistant', content: string): Promise<unknown> };
+  routeIntent?: (text: string) => Promise<Route | null>;
+  /** Jev-answered lights request; null hands over to runLightsAgent */
+  runLightsFromJev?: (text: string, answers: Record<string, any>) => Promise<string | null>;
+  shouldTryReminderAgent?: TextGate;
+  runReminderAgent?: (m: InboundMessage) => Promise<{ handled: boolean; replyText?: string }>;
+  shouldTryLightsAgent: TextGate;
+  runLightsAgent: TextAgent;
+  LIGHTS_AGENT_SKIP: string;
+  shouldTryWeatherAgent: TextGate;
+  runWeatherAgent: TextAgent;
+  WEATHER_AGENT_SKIP: string;
+  shouldTryJoplinAgent: TextGate;
+  runJoplinAgent: TextAgent;
+  JOPLIN_AGENT_SKIP: string;
+  shouldTryEmailAgent: TextGate;
+  runEmailAgent: TextAgent;
+  EMAIL_AGENT_SKIP: string;
+  shouldTryHomeAgent?: TextGate;
+  runHomeAgent?: TextAgent;
+  HOME_AGENT_SKIP?: string;
+  shouldTryBookAgent?: TextGate;
+  /** gets the whole message (owner check needs the actor) */
+  runBookAgent?: (m: InboundMessage) => Promise<string>;
+  BOOK_AGENT_SKIP?: string;
+  /** owner gate for the book agent; without it the book agent is never registered */
+  isAllowedActor?: (actorId: string | null, actorAltId?: string | null) => boolean;
+};
+
+type ChainAgent = {
+  key: string;
+  shouldTry: TextGate;
+  run: (m: InboundMessage, route?: Route) => Promise<string | null>;
+  logLabel: string;
+  errorLabel: string;
+};
+
 /**
  * Agent chain. With `routeIntent` (Jev), one call picks the agent and only that agent runs;
  * otherwise (or when Jev is unreachable) agents are tried in order behind their keyword gates,
  * with SKIP fallthrough (same semantics as legacy whatsapp.js).
- * @param deps.runLightsFromJev
- *   Jev-answered lights request; null hands over to runLightsAgent
- * @param deps.runBookAgent
- *   gets the whole message (owner check needs the actor)
- * @param deps.isAllowedActor
- *   owner gate for the book agent; without it the book agent is never registered
  */
-export async function runAgentsChainSequential(m: InboundMessage, deps: { logger: Logger; messaging: { sendText(chatId: string, text: string): Promise<void> }; chatMemory: { append(chatId: string, role: 'user' | 'assistant', content: string): Promise<void> }; routeIntent?: (text: string) => Promise<{ agent: string; probability: number; answers?: Record<string, any> } | null>; runLightsFromJev?: (text: string, answers: Record<string, any>) => Promise<string | null>; shouldTryReminderAgent?: (text: string) => boolean; runReminderAgent?: (m: InboundMessage) => Promise<{ handled: boolean; replyText?: string }>; shouldTryLightsAgent: (text: string) => boolean; runLightsAgent: (text: string) => Promise<string>; LIGHTS_AGENT_SKIP: string; shouldTryWeatherAgent: (text: string) => boolean; runWeatherAgent: (text: string) => Promise<string>; WEATHER_AGENT_SKIP: string; shouldTryJoplinAgent: (text: string) => boolean; runJoplinAgent: (text: string) => Promise<string>; JOPLIN_AGENT_SKIP: string; shouldTryEmailAgent: (text: string) => boolean; runEmailAgent: (text: string) => Promise<string>; EMAIL_AGENT_SKIP: string; shouldTryHomeAgent?: (text: string) => boolean; runHomeAgent?: (text: string) => Promise<string>; HOME_AGENT_SKIP?: string; shouldTryBookAgent?: (text: string) => boolean; runBookAgent?: (m: InboundMessage) => Promise<string>; BOOK_AGENT_SKIP?: string; isAllowedActor?: (actorId: string | null, actorAltId?: string | null) => boolean }): Promise<{ handled: boolean }> {
+export async function runAgentsChainSequential(m: InboundMessage, deps: AgentChainDeps): Promise<{ handled: boolean }> {
   const { logger, messaging, chatMemory, routeIntent } = deps;
   const text = m.text;
   const chatId = m.chatId;
   const agents = listAgents(deps);
 
-  async function runAgent(agent, route): Promise<boolean> {
+  async function runAgent(agent: ChainAgent, route?: Route): Promise<boolean> {
     try {
       const reply = await agent.run(m, route);
       if (reply === null) return false;
@@ -30,7 +68,7 @@ export async function runAgentsChainSequential(m: InboundMessage, deps: { logger
       return true;
     } catch (err) {
       logger.error({ err }, agent.logLabel);
-      await messaging.sendText(chatId, `${agent.errorLabel}: ${err.message}`);
+      await messaging.sendText(chatId, `${agent.errorLabel}: ${(err as Error).message}`);
       return true;
     }
   }
@@ -53,12 +91,13 @@ export async function runAgentsChainSequential(m: InboundMessage, deps: { logger
  * Keys match the Choice options in jevRouter.ts. `run(m, route?)` returns the reply, or null to
  * fall through; `route` is the Jev route when Jev picked this agent.
  */
-export function listAgents(deps: Parameters<typeof runAgentsChainSequential>[1]) {
-  const skipAware = (run, skip, input = (m) => m.text) => async (m) => {
-    const reply = await run(input(m));
+export function listAgents(deps: AgentChainDeps): ChainAgent[] {
+  const skipAware = (run: (m: InboundMessage) => Promise<string>, skip: string) => async (m: InboundMessage) => {
+    const reply = await run(m);
     return reply.trim().toUpperCase() === skip ? null : reply;
   };
-  const agents = [];
+  const onText = (run: TextAgent) => (m: InboundMessage) => run(m.text);
+  const agents: ChainAgent[] = [];
   const { runReminderAgent, isAllowedActor } = deps;
   if (typeof deps.shouldTryReminderAgent === 'function' && typeof runReminderAgent === 'function') {
     agents.push({
@@ -81,7 +120,7 @@ export function listAgents(deps: Parameters<typeof runAgentsChainSequential>[1])
           const reply = await deps.runLightsFromJev(m.text, route.answers);
           if (reply !== null) return reply;
         }
-        return skipAware(deps.runLightsAgent, deps.LIGHTS_AGENT_SKIP)(m);
+        return skipAware(onText(deps.runLightsAgent), deps.LIGHTS_AGENT_SKIP)(m);
       },
       logLabel: 'Lights agent error',
       errorLabel: 'Lights assistant error',
@@ -89,21 +128,21 @@ export function listAgents(deps: Parameters<typeof runAgentsChainSequential>[1])
     {
       key: 'weather',
       shouldTry: deps.shouldTryWeatherAgent,
-      run: skipAware(deps.runWeatherAgent, deps.WEATHER_AGENT_SKIP),
+      run: skipAware(onText(deps.runWeatherAgent), deps.WEATHER_AGENT_SKIP),
       logLabel: 'Weather agent error',
       errorLabel: 'Weather assistant error',
     },
     {
       key: 'joplin',
       shouldTry: deps.shouldTryJoplinAgent,
-      run: skipAware(deps.runJoplinAgent, deps.JOPLIN_AGENT_SKIP),
+      run: skipAware(onText(deps.runJoplinAgent), deps.JOPLIN_AGENT_SKIP),
       logLabel: 'Joplin agent error',
       errorLabel: 'Notes assistant error',
     },
     {
       key: 'email',
       shouldTry: deps.shouldTryEmailAgent,
-      run: skipAware(deps.runEmailAgent, deps.EMAIL_AGENT_SKIP),
+      run: skipAware(onText(deps.runEmailAgent), deps.EMAIL_AGENT_SKIP),
       logLabel: 'Email agent error',
       errorLabel: 'Email assistant error',
     },
@@ -112,7 +151,7 @@ export function listAgents(deps: Parameters<typeof runAgentsChainSequential>[1])
     agents.push({
       key: 'home',
       shouldTry: deps.shouldTryHomeAgent,
-      run: skipAware(deps.runHomeAgent, deps.HOME_AGENT_SKIP ?? 'SKIP'),
+      run: skipAware(onText(deps.runHomeAgent), deps.HOME_AGENT_SKIP ?? 'SKIP'),
       logLabel: 'Home agent error',
       errorLabel: 'Home assistant error',
     });
@@ -122,7 +161,7 @@ export function listAgents(deps: Parameters<typeof runAgentsChainSequential>[1])
     typeof deps.runBookAgent === 'function' &&
     typeof isAllowedActor === 'function'
   ) {
-    const runBooks = skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP', (m) => m);
+    const runBooks = skipAware(deps.runBookAgent, deps.BOOK_AGENT_SKIP ?? 'SKIP');
     agents.push({
       key: 'books',
       shouldTry: deps.shouldTryBookAgent,

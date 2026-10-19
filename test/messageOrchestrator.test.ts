@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import { createMessageOrchestrator } from '../whatsapp/orchestration/createMessageOrchestrator.ts';
 import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
 import { fakeInbound } from './helpers/fakeInbound.ts';
+import type { OrchestratorPorts } from '../whatsapp/orchestration/createMessageOrchestrator.ts';
+
+type Op = { op: string; chatId?: string; text?: string; replyTo?: string; role?: string; content?: string; t?: string };
+/** route tests push bare markers ('sprite', 'cmd'); the port fakes push ops */
+type LogEntry = string | Op;
+const isOp = (x: LogEntry): x is Op => typeof x === 'object';
 
 function noopLogger() {
   return {
@@ -12,7 +18,9 @@ function noopLogger() {
   };
 }
 
-function basePorts(overrides = {}) {
+function basePorts(
+  overrides: Partial<OrchestratorPorts> & { __log?: LogEntry[] } = {},
+): OrchestratorPorts & { __log: LogEntry[] } {
   const { __log: logOpt, ...rest } = overrides;
   const log = logOpt ?? [];
   return {
@@ -82,7 +90,7 @@ function basePorts(overrides = {}) {
 
 describe('createMessageOrchestrator', () => {
   it('routes sprite+ before command registry (sprite+ wins)', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({
       __log: log,
       routes: {
@@ -110,7 +118,7 @@ describe('createMessageOrchestrator', () => {
   });
 
   it('routes sdxl+ before command registry (sdxl+ wins)', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({
       __log: log,
       routes: {
@@ -138,7 +146,7 @@ describe('createMessageOrchestrator', () => {
   });
 
   it('image branch is exclusive: command registry is not run for image messages', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({
       __log: log,
       routes: {
@@ -171,13 +179,13 @@ describe('createMessageOrchestrator', () => {
       },
     });
     await handleInbound(inbound);
-    assert(log.some((e) => e.op === 'downloadImage'), 'should download image');
+    assert(log.some((e) => isOp(e) && e.op === 'downloadImage'), 'should download image');
     assert(!log.includes('cmd'), 'command registry must not run');
     assert(!log.includes('sprite'), 'sprite must not run');
   });
 
   it('image caption Text high uses visionTextHigh before visionText', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({ __log: log });
     const { handleInbound } = createMessageOrchestrator(ports);
     await handleInbound(
@@ -191,13 +199,13 @@ describe('createMessageOrchestrator', () => {
       }),
     );
     assert.deepEqual(
-      log.filter((x) => typeof x === 'object' && x.op).map((x) => x.op),
+      log.filter(isOp).map((x) => x.op),
       ['downloadImage', 'visionTextHigh', 'sendText'],
     );
   });
 
   it('image caption Help uses visionHelp', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({ __log: log });
     const { handleInbound } = createMessageOrchestrator(ports);
     await handleInbound(
@@ -210,20 +218,20 @@ describe('createMessageOrchestrator', () => {
         },
       }),
     );
-    assert(log.some((e) => e.op === 'visionHelp'));
+    assert(log.some((e) => isOp(e) && e.op === 'visionHelp'));
   });
 
   it('falls through to assistant when nothing else handles', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({ __log: log });
     const { handleInbound } = createMessageOrchestrator(ports);
     await handleInbound(fakeInbound({ text: 'a', raw: { key: {}, message: { conversation: 'a' } } }));
-    const ops = log.filter((x) => typeof x === 'object' && x.op).map((x) => x.op);
+    const ops = log.filter(isOp).map((x) => x.op);
     assert(ops.includes('assistant'));
   });
 
   it('command registry runs before agents when command handles', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({
       __log: log,
       routes: {
@@ -254,11 +262,11 @@ describe('createMessageOrchestrator', () => {
   });
 
   it('fallback assistant appends user then assistant', async () => {
-    const log = [];
+    const log: LogEntry[] = [];
     const ports = basePorts({ __log: log });
     const { handleInbound } = createMessageOrchestrator(ports);
     await handleInbound(fakeInbound({ text: 'hi bot' }));
-    const appends = log.filter((x) => x.op === 'append');
+    const appends = log.filter(isOp).filter((x) => x.op === 'append');
     assert.equal(appends[0].role, 'user');
     assert.equal(appends[0].content, 'hi bot');
     assert.equal(appends[1].role, 'assistant');
@@ -268,14 +276,14 @@ describe('createMessageOrchestrator', () => {
 
 describe('runAgentsChainSequential', () => {
   it('SKIP from lights falls through to weather when weather handles', async () => {
-    const log = [];
+    const log: { chatId?: string; text?: string; append?: string[] }[] = [];
     const messaging = {
-      sendText: async (chatId, text) => {
+      sendText: async (chatId: string, text: string) => {
         log.push({ chatId, text });
       },
     };
     const chatMemory = {
-      append: async (chatId, role, content) => {
+      append: async (chatId: string, role: string, content: string) => {
         log.push({ append: [chatId, role, content] });
       },
     };
@@ -302,9 +310,17 @@ describe('runAgentsChainSequential', () => {
 });
 
 describe('createMessageOrchestrator agent-runner delegation', () => {
-  function runnerPorts({ allowed = true, runner = {}, routes = {} } = {}) {
-    const log = [];
-    const calls = [];
+  function runnerPorts({
+    allowed = true,
+    runner = {},
+    routes = {},
+  }: {
+    allowed?: boolean;
+    runner?: Partial<OrchestratorPorts['agentRunner']>;
+    routes?: Partial<OrchestratorPorts['routes']>;
+  } = {}) {
+    const log: Op[] = [];
+    const calls: Op[] = [];
     const ports = basePorts({
       __log: log,
       access: { isAllowedActor: () => allowed },
@@ -363,7 +379,7 @@ describe('createMessageOrchestrator agent-runner delegation', () => {
     await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude hi' }));
     assert.deepEqual(calls, []);
     assert.equal(log.length, 1);
-    assert.match(log[0].text, /Not allowed to run the Claude agent/);
+    assert.match(log[0].text ?? '', /Not allowed to run the Claude agent/);
   });
 
   it('replies once "Agent runner is not reachable" when the runner is down', async () => {
@@ -388,7 +404,7 @@ describe('createMessageOrchestrator agent-runner delegation', () => {
     });
     await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'claude issue:3' }));
     assert.equal(log.length, 1);
-    assert.match(log[0].text, /didn't answer in time.*claude:status/s);
+    assert.match(log[0].text ?? '', /didn't answer in time.*claude:status/s);
   });
 
   it('handles claude:missed in the bot instead of forwarding it', async () => {
@@ -418,7 +434,7 @@ describe('createMessageOrchestrator agent-runner delegation', () => {
   });
 
   it('!restart is guarded even if the command registry would handle it', async () => {
-    const registry = [];
+    const registry: string[] = [];
     const { ports, log } = runnerPorts({
       runner: {
         status: async () => ({ busy: true, activeRun: { runId: 'r7' }, paused: false }),
