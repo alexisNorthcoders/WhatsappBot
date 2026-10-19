@@ -16,7 +16,7 @@ describe('help command text', () => {
       },
     };
 
-    await helpCommand(sock, '15551234567@s.whatsapp.net');
+    await helpCommand(sock, '15551234567@s.whatsapp.net', 'help');
 
     assert.equal(texts.length, 1);
     const helpText = texts[0];

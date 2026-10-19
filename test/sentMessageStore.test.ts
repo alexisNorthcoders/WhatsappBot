@@ -4,10 +4,10 @@ import { createSentMessageStore } from '../whatsapp/sentMessageStore.ts';
 
 function fakeClock(start = 1_000_000) {
   let t = start;
-  return { now: () => t, advance: (ms) => { t += ms; } };
+  return { now: () => t, advance: (ms: number) => { t += ms; } };
 }
 
-function sent(chat, id, text = `text ${id}`) {
+function sent(chat: string, id: string, text = `text ${id}`) {
   return { key: { remoteJid: chat, fromMe: true, id }, message: { conversation: text } };
 }
 
@@ -15,7 +15,7 @@ const CHAT = '447700900000@s.whatsapp.net';
 
 test('getMessage returns the stored content for a recent outgoing message', async () => {
   const store = createSentMessageStore({ maxEntries: 10, ttlMs: 60_000, now: fakeClock().now });
-  store.recordUpsert({ type: 'append', messages: [sent(CHAT, 'A1', 'hello')] });
+  store.recordUpsert({ messages: [sent(CHAT, 'A1', 'hello')] });
   assert.deepEqual(await store.getMessage({ remoteJid: CHAT, fromMe: true, id: 'A1' }), {
     conversation: 'hello',
   });

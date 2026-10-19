@@ -5,19 +5,20 @@ import {
   getLastSpritePath,
   resolveGeneratedPngBasename,
 } from '../spriteLastPath.ts';
+import type { Command } from '../types.ts';
 
 const VALID_SIZES = ['16x16', '32x32', '48x48', '64x64', '128x128'];
 const DEFAULT_SIZE = '32x32';
 
 const EXPLICIT_PNG = /^(\S+\.png)\s+([\s\S]+)$/i;
 
-function inferSpriteSizeFromAbsPath(absPath) {
+function inferSpriteSizeFromAbsPath(absPath: string) {
   const m = path.basename(absPath).match(/sprite_(\d+x\d+)_/i);
   if (m && VALID_SIZES.includes(m[1])) return m[1];
   return DEFAULT_SIZE;
 }
 
-function iterationHint(savedBasename) {
+function iterationHint(savedBasename: string | null) {
   const ref = savedBasename ? `\`${savedBasename}\`` : 'the last sprite from this chat';
   return (
     `Refine (no re-upload): *sprite+ what to change* uses ${ref}. ` +
@@ -25,7 +26,7 @@ function iterationHint(savedBasename) {
   );
 }
 
-export async function spriteIterateCommand(sock, sender, text) {
+export const spriteIterateCommand: Command = async (sock, sender, text) => {
   const body = text.replace(/^\s*sprite\+\s*/i, '').trim();
   if (!body) {
     await sock.sendMessage(sender, {
@@ -92,12 +93,12 @@ export async function spriteIterateCommand(sock, sender, text) {
     await sock.sendMessage(sender, { text: iterationHint(filepath ? path.basename(filepath) : null) });
   } catch (e) {
     await sock.sendMessage(sender, {
-      text: `Sprite refine failed: ${e.message || String(e)}`,
+      text: `Sprite refine failed: ${(e as Error).message || String(e)}`,
     });
   }
-}
+};
 
-export default async function spriteCommand(sock, sender, text) {
+const spriteCommand: Command = async (sock, sender, text) => {
   const args = text.replace(/^sprite\s*/i, '').trim();
 
   if (!args) {
@@ -144,4 +145,6 @@ export default async function spriteCommand(sock, sender, text) {
   });
 
   await sock.sendMessage(sender, { text: iterationHint(filepath ? path.basename(filepath) : null) });
-}
+};
+
+export default spriteCommand;

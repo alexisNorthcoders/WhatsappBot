@@ -1,9 +1,9 @@
 import { lidExtraJidsHint } from '../whatsAppActorAllowlist.ts';
 import type { InboundMessage } from './normalizeBaileysMessage.ts';
+import type { ChatTurn } from '../chatMemory.ts';
 import type { Logger } from '../types.ts';
 import type { WAMessage } from '@whiskeysockets/baileys';
 
-type ChatTurn = { role: 'user' | 'assistant'; content: string };
 type Handled = { handled: boolean };
 type RouteHandler = (m: InboundMessage) => Promise<Handled>;
 

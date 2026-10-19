@@ -31,10 +31,10 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }: {
     logger: Logger;
   }) {
   let caughtUp = false;
-  let polling = null;
-  let timer = null;
+  let polling: Promise<void> | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
 
-  const recipientOf = (replyTo) => (replyTo === OWNER ? getOwnerJid() : replyTo || null);
+  const recipientOf = (replyTo: string) => (replyTo === OWNER ? getOwnerJid() : replyTo || null);
 
   async function catchUp() {
     const cursor = (await store.getCursor()) ?? START_ID;
@@ -108,7 +108,7 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }: {
     },
 
     /** Polls every `intervalMs` (first poll right away) until `stop()`. */
-    start(intervalMs) {
+    start(intervalMs: number) {
       if (timer) return;
       const tick = () =>
         poll().catch((err) => logger.warn({ err: err?.message || err }, 'agent-runner outbox poll failed'));
@@ -132,7 +132,11 @@ export function createRedisOutboxStore({
   connect,
   streamKey = 'agent-runner:outbox',
   keyPrefix = 'whatsapp-bot:agent-runner-outbox:',
-}: { connect: () => Promise<RedisClientType>; streamKey?: string; keyPrefix?: string }): OutboxStore {
+}: {
+  connect: () => Promise<Pick<RedisClientType, 'xRange' | 'get' | 'set'>>;
+  streamKey?: string;
+  keyPrefix?: string;
+}): OutboxStore {
   const cursorKey = `${keyPrefix}cursor`;
   const missedKey = `${keyPrefix}missed`;
   return {

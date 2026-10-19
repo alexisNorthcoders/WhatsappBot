@@ -141,6 +141,26 @@ describe('extractArticleTextFromHtml (fixtures, no network)', () => {
 
 const SENDER = '15551234567@s.whatsapp.net';
 
+function recordingSock() {
+  const sent: { jid: string; text: string }[] = [];
+  const sock = {
+    sendMessage: async (jid: string, content: { text?: string }) => {
+      sent.push({ jid, text: String(content?.text ?? '') });
+    },
+  };
+  return { sent, sock };
+}
+
+function recordingLogger() {
+  const logPayloads: unknown[] = [];
+  const logger = {
+    info(o: unknown) {
+      logPayloads.push(o);
+    },
+  };
+  return { logPayloads, logger };
+}
+
 const HTML_ONLY_MSG =
   'This command only supports HTML web pages. The response was not HTML (check Content-Type or body).';
 
@@ -171,12 +191,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
     const lease = tryAcquireSummarizeLock();
     assert.ok(lease);
 
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid: string, content: { text?: string }) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
-      },
-    };
+    const { sent, sock } = recordingSock();
 
     await summarizeCommand(sock, SENDER, 'summarize https://example.com/news/1');
 
@@ -190,30 +205,20 @@ describe('summarize command (WhatsApp lock UX)', () => {
   it('sends acknowledgement then the model reply on the happy path', async () => {
     const articleHtml = readFileSync(path.join(fixturesDir, 'article.html'), 'utf8');
 
-    async function fakeBotFetch(_url, _init) {
+    async function fakeBotFetch() {
       return new Response(articleHtml, {
         status: 200,
         headers: { 'content-type': 'text/html; charset=utf-8' },
       });
     }
 
-    async function fakeDeepInfra(_content, _model, _opts) {
+    async function fakeDeepInfra() {
       return 'Mocked summary bullets.';
     }
 
-    const logPayloads: unknown[] = [];
-    const logger = {
-      info(o: Record<string, unknown>) {
-        logPayloads.push(o);
-      },
-    };
+    const { logPayloads, logger } = recordingLogger();
 
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
-      },
-    };
+    const { sent, sock } = recordingSock();
 
     await summarizeCommand(
       sock,
@@ -254,19 +259,9 @@ describe('summarize command (WhatsApp lock UX)', () => {
       });
     }
 
-    const logPayloads: unknown[] = [];
-    const logger = {
-      info(o: Record<string, unknown>) {
-        logPayloads.push(o);
-      },
-    };
+    const { logPayloads, logger } = recordingLogger();
 
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
-      },
-    };
+    const { sent, sock } = recordingSock();
 
     await summarizeCommand(
       sock,
@@ -293,23 +288,13 @@ describe('summarize command (WhatsApp lock UX)', () => {
   });
 
   it('emits summarize_run with fetch_error and null http status when fetch throws', async () => {
-    async function fakeBotFetchThrows() {
+    async function fakeBotFetchThrows(): Promise<Response> {
       throw new Error('network down');
     }
 
-    const logPayloads: unknown[] = [];
-    const logger = {
-      info(o: Record<string, unknown>) {
-        logPayloads.push(o);
-      },
-    };
+    const { logPayloads, logger } = recordingLogger();
 
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
-      },
-    };
+    const { sent, sock } = recordingSock();
 
     await summarizeCommand(
       sock,
@@ -339,19 +324,9 @@ describe('summarize command (WhatsApp lock UX)', () => {
       });
     }
 
-    const logPayloads: unknown[] = [];
-    const logger = {
-      info(o: Record<string, unknown>) {
-        logPayloads.push(o);
-      },
-    };
+    const { logPayloads, logger } = recordingLogger();
 
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
-      },
-    };
+    const { sent, sock } = recordingSock();
 
     await summarizeCommand(
       sock,
@@ -383,23 +358,13 @@ describe('summarize command (WhatsApp lock UX)', () => {
       });
     }
 
-    async function fakeDeepInfraThrows() {
+    async function fakeDeepInfraThrows(): Promise<string> {
       throw new Error('DeepInfra refused');
     }
 
-    const logPayloads: unknown[] = [];
-    const logger = {
-      info(o: Record<string, unknown>) {
-        logPayloads.push(o);
-      },
-    };
+    const { logPayloads, logger } = recordingLogger();
 
-    const sent = [];
-    const sock = {
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
-      },
-    };
+    const { sent, sock } = recordingSock();
 
     await summarizeCommand(
       sock,

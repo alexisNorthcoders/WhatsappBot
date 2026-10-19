@@ -5,16 +5,16 @@ import {
   AgentRunnerUnreachableError,
 } from '../whatsapp/agentRunner/agentRunnerClient.ts';
 
-const jsonResponse = (status, body) =>
+const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
 describe('agent-runner client', () => {
   it('POSTs {text, replyTo} to /command and returns the reply', async () => {
-    const calls = [];
+    const calls: { url: string; method?: string; body: unknown }[] = [];
     const client = createAgentRunnerClient({
       baseUrl: 'http://127.0.0.1:3790/',
       fetchImpl: async (url, init) => {
-        calls.push({ url, method: init.method, body: JSON.parse(init.body) });
+        calls.push({ url, method: init?.method, body: JSON.parse(String(init?.body)) });
         return jsonResponse(200, { reply: 'Started run r1' });
       },
     });
@@ -53,8 +53,10 @@ describe('agent-runner client', () => {
     const client = createAgentRunnerClient({
       baseUrl: 'http://x',
       commandTimeoutMs: 5,
-      fetchImpl: (url, init) =>
-        new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason))),
+      fetchImpl: (url, init) => {
+        const signal = init!.signal!;
+        return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason)));
+      },
     });
     const err = await client.sendCommand({ text: 'claude issue:1', replyTo: 'c' }).catch((e) => e);
     assert.ok(err instanceof AgentRunnerUnreachableError);
@@ -66,7 +68,7 @@ describe('agent-runner client', () => {
       baseUrl: 'http://x',
       fetchImpl: async (url, init) => {
         assert.equal(url, 'http://x/status');
-        assert.equal(init.method, 'GET');
+        assert.equal(init?.method, 'GET');
         return jsonResponse(200, { busy: true, activeRun: { runId: 'r9' }, paused: false });
       },
     });

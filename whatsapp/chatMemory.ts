@@ -10,17 +10,19 @@ export const CHAT_MEMORY_MAX_MESSAGES = parseInt(process.env.CHAT_MEMORY_MAX_MES
 const BACKEND = (process.env.CHAT_MEMORY_BACKEND || 'memory').toLowerCase() === 'redis' ? 'redis' : 'memory';
 const REDIS_KEY_PREFIX = 'whatsapp:chat:';
 
-const memoryStore: Map<string, { role: 'user' | 'assistant'; content: string }[]> = new Map();
+export type ChatTurn = { role: 'user' | 'assistant'; content: string };
+
+const memoryStore: Map<string, ChatTurn[]> = new Map();
 
 let redisClient: RedisClientType | null = null;
 
-function truncate(content) {
+function truncate(content: string) {
   const s = String(content ?? '');
   if (s.length <= MAX_CONTENT_LEN) return s;
   return `${s.slice(0, MAX_CONTENT_LEN)}…`;
 }
 
-function trimToCap(arr) {
+function trimToCap(arr: ChatTurn[]) {
   const max = CHAT_MEMORY_MAX_MESSAGES;
   if (arr.length <= max) return;
   arr.splice(0, arr.length - max);
@@ -38,11 +40,11 @@ async function getRedis() {
   return redisClient;
 }
 
-function redisKey(jid) {
+function redisKey(jid: string) {
   return `${REDIS_KEY_PREFIX}${jid}`;
 }
 
-export async function getMessages(jid: string): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
+export async function getMessages(jid: string): Promise<ChatTurn[]> {
   if (!jid) return [];
   if (BACKEND === 'redis') {
     const client = await getRedis();
@@ -82,7 +84,7 @@ export async function clearMessages(jid: string): Promise<number> {
   return len;
 }
 
-export async function appendMessage(jid: string, role: 'user' | 'assistant', content: string) {
+export async function appendMessage(jid: string, role: ChatTurn['role'], content: string) {
   if (!jid) return;
   if (role !== 'user' && role !== 'assistant') return;
   const entry = { role, content: truncate(content) };

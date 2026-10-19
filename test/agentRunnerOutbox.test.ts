@@ -1,21 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createOutboxDrain } from '../whatsapp/agentRunner/agentRunnerOutbox.ts';
+import type { OutboxEntry, OutboxStore } from '../whatsapp/agentRunner/agentRunnerOutbox.ts';
 
 const OWNER_JID = '447000000000@s.whatsapp.net';
 
 /** In-memory stand-in for the Redis-backed outbox store (stream + two string keys). */
-function fakeStore(entries = []) {
+function fakeStore(entries: OutboxEntry[] = []) {
   const stream = [...entries];
-  const kv = new Map();
-  const cmp = (a, b) => {
+  let cursor: string | null = null;
+  let missed: { afterId: string; toId: string } | null = null;
+  const cmp = (a: string, b: string) => {
     const [am, as] = a.split('-').map(Number);
     const [bm, bs] = b.split('-').map(Number);
     return am - bm || as - bs;
   };
-  return {
-    stream,
-    kv,
+  const store: OutboxStore & { add(id: string, fields: Record<string, string>): void } = {
     add(id, fields) {
       stream.push({ id, fields });
     },
@@ -23,28 +23,29 @@ function fakeStore(entries = []) {
       return stream.filter((e) => cmp(e.id, afterId) > 0 && (toId == null || cmp(e.id, toId) <= 0));
     },
     async getCursor() {
-      return kv.get('cursor') ?? null;
+      return cursor;
     },
     async setCursor(id) {
-      kv.set('cursor', id);
+      cursor = id;
     },
     async getMissed() {
-      return kv.get('missed') ?? null;
+      return missed;
     },
     async setMissed(range) {
-      kv.set('missed', range);
+      missed = range;
     },
   };
+  return store;
 }
 
-const entry = (id, replyTo, text, runId = '', ts = '2026-09-24T10:15:00.000Z') => ({
+const entry = (id: string, replyTo: string, text: string, runId = '', ts = '2026-09-24T10:15:00.000Z'): OutboxEntry => ({
   id,
   fields: { replyTo, text, runId, ts },
 });
 
-function setup(entries, { owner = OWNER_JID } = {}) {
+function setup(entries: OutboxEntry[], { owner = OWNER_JID }: { owner?: string | null } = {}) {
   const store = fakeStore(entries);
-  const sent = [];
+  const sent: { chatId: string; text: string }[] = [];
   const drain = createOutboxDrain({
     store,
     sendText: async (chatId, text) => {
@@ -104,7 +105,7 @@ describe('agent-runner outbox drain', () => {
   it('keeps the cursor when a send fails, so the next poll retries', async () => {
     const store = fakeStore([]);
     let fail = true;
-    const sent = [];
+    const sent: { chatId: string; text: string }[] = [];
     const drain = createOutboxDrain({
       store,
       sendText: async (chatId, text) => {
@@ -165,7 +166,7 @@ describe('agent-runner outbox catch-up notice', () => {
   it('retries the "you missed" notice on the next poll when it fails to send', async () => {
     const store = fakeStore([entry('1-0', 'owner', 'a')]);
     let fail = true;
-    const sent = [];
+    const sent: string[] = [];
     const drain = createOutboxDrain({
       store,
       sendText: async (chatId, text) => {

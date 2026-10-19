@@ -1,29 +1,31 @@
 import { askHomeManuals } from '../homeManualsClient.ts';
 import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.ts';
-import type { MessageSender } from '../types.ts';
+import type { Command, TextSender } from '../types.ts';
 
 /** Test-only: marks injected `{ askHomeManuals? }` so raw WhatsApp messages are never mistaken for deps. */
 const homeInjectedDepsBrand = Symbol.for('WhatsappBot.home.injectedDeps');
+
+type HomeDeps = { askHomeManuals?: typeof askHomeManuals };
 
 /**
  * Wrap test-only `{ askHomeManuals? }`. Production passes the raw Baileys message as the
  * 4th argument; it must not be mistaken for injected deps.
  */
-export function homeInjectedDeps(partial: { askHomeManuals?: typeof askHomeManuals }) {
+export function homeInjectedDeps(partial: HomeDeps) {
   return { [homeInjectedDepsBrand]: true, ...partial };
 }
 
 /**
  * @param fourthArg raw Baileys message in production, or {@link homeInjectedDeps} in tests
  */
-function resolveHomeDeps(fourthArg: unknown) {
+function resolveHomeDeps(fourthArg: unknown): HomeDeps {
   if (
     fourthArg != null &&
     typeof fourthArg === 'object' &&
     (fourthArg as Record<symbol, unknown>)[homeInjectedDepsBrand] === true
   ) {
     const { [homeInjectedDepsBrand]: _b, ...rest } = fourthArg as Record<symbol | string, unknown>;
-    return rest as { askHomeManuals?: typeof askHomeManuals };
+    return rest as HomeDeps;
   }
   return {};
 }
@@ -34,7 +36,7 @@ const USAGE = 'Usage: home <question>, e.g. "home what model is the oven?"';
  * `home <question>` — asks the home-manuals service and replies with the answer + Sources.
  * @param fourthArg raw Baileys message in production, or {@link homeInjectedDeps} in tests
  */
-export default async function homeCommand(sock: MessageSender, chatId: string, text: string, fourthArg?: unknown) {
+const homeCommand: Command<TextSender> = async (sock, chatId, text, fourthArg) => {
   const deps = resolveHomeDeps(fourthArg);
   const ask = deps.askHomeManuals ?? askHomeManuals;
 
@@ -60,4 +62,6 @@ export default async function homeCommand(sock: MessageSender, chatId: string, t
   }
 
   await sock.sendMessage(chatId, { text: formatHomeAnswerReply(result.answer, result.sources) });
-}
+};
+
+export default homeCommand;

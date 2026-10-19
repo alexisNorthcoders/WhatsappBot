@@ -9,7 +9,7 @@ import {
 test('msgRetryCounterCache is a TTL-backed node-cache', () => {
   const cache = createMsgRetryCounterCache();
   assert.ok(cache instanceof NodeCache);
-  assert.ok(cache.options.stdTTL > 0);
+  assert.ok(Number(cache.options.stdTTL) > 0);
   cache.set('msg-1', 2);
   assert.equal(cache.get('msg-1'), 2);
 });

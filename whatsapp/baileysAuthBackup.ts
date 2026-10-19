@@ -7,7 +7,13 @@ import path from 'node:path';
  * The copy is staged in `<backupDir>.partial` and renamed into place, so a crash mid-copy never
  * leaves a half backup that would then be treated as final.
  */
-export async function backupAuthDirOnce({ authDir, backupDir }: { authDir: string; backupDir: string }): Promise<{ status: 'created' | 'exists' | 'no-auth' }> {
+export async function backupAuthDirOnce({
+  authDir,
+  backupDir,
+}: {
+  authDir: string;
+  backupDir: string;
+}): Promise<{ status: 'created' | 'exists' | 'no-auth' }> {
   const auth = path.resolve(authDir);
   const backup = path.resolve(backupDir);
   if (backup === auth || backup.startsWith(auth + path.sep)) {
@@ -24,7 +30,7 @@ export async function backupAuthDirOnce({ authDir, backupDir }: { authDir: strin
   return { status: 'created' };
 }
 
-async function exists(p) {
+async function exists(p: string) {
   try {
     await fs.access(p);
     return true;

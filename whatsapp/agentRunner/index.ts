@@ -42,7 +42,7 @@ export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwner
     }
     return Promise.race([
       connecting,
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('redis not connected')), REDIS_CONNECT_TIMEOUT_MS).unref();
       }),
     ]);

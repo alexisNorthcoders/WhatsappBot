@@ -1,12 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import homeCommand, { homeInjectedDeps } from '../whatsapp/commands/home.ts';
+import type { HomeManualsResult } from '../whatsapp/homeManualsClient.ts';
 
 function fakeSock() {
-  const sent = [];
+  const sent: { chatId: string; text: string }[] = [];
   return {
     sock: {
-      sendMessage: async (chatId, content) => {
+      sendMessage: async (chatId: string, content: { text: string }) => {
         sent.push({ chatId, ...content });
       },
     },
@@ -17,7 +18,7 @@ function fakeSock() {
 describe('home command', () => {
   it('sends the question to the service and replies with answer + Sources', async () => {
     const { sock, sent } = fakeSock();
-    const askHomeManuals = async (question) => {
+    const askHomeManuals = async (question: string): Promise<HomeManualsResult> => {
       assert.equal(question, 'what model is the oven?');
       return {
         ok: true,
@@ -41,7 +42,7 @@ describe('home command', () => {
 
   it('replies with a short error when the service is down', async () => {
     const { sock, sent } = fakeSock();
-    const askHomeManuals = async () => ({ ok: false, reason: 'error', error: new Error('down') });
+    const askHomeManuals = async (): Promise<HomeManualsResult> => ({ ok: false, reason: 'error', error: new Error('down') });
 
     await homeCommand(sock, 'chat@s.whatsapp.net', 'home what boiler do we have?', homeInjectedDeps({ askHomeManuals }));
 
@@ -51,7 +52,7 @@ describe('home command', () => {
 
   it('explains when HOME_MANUALS_URL is not configured', async () => {
     const { sock, sent } = fakeSock();
-    const askHomeManuals = async () => ({ ok: false, reason: 'not_configured' });
+    const askHomeManuals = async (): Promise<HomeManualsResult> => ({ ok: false, reason: 'not_configured' });
 
     await homeCommand(sock, 'chat@s.whatsapp.net', 'home what boiler do we have?', homeInjectedDeps({ askHomeManuals }));
 

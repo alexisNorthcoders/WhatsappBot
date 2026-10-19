@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { backupAuthDirOnce } from '../whatsapp/baileysAuthBackup.ts';
 
-async function withTmp(fn) {
+async function withTmp(fn: (root: string) => Promise<void>) {
   const root = await mkdtemp(path.join(tmpdir(), 'auth-backup-'));
   try {
     await fn(root);

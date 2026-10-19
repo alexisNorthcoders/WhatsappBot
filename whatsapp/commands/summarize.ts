@@ -12,16 +12,22 @@ import {
   releaseSummarizeLock,
   tryAcquireSummarizeLock,
 } from '../utils/summarizeLock.ts';
-import type { Logger, MessageSender } from '../types.ts';
+import type { Command, Logger, TextSender } from '../types.ts';
 
 /** Test-only: marks injected `{ botFetch?, deepInfraAPI?, logger? }` so raw WhatsApp messages are never mistaken for deps. */
 const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDeps');
+
+type SummarizeDeps = {
+  botFetch?: typeof botFetch;
+  deepInfraAPI?: typeof deepInfraAPI;
+  logger?: Pick<Logger, 'info'>;
+};
 
 /**
  * Wrap test-only `{ botFetch?, deepInfraAPI?, logger? }`. Production passes the raw Baileys
  * message as the 4th argument; it must not be mistaken for injected deps.
  */
-export function summarizeInjectedDeps(partial: { botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<Logger, 'info'> }) {
+export function summarizeInjectedDeps(partial: SummarizeDeps) {
   return { [summarizeInjectedDepsBrand]: true, ...partial };
 }
 
@@ -30,14 +36,14 @@ const summarizeRunLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
 /**
  * @param fourthArg raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
  */
-function resolveSummarizeDeps(fourthArg: unknown) {
+function resolveSummarizeDeps(fourthArg: unknown): SummarizeDeps {
   if (
     fourthArg != null &&
     typeof fourthArg === 'object' &&
     (fourthArg as Record<symbol, unknown>)[summarizeInjectedDepsBrand] === true
   ) {
     const { [summarizeInjectedDepsBrand]: _b, ...rest } = fourthArg as Record<symbol | string, unknown>;
-    return rest as { botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<Logger, 'info'> };
+    return rest as SummarizeDeps;
   }
   return {};
 }
@@ -46,14 +52,17 @@ function resolveSummarizeDeps(fourthArg: unknown) {
  * One JSON log object per summarize run (no page body or prompts).
  * Every key is always present: use null when a value does not apply (see outcome).
  */
-function logSummarizeRun(log: { info: (o: object) => void }, { host, httpStatus, extractedLength, startedAt, model, outcome }: {
+function logSummarizeRun(
+  log: { info: (o: object) => void },
+  { host, httpStatus, extractedLength, startedAt, model, outcome }: {
     host: string;
     httpStatus: number | null;
     extractedLength: number | null;
     startedAt: number;
     model: string;
     outcome: string;
-  }) {
+  },
+) {
   log.info({
     event: 'summarize_run',
     host: host || '',
@@ -79,7 +88,7 @@ function maxLlmInputChars() {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 500_000) : 24_000;
 }
 
-function buildSummaryPrompt(extractedText, extra) {
+function buildSummaryPrompt(extractedText: string, extra: string) {
   const instructions = extra.trim() || 'None.';
   return [
     'Summarize the following text extracted from a web page for a WhatsApp reader.',
@@ -99,7 +108,7 @@ function buildSummaryPrompt(extractedText, extra) {
  * @param text full message
  * @param fourthArg raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
  */
-export default async function summarizeCommand(sock: MessageSender, sender: string, text: string, fourthArg?: unknown) {
+const summarizeCommand: Command<TextSender> = async (sock, sender, text, fourthArg) => {
   const deps = resolveSummarizeDeps(fourthArg);
   const fetchPage = deps.botFetch ?? botFetch;
   const runLlm = deps.deepInfraAPI ?? deepInfraAPI;
@@ -243,4 +252,6 @@ export default async function summarizeCommand(sock: MessageSender, sender: stri
     });
     releaseSummarizeLock(summarizeLeaseId);
   }
-}
+};
+
+export default summarizeCommand;

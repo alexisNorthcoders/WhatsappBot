@@ -4,6 +4,10 @@
  *   GET  /status                  → {busy, activeRun, paused}
  */
 
+import type { FetchLike } from '../types.ts';
+
+export type RunnerStatus = { busy: boolean; activeRun: { runId: string } | null; paused: boolean };
+
 // `claude issue:<n>` only replies once the issue is fetched and the branch prepared (gh + git pull)
 const COMMAND_TIMEOUT_MS = 120_000;
 const STATUS_TIMEOUT_MS = 10_000;
@@ -13,11 +17,13 @@ const STATUS_TIMEOUT_MS = 10_000;
  * in time — in which case it may still be working on the command.
  */
 export class AgentRunnerUnreachableError extends Error {
-  constructor(cause) {
-    super(`agent-runner is not reachable: ${cause?.message || cause}`);
+  declare timedOut: boolean;
+
+  constructor(cause: unknown) {
+    super(`agent-runner is not reachable: ${(cause as Error)?.message || cause}`);
     this.name = 'AgentRunnerUnreachableError';
     this.cause = cause;
-    this.timedOut = cause?.name === 'TimeoutError';
+    this.timedOut = (cause as Error)?.name === 'TimeoutError';
   }
 }
 
@@ -26,10 +32,15 @@ export function createAgentRunnerClient({
   fetchImpl = fetch,
   commandTimeoutMs = COMMAND_TIMEOUT_MS,
   statusTimeoutMs = STATUS_TIMEOUT_MS,
-}: { baseUrl: string; fetchImpl?: typeof fetch; commandTimeoutMs?: number; statusTimeoutMs?: number }) {
+}: { baseUrl: string; fetchImpl?: FetchLike; commandTimeoutMs?: number; statusTimeoutMs?: number }) {
   const root = baseUrl.replace(/\/+$/, '');
 
-  async function call(method, path, body, timeoutMs) {
+  async function call(
+    method: 'GET' | 'POST',
+    path: string,
+    body: object | undefined,
+    timeoutMs: number,
+  ): Promise<Record<string, unknown>> {
     let json;
     try {
       const res = await fetchImpl(`${root}${path}`, {
@@ -48,14 +59,14 @@ export function createAgentRunnerClient({
 
   return {
     /** @returns the runner's reply text */
-    async sendCommand({ text, replyTo }): Promise<string> {
+    async sendCommand({ text, replyTo }: { text: string; replyTo: string }): Promise<string> {
       const { reply } = await call('POST', '/command', { text, replyTo }, commandTimeoutMs);
       if (typeof reply !== 'string') throw new AgentRunnerUnreachableError('response has no reply');
       return reply;
     },
 
-    status(): Promise<{ busy: boolean; activeRun: { runId: string } | null; paused: boolean }> {
-      return call('GET', '/status', undefined, statusTimeoutMs);
+    status(): Promise<RunnerStatus> {
+      return call('GET', '/status', undefined, statusTimeoutMs) as Promise<RunnerStatus>;
     },
   };
 }

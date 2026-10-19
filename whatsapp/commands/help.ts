@@ -1,6 +1,7 @@
 import { REMINDER_COMMAND_HELP_SNIPPET } from '../calendar/reminderIntent.ts';
+import type { Command, TextSender } from '../types.ts';
 
-export default async function helpCommand(sock, sender) {
+const helpCommand: Command<TextSender> = async (sock, sender) => {
   const helpText = `*WhatsApp Bot — Command Reference*
 
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -67,4 +68,6 @@ export default async function helpCommand(sock, sender) {
 Any message that doesn't match a command or agent is handled by the general AI assistant (with chat memory).`;
 
   await sock.sendMessage(sender, { text: helpText });
-}
+};
+
+export default helpCommand;

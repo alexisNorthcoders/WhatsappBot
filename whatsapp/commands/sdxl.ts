@@ -6,13 +6,14 @@ import {
   getLastSdxlPath,
   resolveSdxlGeneratedPngBasename,
 } from '../sdxlLastPath.ts';
+import type { Command } from '../types.ts';
 
 const VALID_SIZES = ['256x256', '512x512', '768x768', '1024x1024'];
 const DEFAULT_SIZE = '1024x1024';
 
 const EXPLICIT_PNG = /^(\S+\.png)\s+([\s\S]+)$/i;
 
-function iterationHint(savedBasename) {
+function iterationHint(savedBasename: string | null) {
   const ref = savedBasename ? `\`${savedBasename}\`` : 'the last SDXL image from this chat';
   return (
     `Refine (no re-upload): *sdxl+ what to change* uses ${ref}. ` +
@@ -20,7 +21,7 @@ function iterationHint(savedBasename) {
   );
 }
 
-export async function sdxlIterateCommand(sock, sender, text) {
+export const sdxlIterateCommand: Command = async (sock, sender, text) => {
   const body = text.replace(/^\s*sdxl\+\s*/i, '').trim();
   if (!body) {
     await sock.sendMessage(sender, {
@@ -105,10 +106,10 @@ export async function sdxlIterateCommand(sock, sender, text) {
     await sock.sendMessage(sender, { text: iterationHint(filepath ? path.basename(filepath) : null) });
   } catch (e) {
     await sock.sendMessage(sender, {
-      text: `SDXL refine failed: ${e?.message || String(e)}`,
+      text: `SDXL refine failed: ${(e as Error)?.message || String(e)}`,
     });
   }
-}
+};
 
 function usageText() {
   return [
@@ -127,7 +128,7 @@ function usageText() {
   ].join('\n');
 }
 
-export default async function sdxlCommand(sock, sender, text) {
+const sdxlCommand: Command = async (sock, sender, text) => {
   const args = text.replace(/^sdxl\s*/i, '').trim();
   if (!args) {
     await sock.sendMessage(sender, { text: usageText() });
@@ -164,7 +165,9 @@ export default async function sdxlCommand(sock, sender, text) {
     await sock.sendMessage(sender, { text: iterationHint(filepath ? path.basename(filepath) : null) });
   } catch (e) {
     await sock.sendMessage(sender, {
-      text: `SDXL Turbo generation failed: ${e?.message || String(e)}`,
+      text: `SDXL Turbo generation failed: ${(e as Error)?.message || String(e)}`,
     });
   }
-}
+};
+
+export default sdxlCommand;

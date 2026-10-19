@@ -1,7 +1,10 @@
 import { recipeGenerateResponse } from "../../models/models.ts";
+import type { Command, TextSender } from '../types.ts';
 
-export default async function recipeCommand(sock, sender, text) {
+const recipeCommand: Command<TextSender> = async (sock, sender, text) => {
     const prompt = text.replace("Recipe ", "");
     const response = await recipeGenerateResponse(prompt);
     await sock.sendMessage(sender, { text: response });
-}
+};
+
+export default recipeCommand;

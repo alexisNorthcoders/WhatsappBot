@@ -1,4 +1,5 @@
 import NodeCache from '@cacheable/node-cache';
+import type { CacheStore } from '@whiskeysockets/baileys';
 
 const MSG_RETRY_TTL_SECONDS = 60 * 60;
 
@@ -7,15 +8,16 @@ const MSG_RETRY_TTL_SECONDS = 60 * 60;
  * reconnects — Baileys' built-in default is per-socket, so counts would reset on every reconnect
  * and `maxMsgRetryCount` would never be reached.
  */
-export function createMsgRetryCounterCache() {
-  return new NodeCache({ stdTTL: MSG_RETRY_TTL_SECONDS, useClones: false });
+export function createMsgRetryCounterCache(): CacheStore {
+  // CacheStore's get<T>() picks T per call, which a NodeCache<T> only matches as NodeCache<any>.
+  return new NodeCache<any>({ stdTTL: MSG_RETRY_TTL_SECONDS, useClones: false });
 }
 
 /**
  * Cache-related `makeWASocket` options. Deliberately no `userDevicesCache`: Baileys' default
  * TTL cache refreshes a contact's device list, so newly linked devices can decrypt our messages.
  */
-export function socketCacheOptions(msgRetryCounterCache: NodeCache) {
+export function socketCacheOptions(msgRetryCounterCache: CacheStore) {
   return {
     maxMsgRetryCount: 3,
     msgRetryCounterCache,

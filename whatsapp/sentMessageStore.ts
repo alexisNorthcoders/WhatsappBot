@@ -1,4 +1,5 @@
 import { jidNormalizedUser } from '@whiskeysockets/baileys';
+import type { WAMessage, WAMessageContent, WAMessageKey } from '@whiskeysockets/baileys';
 
 const DEFAULT_MAX_ENTRIES = 500;
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -8,7 +9,7 @@ const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
  * `@c.us` form, so both sides are normalized to `123@s.whatsapp.net` before matching.
  * Matching stays per-chat (not id-only) so a retry can never pull another chat's message.
  */
-function entryKey({ remoteJid, id }: { remoteJid: string; id: string }) {
+function entryKey(remoteJid: string, id: string) {
   return `${jidNormalizedUser(remoteJid)}|${id}`;
 }
 
@@ -25,9 +26,9 @@ export function createSentMessageStore({
   ttlMs = DEFAULT_TTL_MS,
   now = Date.now,
 }: { maxEntries?: number; ttlMs?: number; now?: () => number } = {}) {
-  const entries: Map<string, { message: object; expiresAt: number }> = new Map();
+  const entries: Map<string, { message: WAMessageContent; expiresAt: number }> = new Map();
 
-  const isExpired = (entry) => entry.expiresAt <= now();
+  const isExpired = (entry: { expiresAt: number }) => entry.expiresAt <= now();
 
   function pruneExpired() {
     for (const [k, entry] of entries) {
@@ -36,13 +37,12 @@ export function createSentMessageStore({
     }
   }
 
-  function remember(key, message) {
-    const k = entryKey(key);
+  function remember(k: string, message: WAMessageContent) {
     entries.delete(k);
     entries.set(k, { message, expiresAt: now() + ttlMs });
     pruneExpired();
     while (entries.size > maxEntries) {
-      entries.delete(entries.keys().next().value);
+      entries.delete(entries.keys().next().value!);
     }
   }
 
@@ -54,18 +54,18 @@ export function createSentMessageStore({
     },
 
     /** Records every `fromMe` message with content from a `messages.upsert` event. */
-    recordUpsert(upsert) {
+    recordUpsert(upsert: { messages?: WAMessage[] }) {
       for (const msg of upsert?.messages || []) {
         const key = msg?.key;
         if (!key?.fromMe || !key.remoteJid || !key.id || !msg.message) continue;
-        remember(key, msg.message);
+        remember(entryKey(key.remoteJid, key.id), msg.message);
       }
     },
 
     /** Baileys `getMessage` socket option: the stored content, or `undefined` if unknown/expired. */
-    async getMessage(key) {
+    async getMessage(key: WAMessageKey | undefined): Promise<WAMessageContent | undefined> {
       if (!key?.remoteJid || !key.id) return undefined;
-      const k = entryKey(key);
+      const k = entryKey(key.remoteJid, key.id);
       const entry = entries.get(k);
       if (!entry) return undefined;
       if (isExpired(entry)) {
