@@ -6,6 +6,7 @@ import { parseExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
 import { CALENDAR_UNREACHABLE_REPLY } from '../whatsapp/calendar/createReminder.ts';
 import { ROUTE_CRITERIA } from '../whatsapp/orchestration/jevRouter.ts';
 import { createFakeCalendar } from './helpers/fakeCalendar.ts';
+import type { ReminderExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
 
 const MIN = 60_000;
 // Sat 17 Oct 2026, 14:00 in London (BST).
@@ -15,11 +16,9 @@ const CHAT = OWNER;
 
 /**
  * Fake extraction: canned results by message text, recording what it was asked.
- * @param {Record<string, import('../whatsapp/calendar/reminderExtraction.ts').ReminderExtraction>} byText
  */
-function fakeExtractor(byText) {
-  /** @type {{ text: string, nowMs: number, timeZone: string }[]} */
-  const calls = [];
+function fakeExtractor(byText: Record<string, ReminderExtraction>) {
+  const calls: { text: string; nowMs: number; timeZone: string }[] = [];
   const extract = async (input) => {
     calls.push(input);
     const r = byText[input.text];
@@ -29,12 +28,7 @@ function fakeExtractor(byText) {
   return { extract, calls };
 }
 
-/**
- * @param {string} text
- * @param {object} deps
- * @param {Partial<{ actorId: string | null, chatId: string }>} [over]
- */
-function send(text, deps, over = {}) {
+function send(text: string, deps: object, over: Partial<{ actorId: string | null; chatId: string }> = {}) {
   return runReminderAgent({ text, chatId: CHAT, actorId: OWNER, ...over }, { nowMs: NOW, isAllowedActor: () => true, ...deps });
 }
 
@@ -165,12 +159,12 @@ describe('reminder agent: create on the Owner\'s calendar (#127)', () => {
   it('replies with a clear error when Google Calendar is unreachable, creating nothing', async () => {
     const text = 'Dentist Friday 3–4pm';
     const fields = { ok: true, title: 'Dentist', start: '2026-10-23T15:00', allDay: false, kind: 'appointment' };
-    const down = { ...createFakeCalendar(), getSettings: async () => { throw new Error('ECONNREFUSED'); } };
+    const down = { ...createFakeCalendar(), getSettings: async () => { throw new Error('ECONNREFUSED') } };
     const r = await send(text, { calendar: down, extractReminder: fakeExtractor({ [text]: fields }).extract });
     assert.equal(r.replyText, CALENDAR_UNREACHABLE_REPLY);
 
     const calendar = createFakeCalendar();
-    const failing = { ...calendar, createEvent: async () => { throw new Error('503'); } };
+    const failing = { ...calendar, createEvent: async () => { throw new Error('503') } };
     const lastLists = createLastLists();
     const r2 = await send(text, { calendar: failing, extractReminder: fakeExtractor({ [text]: fields }).extract, lastLists });
     assert.equal(r2.replyText, CALENDAR_UNREACHABLE_REPLY);

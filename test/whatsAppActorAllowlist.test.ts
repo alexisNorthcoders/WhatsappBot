@@ -114,7 +114,7 @@ describe('whatsAppActorAllowlist', () => {
 
     it('denies malformed alternate ids', () => {
       for (const alt of ['447700900001', '@s.whatsapp.net', '447700900001@lid', 'garbage', 42, {}]) {
-        assert.equal(isAllowedActor(STRANGER_LID, /** @type {any} */ (alt)), false, String(alt));
+        assert.equal(isAllowedActor(STRANGER_LID, (alt as any)), false, String(alt));
       }
     });
 

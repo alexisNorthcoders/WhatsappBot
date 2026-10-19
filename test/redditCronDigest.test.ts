@@ -153,8 +153,7 @@ describe('runRedditCronDigestTick', () => {
   });
 
   function mockSock() {
-    /** @type {{ jid: string, text: string }[]} */
-    const sent = [];
+    const sent: { jid: string; text: string }[] = [];
     return {
       sent,
       sendMessage: async (jid, content) => {

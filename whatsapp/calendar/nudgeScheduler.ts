@@ -2,25 +2,22 @@ import { secondPhoneJid } from '../whatsAppActorAllowlist.ts';
 import { createGoogleCalendar } from './googleCalendar.ts';
 import { nudgedLogPath } from './nudgedLog.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.ts';
+import type { MessageSender, Logger } from '../types.ts';
 
 const DEFAULT_POLL_MS = 60_000;
 
-let intervalId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
+let intervalId = null as ReturnType<typeof setInterval> | null;
 let inFlight = false;
 
-/**
- * @param {string | undefined} raw
- */
-function truthyEnv(raw) {
+function truthyEnv(raw: string | undefined) {
   const v = String(raw || '').toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
 
 /**
  * Google adapter from env, or null when the OAuth credentials are missing (feature off).
- * @param {NodeJS.ProcessEnv} [env]
  */
-export function googleCalendarFromEnv(env = process.env) {
+export function googleCalendarFromEnv(env: NodeJS.ProcessEnv = process.env) {
   const clientId = env.GOOGLE_CALENDAR_CLIENT_ID?.trim();
   const clientSecret = env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim();
   const refreshToken = env.GOOGLE_CALENDAR_REFRESH_TOKEN?.trim();
@@ -32,13 +29,12 @@ export function googleCalendarFromEnv(env = process.env) {
  * Poll the Owner's calendar and Nudge at Alert times. Runs alongside the local reminder
  * scheduler. Starts on socket open, stops on close; the immediate first tick catches up
  * Alert times that came due while the bot was down.
- * @param {{
- *   getSocket: () => import('../types.ts').MessageSender | null | undefined,
- *   getOwnerJid: () => string | null,
- *   logger?: Pick<import('../types.ts').Logger, 'info' | 'warn'>,
- * }} opts
  */
-export function startCalendarNudges(opts) {
+export function startCalendarNudges(opts: {
+    getSocket: () => MessageSender | null | undefined;
+    getOwnerJid: () => string | null;
+    logger?: Pick<Logger, 'info' | 'warn'>;
+  }) {
   const { getSocket, getOwnerJid, logger } = opts;
   stopCalendarNudges();
   if (truthyEnv(process.env.CALENDAR_NUDGES_DISABLE)) {

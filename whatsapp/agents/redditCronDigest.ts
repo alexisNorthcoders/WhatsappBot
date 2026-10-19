@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
 import { getRepoRoot } from '../repoRoot.ts';
+import type { MessageSender } from '../types.ts';
 
 const FILE = 'reddit-cron-digest-last-sent.json';
 const DEFAULT_STATUS_FILE =
@@ -11,44 +12,32 @@ const DEFAULT_POLL_MS = 60 * 1000;
 const DEFAULT_HOUR_UTC = 3;
 const DEFAULT_MINUTE_UTC = 0;
 
-let intervalId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
+let intervalId = null as ReturnType<typeof setInterval> | null;
 let inFlight = false;
 
-/**
- * @returns {string}
- */
-export function redditCronDigestLastSentPath() {
+export function redditCronDigestLastSentPath(): string {
   const fromEnv = process.env.REDDIT_CRON_DIGEST_LAST_SENT_FILE?.trim();
   if (fromEnv) return fromEnv;
   return join(getRepoRoot(), 'logs', 'claude-agent', FILE);
 }
 
-/**
- * @returns {string}
- */
-export function redditCronDigestStatusFilePath() {
+export function redditCronDigestStatusFilePath(): string {
   const fromEnv = process.env.REDDIT_BOT_STATUS_FILE?.trim();
   if (fromEnv) return fromEnv;
   return DEFAULT_STATUS_FILE;
 }
 
 /**
- * @param {number} [nowMs]
- * @returns {string} YYYY-MM-DD in UTC
+ * @returns YYYY-MM-DD in UTC
  */
-export function utcCalendarDay(nowMs = Date.now()) {
+export function utcCalendarDay(nowMs: number = Date.now()): string {
   return new Date(nowMs).toISOString().slice(0, 10);
 }
 
-/**
- * @param {number} mtimeMs
- * @param {number} [nowMs]
- * @param {number} [maxAgeMs]
- */
 export function isStatusFileFresh(
-  mtimeMs,
-  nowMs = Date.now(),
-  maxAgeMs = DEFAULT_MAX_AGE_MS
+  mtimeMs: number,
+  nowMs: number = Date.now(),
+  maxAgeMs: number = DEFAULT_MAX_AGE_MS
 ) {
   if (!Number.isFinite(mtimeMs) || !Number.isFinite(nowMs)) return false;
   const age = nowMs - mtimeMs;
@@ -59,10 +48,9 @@ export function isStatusFileFresh(
 
 /**
  * Parse digest header day from reddit-bot `cron_digest` output.
- * @param {string} text
- * @returns {string | null} YYYY-MM-DD
+ * @returns YYYY-MM-DD
  */
-export function parseDigestHeaderDay(text) {
+export function parseDigestHeaderDay(text: string): string | null {
   const m = String(text || '').match(
     /^reddit-bot cron\s+[—–-]\s+(\d{4}-\d{2}-\d{2})\b/m
   );
@@ -71,15 +59,14 @@ export function parseDigestHeaderDay(text) {
 
 /**
  * True when status file is fresh, non-empty, and stamped for the expected UTC digest day.
- * @param {{
- *   text: string,
- *   mtimeMs: number,
- *   nowMs?: number,
- *   maxAgeMs?: number,
- *   expectedDay: string,
- * }} opts
  */
-export function isDigestReadyForDay(opts) {
+export function isDigestReadyForDay(opts: {
+    text: string;
+    mtimeMs: number;
+    nowMs?: number;
+    maxAgeMs?: number;
+    expectedDay: string;
+  }) {
   const nowMs = opts.nowMs ?? Date.now();
   const maxAgeMs = Number.isFinite(opts.maxAgeMs)
     ? opts.maxAgeMs
@@ -91,11 +78,7 @@ export function isDigestReadyForDay(opts) {
   return headerDay === opts.expectedDay;
 }
 
-/**
- * @param {string} text
- * @param {number} [maxChars]
- */
-export function truncateDigestMessage(text, maxChars = DEFAULT_MSG_MAX) {
+export function truncateDigestMessage(text: string, maxChars: number = DEFAULT_MSG_MAX) {
   const t = String(text ?? '');
   if (t.length <= maxChars) return t;
   return `${t.slice(0, maxChars - 1).trimEnd()}…`;
@@ -103,16 +86,14 @@ export function truncateDigestMessage(text, maxChars = DEFAULT_MSG_MAX) {
 
 /**
  * Schedule gate only (UTC clock). Idempotency is handled via digest/alert state.
- * @param {{
- *   nowMs?: number,
- *   hourUtc?: number,
- *   minuteUtc?: number,
- *   lastSentYmd?: string | null,
- *   digestSentToday?: boolean,
- * }} opts
- * @returns {boolean}
  */
-export function shouldAttemptDigestSend(opts = {}) {
+export function shouldAttemptDigestSend(opts: {
+  nowMs?: number;
+  hourUtc?: number;
+  minuteUtc?: number;
+  lastSentYmd?: string | null;
+  digestSentToday?: boolean;
+} = {}): boolean {
   const nowMs = opts.nowMs ?? Date.now();
   const hourUtc = finiteOr(opts.hourUtc, DEFAULT_HOUR_UTC);
   const minuteUtc = finiteOr(opts.minuteUtc, DEFAULT_MINUTE_UTC);
@@ -126,14 +107,9 @@ export function shouldAttemptDigestSend(opts = {}) {
   return mins >= target;
 }
 
-/**
- * @typedef {{ day: string | null, digestSent: boolean, alertSent: boolean }} RedditCronDigestState
- */
+export type RedditCronDigestState = { day: string | null; digestSent: boolean; alertSent: boolean };
 
-/**
- * @returns {Promise<RedditCronDigestState>}
- */
-export async function readRedditCronDigestState() {
+export async function readRedditCronDigestState(): Promise<RedditCronDigestState> {
   const path = redditCronDigestLastSentPath();
   let raw;
   try {
@@ -162,18 +138,17 @@ export async function readRedditCronDigestState() {
 }
 
 /**
- * @returns {Promise<string | null>} UTC day of last successful *digest* send
+ * @returns UTC day of last successful *digest* send
  */
-export async function readRedditCronDigestLastSentDay() {
+export async function readRedditCronDigestLastSentDay(): Promise<string | null> {
   const state = await readRedditCronDigestState();
   return state.digestSent ? state.day : null;
 }
 
 /**
- * @param {string} day YYYY-MM-DD UTC
- * @param {{ digestSent?: boolean, alertSent?: boolean }} [flags]
+ * @param day YYYY-MM-DD UTC
  */
-export async function writeRedditCronDigestState(day, flags = {}) {
+export async function writeRedditCronDigestState(day: string, flags: { digestSent?: boolean; alertSent?: boolean } = {}) {
   if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     throw new TypeError(`invalid digest last-sent day: ${JSON.stringify(day)}`);
   }
@@ -210,18 +185,14 @@ export async function writeRedditCronDigestState(day, flags = {}) {
 }
 
 /**
- * @param {string} day YYYY-MM-DD UTC
+ * @param day YYYY-MM-DD UTC
  * @deprecated Prefer writeRedditCronDigestState(day, { digestSent: true })
  */
-export async function writeRedditCronDigestLastSentDay(day) {
+export async function writeRedditCronDigestLastSentDay(day: string) {
   await writeRedditCronDigestState(day, { digestSent: true });
 }
 
-/**
- * @param {string} [raw]
- * @returns {string | null}
- */
-function phoneToJid(raw) {
+function phoneToJid(raw?: string): string | null {
   const t = String(raw || '').trim();
   if (!t) return null;
   if (t.includes('@')) return t;
@@ -229,10 +200,7 @@ function phoneToJid(raw) {
   return d ? `${d}@s.whatsapp.net` : null;
 }
 
-/**
- * @param {unknown} err
- */
-function errMsg(err) {
+function errMsg(err: unknown) {
   if (err instanceof Error) return err.message;
   return String(err);
 }
@@ -242,27 +210,24 @@ function errMsg(err) {
  *
  * Missing/stale alerts do **not** lock the day: when a fresh, day-matching
  * status file appears later, the real digest is still sent once.
- *
- * @param {{
- *   getSocket?: () => import('../types.ts').MessageSender | null | undefined,
- *   getOwnerJid?: () => string | null | undefined,
- *   getSecondJid?: () => string | null | undefined,
- *   logger?: { info?: (o: object | string, msg?: string) => void, warn?: (o: object | string, msg?: string) => void },
- *   nowMs?: number,
- *   statusFilePath?: string,
- *   maxAgeMs?: number,
- *   hourUtc?: number,
- *   minuteUtc?: number,
- *   alsoSecondPhone?: boolean,
- *   readState?: typeof readRedditCronDigestState,
- *   writeState?: typeof writeRedditCronDigestState,
- *   readLastSentDay?: typeof readRedditCronDigestLastSentDay,
- *   writeLastSentDay?: typeof writeRedditCronDigestLastSentDay,
- *   readFile?: (path: string) => Promise<{ text: string, mtimeMs: number }>,
- * }} [deps]
- * @returns {Promise<{ sent: boolean, reason: string }>}
  */
-export async function runRedditCronDigestTick(deps = {}) {
+export async function runRedditCronDigestTick(deps: {
+  getSocket?: () => MessageSender | null | undefined;
+  getOwnerJid?: () => string | null | undefined;
+  getSecondJid?: () => string | null | undefined;
+  logger?: { info?: (o: object | string, msg?: string) => void; warn?: (o: object | string, msg?: string) => void };
+  nowMs?: number;
+  statusFilePath?: string;
+  maxAgeMs?: number;
+  hourUtc?: number;
+  minuteUtc?: number;
+  alsoSecondPhone?: boolean;
+  readState?: typeof readRedditCronDigestState;
+  writeState?: typeof writeRedditCronDigestState;
+  readLastSentDay?: typeof readRedditCronDigestLastSentDay;
+  writeLastSentDay?: typeof writeRedditCronDigestLastSentDay;
+  readFile?: (path: string) => Promise<{ text: string; mtimeMs: number }>;
+} = {}): Promise<{ sent: boolean; reason: string }> {
   const getSocket = deps.getSocket ?? (() => null);
   const getOwnerJid = deps.getOwnerJid ?? (() => null);
   const getSecondJid = deps.getSecondJid ?? (() => phoneToJid(process.env.SECOND_PHONE));
@@ -317,10 +282,8 @@ export async function runRedditCronDigestTick(deps = {}) {
     };
   }
 
-  /** @type {'digest' | 'alert' | 'wait'} */
-  let kind = 'wait';
-  /** @type {string} */
-  let message = '';
+  let kind: 'digest' | 'alert' | 'wait' = 'wait';
+  let message: string = '';
 
   try {
     const { text, mtimeMs } = await readFile(statusPath);
@@ -392,28 +355,17 @@ export async function runRedditCronDigestTick(deps = {}) {
   return { sent: true, reason: 'sent alert' };
 }
 
-/**
- * @param {number | undefined} n
- * @param {number} fallback
- */
-function finiteOr(n, fallback) {
+function finiteOr(n: number | undefined, fallback: number) {
   return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
 }
 
-/**
- * @param {string | undefined} raw
- * @param {number} fallback
- */
-function parseEnvInt(raw, fallback) {
+function parseEnvInt(raw: string | undefined, fallback: number) {
   if (raw == null || String(raw).trim() === '') return fallback;
   const n = parseInt(String(raw), 10);
   return Number.isFinite(n) ? n : fallback;
 }
 
-/**
- * @param {string | undefined} raw
- */
-function truthyEnv(raw) {
+function truthyEnv(raw: string | undefined) {
   const v = String(raw || '').toLowerCase();
   return v === '1' || v === 'true' || v === 'yes';
 }
@@ -422,14 +374,13 @@ function truthyEnv(raw) {
  * Daily sender after reddit-bot `cron_digest` writes the status file (~03:00 UTC).
  * Polls until a fresh, day-matching digest arrives; missing/stale alerts do not
  * suppress a later digest the same UTC day.
- * @param {{
- *   getSocket: () => import('../types.ts').MessageSender | null | undefined,
- *   getOwnerJid: () => string | null | undefined,
- *   logger: { info?: (o: object | string, msg?: string) => void, warn?: (o: object | string, msg?: string) => void },
- *   pollMs?: number,
- * }} opts
  */
-export function startRedditCronDigest(opts) {
+export function startRedditCronDigest(opts: {
+    getSocket: () => MessageSender | null | undefined;
+    getOwnerJid: () => string | null | undefined;
+    logger: { info?: (o: object | string, msg?: string) => void; warn?: (o: object | string, msg?: string) => void };
+    pollMs?: number;
+  }) {
   const { getSocket, getOwnerJid, logger } = opts;
   if (truthyEnv(process.env.REDDIT_CRON_DIGEST_DISABLE)) {
     logger?.info?.('reddit cron digest: disabled (REDDIT_CRON_DIGEST_DISABLE)');

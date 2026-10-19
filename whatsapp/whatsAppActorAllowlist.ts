@@ -9,12 +9,14 @@
  * connect (see resolveOwnerLids). Anything malformed or unresolved denies.
  */
 
+import type { WAMessage } from '@whiskeysockets/baileys';
+import type { Logger } from './types.ts';
+
 /**
  * User parts of owner @lid ids resolved from the LID mapping store, each mapped to the phone
  * digits it was resolved from; replaced on each v7 connect.
- * @type {Map<string, string>}
  */
-let ownerLidUsers = new Map();
+let ownerLidUsers: Map<string, string> = new Map();
 
 function digitsOnly(s) {
   return String(s ?? '').replace(/\D/g, '');
@@ -78,10 +80,8 @@ function allowedJidsExact() {
 
 /**
  * Who sent the message: in groups `remoteJid` is the group; use `participant`.
- * @param {import('@whiskeysockets/baileys').WAMessage | undefined} msg
- * @param {string} remoteJid
  */
-export function actorJid(msg, remoteJid) {
+export function actorJid(msg: WAMessage | undefined, remoteJid: string) {
   const p = msg?.key?.participant;
   if (p) return p;
   return remoteJid;
@@ -90,11 +90,9 @@ export function actorJid(msg, remoteJid) {
 /**
  * The sender's alternate id from the message key: `participantAlt` in groups, `remoteJidAlt`
  * in DMs. Baileys 7.x fills it with the PN JID when the primary id is a LID (and vice versa).
- * @param {import('@whiskeysockets/baileys').WAMessage} [msg]
- * @returns {string | null}
  */
-export function actorAltJid(msg) {
-  const key = /** @type {Record<string, unknown> | undefined} */ (msg?.key);
+export function actorAltJid(msg?: WAMessage): string | null {
+  const key = msg?.key as Record<string, unknown> | undefined;
   if (!key) return null;
   const { remoteJid, participant } = key;
   // A DM is decided by the chat id, not by `participant` (some DM keys carry it too). The
@@ -120,19 +118,18 @@ function matchesAllowedJid(jid) {
 }
 
 /**
- * @param {string | null | undefined} actorJid primary sender id
- * @param {string | null | undefined} [altJid] alternate sender id from the message key
+ * @param actorJid primary sender id
+ * @param [altJid] alternate sender id from the message key
  */
-export function isAllowedActor(actorJid, altJid) {
+export function isAllowedActor(actorJid: string | null | undefined, altJid?: string | null | undefined) {
   return matchesAllowedJid(actorJid) || matchesAllowedJid(altJid);
 }
 
 /**
  * Phone digits an actor id stands for: a phone JID's own, or those of the MY_PHONE /
  * SECOND_PHONE number a resolved owner LID maps from. '' when unknown.
- * @param {string | null | undefined} jid
  */
-function phoneDigitsOf(jid) {
+function phoneDigitsOf(jid: string | null | undefined) {
   return phoneDigitsFromPnJid(jid) || ownerLidUsers.get(lidUserPart(jid)) || '';
 }
 
@@ -140,11 +137,8 @@ function phoneDigitsOf(jid) {
  * SECOND_PHONE's phone JID when the actor is SECOND_PHONE (by phone JID, alternate id or a LID
  * resolved from it), else null. The owner (MY_PHONE, its LIDs, CLAUDE_AGENT_EXTRA_JIDS) and
  * strangers are null, as is SECOND_PHONE set to the owner's own number.
- * @param {string | null | undefined} actorJid
- * @param {string | null | undefined} [altJid]
- * @returns {string | null}
  */
-export function secondPhoneJid(actorJid, altJid) {
+export function secondPhoneJid(actorJid: string | null | undefined, altJid?: string | null | undefined): string | null {
   const second = digitsOnly(process.env.SECOND_PHONE);
   if (!second || second === digitsOnly(process.env.MY_PHONE)) return null;
   const isSecond = [actorJid, altJid].some((j) => j && phoneDigitsOf(j) === second);
@@ -156,10 +150,8 @@ export function secondPhoneJid(actorJid, altJid) {
  * (Baileys 7.x only; feature-detected). A lookup pass replaces any previously resolved set, so a
  * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
  * no-op, and any previously resolved set is kept.
- * @param {any} sock
- * @param {{ logger?: Pick<import('./types.ts').Logger, 'warn' | 'info'> }} [opts]
  */
-export async function resolveOwnerLids(sock, { logger } = {}) {
+export async function resolveOwnerLids(sock: any, { logger }: { logger?: Pick<Logger, 'warn' | 'info'> } = {}) {
   const lidMapping = sock?.signalRepository?.lidMapping;
   if (typeof lidMapping?.getLIDForPN !== 'function') return;
 

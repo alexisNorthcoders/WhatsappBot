@@ -27,24 +27,21 @@ const ENV_KEYS = ['MY_PHONE', 'SECOND_PHONE', 'CLAUDE_AGENT_EXTRA_JIDS'];
 
 const TEXT = 'Remind me in 30 minutes to feed the cat';
 const extractReminder = async () => ({
-  ok: /** @type {const} */ (true),
+  ok: (true as const),
   title: 'Feed the cat',
   start: '2026-10-17T14:30',
   allDay: false,
-  kind: /** @type {const} */ ('remind'),
+  kind: ('remind' as const),
 });
 
 describe('SECOND_PHONE manages Reminders and is Nudged for its own (#129)', () => {
   let saved;
-  /** @type {string} */
-  let dir;
-  /** @type {ReturnType<typeof createFakeCalendar>} */
-  let calendar;
-  /** @type {ReturnType<typeof createLastLists>} */
-  let lastLists;
+  let dir: string;
+  let calendar: ReturnType<typeof createFakeCalendar>;
+  let lastLists: ReturnType<typeof createLastLists>;
 
   /** The production wiring of the reminder agent's access and creator deps. */
-  const send = (/** @type {string} */ text, /** @type {object} */ m) =>
+  const send = (text: string,m: object) =>
     runReminderAgent(
       { text, chatId: SECOND, actorId: SECOND, ...m },
       {
@@ -59,8 +56,7 @@ describe('SECOND_PHONE manages Reminders and is Nudged for its own (#129)', () =
 
   /** Who is Nudged when the reminder comes due. */
   const nudgedChats = async () => {
-    /** @type {string[]} */
-    const chats = [];
+    const chats: string[] = [];
     await runNudgeTick({
       calendar,
       ownerChatId: OWNER,

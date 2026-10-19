@@ -6,11 +6,7 @@ export const HOME_AGENT_SKIP = 'SKIP';
 const KEYWORD_PATTERN =
   /\b(boiler|combi\s+boiler|immersion\s+heater|water\s+heater|thermostat|radiator|dishwasher|washing\s+machine|tumble\s+dryer|dryer|fridge|freezer|oven|hob|microwave|kettle|coffee\s+machine|extractor\s+fan|smoke\s+alarm|fuse\s+box|appliance|manual|instruction\s+manual|user\s+guide|warranty)\b|\bdescale\b/i;
 
-/**
- * @param {string} text
- * @returns {boolean}
- */
-export function shouldTryHomeAgent(text) {
+export function shouldTryHomeAgent(text: string): boolean {
   if (process.env.HOME_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -18,22 +14,16 @@ export function shouldTryHomeAgent(text) {
   return KEYWORD_PATTERN.test(trimmed);
 }
 
-/**
- * @param {string} answer
- * @returns {boolean}
- */
-function looksLikeUnknownAnswer(answer) {
+function looksLikeUnknownAnswer(answer: string): boolean {
   return /\b(i\s+)?don'?t\s+know\b|\bnot\s+sure\b|\bno\s+information\b|\bcould\s?n'?t\s+find\b/i.test(
     answer || '',
   );
 }
 
 /**
- * @param {string} userMessage
- * @param {{ askHomeManuals?: typeof askHomeManuals }} [deps]
- * @returns {Promise<string>} Final user-facing text, or HOME_AGENT_SKIP to fall through to other handlers.
+ * @returns Final user-facing text, or HOME_AGENT_SKIP to fall through to other handlers.
  */
-export async function runHomeAgent(userMessage, deps = {}) {
+export async function runHomeAgent(userMessage: string, deps: { askHomeManuals?: typeof askHomeManuals } = {}): Promise<string> {
   const ask = deps.askHomeManuals ?? askHomeManuals;
   const result = await ask(userMessage);
 
