@@ -37,19 +37,14 @@ const WINDOW_RE =
 const LIST_RE =
   /\b(?:list|show)\s+(?:my\s+)?(?:upcoming\s+)?reminders?\b|\bwhat(?:['’]?s)?\s+(?:are\s+|is\s+)?(?:my\s+)?(?:upcoming\s+)?reminders?\b|\bmy\s+(?:upcoming\s+)?reminders?\b|^(?:please\s+)?(?:upcoming\s+)?reminders?\s*[.!?]?\s*$/i;
 
-/**
- * @typedef {'today' | 'tomorrow' | 'thisWeek' | 'nextWeek' | 'upcoming'} ListWindow
- * @typedef {{ kind: 'create' }
- *   | { kind: 'help' }
- *   | { kind: 'cancel', n: number }
- *   | { kind: 'list', window: ListWindow }} ReminderIntent
- */
+export type ListWindow = 'today' | 'tomorrow' | 'thisWeek' | 'nextWeek' | 'upcoming';
 
-/**
- * @param {string} text
- * @returns {ReminderIntent | null}
- */
-export function classifyReminderIntent(text) {
+export type ReminderIntent = { kind: 'create' } |
+{ kind: 'help' } |
+{ kind: 'cancel'; n: number } |
+{ kind: 'list'; window: ListWindow };
+
+export function classifyReminderIntent(text: string): ReminderIntent | null {
   if (!text || typeof text !== 'string') return null;
   const t = text.trim();
   if (!t) return null;
@@ -60,8 +55,7 @@ export function classifyReminderIntent(text) {
   const win = t.match(WINDOW_RE);
   if (win) {
     const w = win[1].toLowerCase().replace(/\s+/g, ' ');
-    /** @type {Record<string, ListWindow>} */
-    const map = { today: 'today', tonight: 'today', tomorrow: 'tomorrow', 'this week': 'thisWeek', 'next week': 'nextWeek' };
+    const map: Record<string, ListWindow> = { today: 'today', tonight: 'today', tomorrow: 'tomorrow', 'this week': 'thisWeek', 'next week': 'nextWeek' };
     return { kind: 'list', window: map[w] };
   }
   if (LIST_RE.test(t)) return { kind: 'list', window: 'upcoming' };

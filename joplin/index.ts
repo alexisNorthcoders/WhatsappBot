@@ -138,12 +138,7 @@ class JoplinAPI {
         }
     }
 
-    /**
-     * @param {string} title
-     * @param {string} body
-     * @param {string | null} [parentId]
-     */
-    async createNote(title, body, parentId = null) {
+    async createNote(title: string, body: string, parentId: string | null = null) {
         try {
             // Ensure CLI is configured
             await this.configureCli();

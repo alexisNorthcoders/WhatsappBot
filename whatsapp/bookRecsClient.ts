@@ -4,22 +4,17 @@
  * a trusted local service (BOOK_RECS_URL), so the public-URL SSRF guard does not apply.
  */
 
+import type { FetchLike } from './types.ts';
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
- * @param {string} question
- * @param {object} [opts]
- * @param {string} [opts.baseUrl] Defaults to process.env.BOOK_RECS_URL
- * @param {import('./types.ts').FetchLike} [opts.fetchImpl]
- * @param {number} [opts.timeoutMs]
- * @returns {Promise<
- *   | { ok: true, kind: string, answer: string, sources: Array<object|string> }
- *   | { ok: false, reason: 'not_configured' }
- *   | { ok: false, reason: 'timeout', error: Error }
- *   | { ok: false, reason: 'error', error: Error }
- * >}
+ * @param [opts.baseUrl] Defaults to process.env.BOOK_RECS_URL
  */
-export async function askBookRecs(question, opts = {}) {
+export async function askBookRecs(question: string, opts: { baseUrl?: string; fetchImpl?: FetchLike; timeoutMs?: number } = {}): Promise<{ ok: true; kind: string; answer: string; sources: Array<object | string> } |
+{ ok: false; reason: 'not_configured' } |
+{ ok: false; reason: 'timeout'; error: Error } |
+{ ok: false; reason: 'error'; error: Error }> {
   const baseUrl = opts.baseUrl ?? process.env.BOOK_RECS_URL;
   if (!baseUrl || !baseUrl.trim()) {
     return { ok: false, reason: 'not_configured' };

@@ -6,38 +6,32 @@ import { getRepoRoot } from '../repoRoot.ts';
  * The nudged log: the only local Reminder state (ADR 0002). One entry per
  * (event id, occurrence start, alert offset) that has been Nudged, kept until the occurrence
  * ends. Entries are written before sending, so a crash mid-send never re-sends.
- *
- * @typedef {{ endMs: number }} NudgedEntry
- * @typedef {{ version: 1, entries: Record<string, NudgedEntry> }} NudgedLogData
  */
+export type NudgedEntry = { endMs: number };
 
-/** @returns {string} */
-export function nudgedLogPath() {
+export type NudgedLogData = { version: 1; entries: Record<string, NudgedEntry> };
+
+export function nudgedLogPath(): string {
   const fromEnv = process.env.CALENDAR_NUDGED_LOG_FILE?.trim();
   if (fromEnv) return fromEnv;
   return join(getRepoRoot(), 'logs', 'reminders', 'nudged.json');
 }
 
 /**
- * @param {string} eventId
- * @param {number} startMs occurrence start
- * @param {number | string} offset alert offset, minutes before start (or a label for a
+ * @param startMs occurrence start
+ * @param offset alert offset, minutes before start (or a label for a
  *   fixed-time all-day Nudge)
  */
-export function nudgeKey(eventId, startMs, offset) {
+export function nudgeKey(eventId: string, startMs: number, offset: number | string) {
   return `${eventId}|${new Date(startMs).toISOString()}|${offset}`;
 }
 
-/**
- * @param {string} filePath
- * @returns {Promise<NudgedLogData>}
- */
-export async function readNudgedLog(filePath) {
+export async function readNudgedLog(filePath: string): Promise<NudgedLogData> {
   let raw;
   try {
     raw = await fs.readFile(filePath, 'utf8');
   } catch (e) {
-    if (/** @type {NodeJS.ErrnoException} */ (e).code === 'ENOENT') {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
       return { version: 1, entries: {} };
     }
     throw e;
@@ -50,10 +44,8 @@ export async function readNudgedLog(filePath) {
 
 /**
  * Atomic write (tmp + rename) so a crash never leaves a half-written log.
- * @param {string} filePath
- * @param {NudgedLogData} data
  */
-export async function writeNudgedLog(filePath, data) {
+export async function writeNudgedLog(filePath: string, data: NudgedLogData) {
   await fs.mkdir(dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
@@ -62,11 +54,9 @@ export async function writeNudgedLog(filePath, data) {
 
 /**
  * Drop entries whose occurrence has ended.
- * @param {NudgedLogData} data
- * @param {number} nowMs
- * @returns {number} entries removed
+ * @returns entries removed
  */
-export function pruneEndedNudges(data, nowMs) {
+export function pruneEndedNudges(data: NudgedLogData, nowMs: number): number {
   let removed = 0;
   for (const [key, entry] of Object.entries(data.entries)) {
     if (!(entry?.endMs > nowMs)) {

@@ -3,8 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Light cache to store lights in memory
-/** @type {{ lights: { id: string, name: string, room: string, state: string, type: string, modelid: string }[], lastUpdated: Date | null, isUpdating: boolean }} */
-let lightCache = {
+let lightCache: { lights: { id: string; name: string; room: string; state: string; type: string; modelid: string }[]; lastUpdated: Date | null; isUpdating: boolean } = {
   lights: [],
   lastUpdated: null,
   isUpdating: false

@@ -5,33 +5,30 @@
  * Times are wall-clock times in the calendar's timezone, without an offset, so the model never
  * does timezone arithmetic: `start`/`end` are `YYYY-MM-DDTHH:MM` for timed Reminders and
  * `YYYY-MM-DD` for all-day ones (an all-day `end` is the last day, inclusive).
- *
- * @typedef {{
- *   ok: true,
- *   title: string,
- *   start: string,
- *   end?: string,
- *   allDay: boolean,
- *   alertOffsetsMin?: number[],
- *   kind: 'remind' | 'appointment',
- * }} ReminderFields
- *
- * @typedef {ReminderFields
- *   | { ok: false, question: string }
- *   | { ok: false, notReminder: true }} ReminderExtraction
- *
- * @typedef {(input: { text: string, nowMs: number, timeZone: string }) => Promise<ReminderExtraction>} ExtractReminder
  */
+export type ReminderFields = {
+  ok: true;
+  title: string;
+  start: string;
+  end?: string;
+  allDay: boolean;
+  alertOffsetsMin?: number[];
+  kind: 'remind' | 'appointment';
+};
+
+export type ReminderExtraction = ReminderFields |
+{ ok: false; question: string } |
+{ ok: false; notReminder: true };
+
+export type ExtractReminder = (input: { text: string; nowMs: number; timeZone: string }) => Promise<ReminderExtraction>;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
 /**
  * `now` as the calendar's wall clock, e.g. `Sat 2026-10-17 14:05`.
- * @param {number} nowMs
- * @param {string} timeZone
  */
-export function localNow(nowMs, timeZone) {
+export function localNow(nowMs: number, timeZone: string) {
   const p = Object.fromEntries(
     new Intl.DateTimeFormat('en-GB', {
       timeZone,
@@ -49,10 +46,7 @@ export function localNow(nowMs, timeZone) {
   return `${p.weekday} ${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }
 
-/**
- * @param {{ text: string, nowMs: number, timeZone: string }} input
- */
-export function buildExtractionPrompt({ text, nowMs, timeZone }) {
+export function buildExtractionPrompt({ text, nowMs, timeZone }: { text: string; nowMs: number; timeZone: string }) {
   return `You turn a WhatsApp message into a calendar Reminder. Reply with one JSON object only, no prose.
 
 Now: ${localNow(nowMs, timeZone)} (timezone ${timeZone}). Give every time as wall-clock time in that timezone.
@@ -79,18 +73,15 @@ Message: ${JSON.stringify(text)}`;
 /**
  * Validate the model's reply. Anything malformed becomes a clarifying question, so a bad reply
  * never creates an event.
- * @param {string} raw
- * @returns {ReminderExtraction}
  */
-export function parseExtraction(raw) {
+export function parseExtraction(raw: string): ReminderExtraction {
   const fallback = {
-    ok: /** @type {const} */ (false),
+    ok: (false as const),
     question: 'Sorry, I could not work out when that is. What date and time should I use?',
   };
   const match = String(raw ?? '').match(/\{[\s\S]*\}/);
   if (!match) return fallback;
-  /** @type {any} */
-  let j;
+  let j: any;
   try {
     j = JSON.parse(match[0]);
   } catch {
@@ -105,8 +96,7 @@ export function parseExtraction(raw) {
   const title = typeof j?.title === 'string' ? j.title.trim() : '';
   if (!title || typeof j?.start !== 'string' || !shape.test(j.start)) return fallback;
   if (j.end != null && (typeof j.end !== 'string' || !shape.test(j.end))) return fallback;
-  /** @type {ReminderFields} */
-  const fields = {
+  const fields: ReminderFields = {
     ok: true,
     title,
     start: j.start,
@@ -123,9 +113,7 @@ export function parseExtraction(raw) {
 
 /**
  * LLM-backed {@link ExtractReminder}.
- * @param {{ complete: (prompt: string) => Promise<string> }} deps
- * @returns {ExtractReminder}
  */
-export function createLlmReminderExtractor({ complete }) {
+export function createLlmReminderExtractor({ complete }: { complete: (prompt: string) => Promise<string> }): ExtractReminder {
   return async (input) => parseExtraction(await complete(buildExtractionPrompt(input)));
 }

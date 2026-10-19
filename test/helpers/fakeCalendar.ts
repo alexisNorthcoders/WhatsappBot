@@ -4,16 +4,13 @@
  * expanded occurrences, like the Google adapter returns them.
  */
 
-/** @typedef {import('../../whatsapp/calendar/calendarPort.ts').CalendarEvent} CalendarEvent */
+import type { CalendarEvent, NewCalendarEvent } from '../../whatsapp/calendar/calendarPort.ts';
+
 
 const MIN = 60_000;
 
-/**
- * @param {{ timeZone?: string, defaultOffsetsMin?: number[] }} [settings]
- */
-export function createFakeCalendar(settings = {}) {
-  /** @type {Map<string, CalendarEvent>} */
-  const events = new Map();
+export function createFakeCalendar(settings: { timeZone?: string; defaultOffsetsMin?: number[] } = {}) {
+  const events: Map<string, CalendarEvent> = new Map();
   let nextId = 1;
   const state = {
     timeZone: settings.timeZone ?? 'Europe/London',
@@ -23,10 +20,8 @@ export function createFakeCalendar(settings = {}) {
   /**
    * All-day events may be seeded by `startDate` (and optional exclusive `endDate`, default the
    * next day); `startMs`/`endMs` become those dates' UTC midnights, like the Google adapter.
-   * @param {Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })} partial
-   * @returns {CalendarEvent}
    */
-  function build(partial) {
+  function build(partial: Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })): CalendarEvent {
     if (partial.startMs === undefined && partial.startDate) {
       const startMs = Date.parse(`${partial.startDate}T00:00:00Z`);
       const endDate =
@@ -39,7 +34,7 @@ export function createFakeCalendar(settings = {}) {
         endMs: Date.parse(`${endDate}T00:00:00Z`),
       };
     }
-    const startMs = /** @type {number} */ (partial.startMs);
+    const startMs = (partial.startMs as number);
     const id = partial.id ?? `evt${nextId++}`;
     return {
       id,
@@ -59,35 +54,31 @@ export function createFakeCalendar(settings = {}) {
   }
 
   return {
-    /** @param {Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })} partial */
-    seed(partial) {
+    seed(partial: Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })) {
       const evt = build(partial);
       events.set(evt.id, evt);
       return evt;
     },
-    /** @param {string} id @param {number} startMs @param {number} [endMs] */
-    move(id, startMs, endMs) {
+    /** @param id @param startMs @param [endMs] */
+    move(id: string, startMs: number, endMs: number) {
       const evt = events.get(id);
       if (!evt) throw new Error(`no event ${id}`);
       const length = evt.endMs - evt.startMs;
       events.set(id, { ...evt, startMs, endMs: endMs ?? startMs + length });
     },
-    /** @param {string} id */
-    remove(id) {
+    remove(id: string) {
       events.delete(id);
     },
     all() {
       return [...events.values()];
     },
-    /** @param {{ timeMinMs: number, timeMaxMs: number }} window */
-    async listEvents({ timeMinMs, timeMaxMs }) {
+    async listEvents({ timeMinMs, timeMaxMs }: { timeMinMs: number; timeMaxMs: number }) {
       return [...events.values()]
         .filter((e) => e.endMs > timeMinMs && e.startMs < timeMaxMs)
         .sort((a, b) => a.startMs - b.startMs)
         .map((e) => ({ ...e }));
     },
-    /** @param {import('../../whatsapp/calendar/calendarPort.ts').NewCalendarEvent} input */
-    async createEvent(input) {
+    async createEvent(input: NewCalendarEvent) {
       const startMs = input.startMs ?? Date.parse(`${input.startDate}T00:00:00Z`);
       const evt = build({
         ...input,
@@ -99,8 +90,7 @@ export function createFakeCalendar(settings = {}) {
       events.set(evt.id, evt);
       return { ...evt };
     },
-    /** @param {string} id */
-    async deleteEvent(id) {
+    async deleteEvent(id: string) {
       events.delete(id);
     },
     async getSettings() {

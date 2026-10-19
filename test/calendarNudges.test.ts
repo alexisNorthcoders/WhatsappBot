@@ -12,14 +12,10 @@ const OWNER = '447700900001@s.whatsapp.net';
 const T0 = Date.parse('2026-10-19T08:00:00Z');
 
 describe('calendar nudge tick', () => {
-  /** @type {string} */
-  let dir;
-  /** @type {string} */
-  let logPath;
-  /** @type {{ chatId: string, text: string }[]} */
-  let sent;
-  /** @type {ReturnType<typeof createFakeCalendar>} */
-  let calendar;
+  let dir: string;
+  let logPath: string;
+  let sent: { chatId: string; text: string }[];
+  let calendar: ReturnType<typeof createFakeCalendar>;
   let now = T0;
 
   const tick = (overrides = {}) =>
@@ -34,7 +30,7 @@ describe('calendar nudge tick', () => {
       ...overrides,
     });
   /** Advance the clock, running a tick every minute (like the poller would). */
-  const advance = async (/** @type {number} */ ms) => {
+  const advance = async (ms: number) => {
     const end = now + ms;
     while (now < end) {
       now = Math.min(end, now + MIN);
@@ -217,7 +213,7 @@ describe('calendar nudge tick', () => {
     const SECOND = '447700900002@s.whatsapp.net';
     const SECOND_LID = '222222222222222@lid';
     /** Stand-in for the allowlist: SECOND_PHONE's chat for its own ids, else null. */
-    const creatorChatId = (/** @type {string} */ id) => (id === SECOND || id === SECOND_LID ? SECOND : null);
+    const creatorChatId = (id: string) => (id === SECOND || id === SECOND_LID ? SECOND : null);
     const tickWithCreators = () => tick({ creatorChatId });
 
     it('Nudges both the owner and SECOND_PHONE at each Alert time', async () => {
@@ -367,7 +363,7 @@ describe('calendar nudge tick', () => {
       calendar.seed({ title: 'Soon', startMs: T0 + 70 * MIN });
       calendar.seed({ title: "Mum's birthday", startDate: '2026-10-19' });
       const listEvents = calendar.listEvents;
-      const down = { ...calendar, listEvents: async () => { throw new Error('Google 503'); } };
+      const down = { ...calendar, listEvents: async () => { throw new Error('Google 503') } };
       for (; now < T0 + 65 * MIN; now += MIN) {
         await assert.rejects(tick({ calendar: down }));
       }
