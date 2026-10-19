@@ -19,7 +19,7 @@ const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDep
 /**
  * Wrap test-only `{ botFetch?, deepInfraAPI?, logger? }`. Production passes the raw Baileys
  * message as the 4th argument; it must not be mistaken for injected deps.
- * @param {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: { info: Function } }} partial
+ * @param {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.js').Logger, 'info'> }} partial
  */
 export function summarizeInjectedDeps(partial) {
   return { [summarizeInjectedDepsBrand]: true, ...partial };
@@ -39,7 +39,7 @@ function resolveSummarizeDeps(fourthArg) {
     const { [summarizeInjectedDepsBrand]: _b, ...rest } = /** @type {Record<symbol | string, unknown>} */ (
       fourthArg
     );
-    return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: { info: Function } }} */ (
+    return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.js').Logger, 'info'> }} */ (
       rest
     );
   }
@@ -103,7 +103,7 @@ function buildSummaryPrompt(extractedText, extra) {
 }
 
 /**
- * @param {import('@whiskeysockets/baileys').WASocket} sock
+ * @param {import('../types.js').MessageSender} sock
  * @param {string} sender
  * @param {string} text full message
  * @param {unknown} [fourthArg] raw Baileys message in production, or {@link summarizeInjectedDeps} in tests

@@ -102,7 +102,7 @@ export function buildBotFetchRequestInit(opts = {}) {
   const accept = opts.accept ?? DEFAULT_BOT_FETCH_ACCEPT;
   const headers = { Accept: accept, 'User-Agent': ua, ...opts.headers };
   return {
-    redirect: 'manual',
+    redirect: /** @type {const} */ ('manual'),
     signal: buildBotFetchSignal(timeoutMs, opts.signal),
     headers,
     [kBotFetchTimeoutMs]: timeoutMs,
@@ -121,8 +121,9 @@ function isBlockedIPAddressLiteral(host) {
     if (addr.kind() === 'ipv4') {
       return addr.range() !== 'unicast';
     }
-    if (addr.isIPv4MappedAddress()) {
-      return isBlockedIPAddressLiteral(addr.toIPv4Address().toString());
+    const v6 = /** @type {import('ipaddr.js').IPv6} */ (addr);
+    if (v6.isIPv4MappedAddress()) {
+      return isBlockedIPAddressLiteral(v6.toIPv4Address().toString());
     }
     // ipaddr.js may classify some special IPv6 ranges as "unicast" even though they
     // should not be fetchable (e.g. documentation/site-local). Block those explicitly.
@@ -155,7 +156,7 @@ function cloneRequestInitForHop(baseInit) {
   } = baseInit;
   return {
     ...rest,
-    redirect: 'manual',
+    redirect: /** @type {const} */ ('manual'),
     signal: buildBotFetchSignal(timeoutMs, userSignal),
   };
 }

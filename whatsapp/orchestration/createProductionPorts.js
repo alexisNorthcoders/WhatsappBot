@@ -37,8 +37,8 @@ const reminderLastLists = createLastLists();
  * @param {object} deps
  * @param {import('@whiskeysockets/baileys').WASocket} deps.sock
  * @param {typeof import('@whiskeysockets/baileys').downloadMediaMessage} deps.downloadMediaMessage
- * @param {{ info: Function; warn: Function; error: Function }} deps.logger
- * @param {Record<string, unknown>} deps.commands
+ * @param {import('../types.js').Logger} deps.logger
+ * @param {Record<string, (sock: import('@whiskeysockets/baileys').WASocket, chatId: string, text?: string, raw?: import('@whiskeysockets/baileys').WAMessage) => Promise<unknown>>} deps.commands
  * @param {string | undefined} deps.secondPhone
  * @param {(actorId: string | null, actorAltId?: string | null) => boolean} deps.isAllowedActor
  * @param {object} deps.agentRunner the orchestrator's `agentRunner` port

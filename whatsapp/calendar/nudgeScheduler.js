@@ -33,7 +33,7 @@ export function googleCalendarFromEnv(env = process.env) {
  * scheduler. Starts on socket open, stops on close; the immediate first tick catches up
  * Alert times that came due while the bot was down.
  * @param {{
- *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
+ *   getSocket: () => import('../types.js').MessageSender | null | undefined,
  *   getOwnerJid: () => string | null,
  *   logger?: { info?: Function, warn?: Function },
  * }} opts

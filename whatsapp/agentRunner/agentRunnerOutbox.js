@@ -27,7 +27,7 @@ const FIRST_LINE_MAX = 120;
  *   store: OutboxStore,
  *   sendText: (chatId: string, text: string) => Promise<void>,
  *   getOwnerJid: () => string | null,
- *   logger: { info: Function, warn: Function, error: Function },
+ *   logger: import('../types.js').Logger,
  * }} deps
  */
 export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
@@ -65,6 +65,7 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
     if (!entries.length) return;
 
     /** @type {Map<string, string[]>} */
+    /** @type {Map<string, string[]>} */
     const byRecipient = new Map();
     for (const { id, fields } of entries) {
       const to = recipientOf(fields.replyTo);
@@ -72,8 +73,9 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
         logger.warn({ id, replyTo: fields.replyTo }, 'agent-runner: outbox entry has no resolvable recipient, dropped');
         continue;
       }
-      if (!byRecipient.has(to)) byRecipient.set(to, []);
-      byRecipient.get(to).push(fields.text ?? '');
+      let texts = byRecipient.get(to);
+      if (!texts) byRecipient.set(to, (texts = []));
+      texts.push(fields.text ?? '');
     }
     for (const [to, texts] of byRecipient) {
       await sendText(to, texts.join('\n\n'));

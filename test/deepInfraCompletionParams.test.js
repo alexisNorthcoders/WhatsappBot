@@ -22,13 +22,13 @@ describe('buildDeepInfraCompletionCreateArgs', () => {
     assert.ok(!('temperature' in n));
   });
 
-  it('includes AbortSignal when passed in options', () => {
+  it('keeps the AbortSignal out of the request body', () => {
     const ac = new AbortController();
     const body = buildDeepInfraCompletionCreateArgs('x', DEEPINFRA_DEFAULT_CHAT_MODEL, {
       signal: ac.signal,
       temperature: 0,
     });
-    assert.equal(body.signal, ac.signal);
+    assert.ok(!('signal' in body));
     assert.equal(body.temperature, 0);
   });
 });

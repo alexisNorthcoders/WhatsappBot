@@ -6,7 +6,7 @@ import { createMessageOrchestrator } from './createMessageOrchestrator.js';
  * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.js)
  * are dropped silently: no read receipt, no reply, so another bot can't start a reply loop.
  * @param {object} opts
- * @param {import('@whiskeysockets/baileys').WASocket} opts.sock
+ * @param {import('../types.js').MessageSender} opts.sock
  * @param {() => object} opts.createPorts factory returning full orchestrator ports
  * @param {Record<string, unknown>} opts.commands registry object (for error context only)
  */
@@ -27,11 +27,11 @@ export function createBaileysMessageHandler(opts) {
 
       const inbound = normalizeBaileysMessage(msg);
       if (!ports.access.isAllowedActor(inbound.actorId, inbound.actorAltId)) {
-        ports.logger.info('Ignoring message from non-owner sender', {
+        ports.logger.info({
           messageId: msg.key.id,
           sender: inbound.actorId,
           senderAlt: inbound.actorAltId,
-        });
+        }, 'Ignoring message from non-owner sender');
         return;
       }
 
@@ -56,7 +56,7 @@ export function createBaileysMessageHandler(opts) {
 
         await handleInbound(inbound);
       } catch (err) {
-        ports.logger.error('❌ Error processing message:', {
+        ports.logger.error({
           error: err.message,
           stack: err.stack,
           messageId: msg.key.id,
@@ -68,20 +68,20 @@ export function createBaileysMessageHandler(opts) {
             isImage: !!msg.message.imageMessage,
             isCommand: !!commands[command],
           },
-        });
+        }, '❌ Error processing message');
 
         try {
           const errorMessage = err.message.includes('network')
             ? 'Sorry, there seems to be a connection issue. Please try again in a moment.'
             : 'Sorry, there was an error processing your message. Please try again.';
 
-          await sock.sendMessage(msg.key.remoteJid, { text: errorMessage });
+          await sock.sendMessage(inbound.chatId, { text: errorMessage });
         } catch (notifyErr) {
-          ports.logger.error('Failed to send error notification:', {
+          ports.logger.error({
             error: notifyErr.message,
             originalError: err.message,
             sender: msg.key.remoteJid,
-          });
+          }, 'Failed to send error notification');
         }
       }
     },

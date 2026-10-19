@@ -7,21 +7,12 @@ import {
   BOOK_RECS_UNAVAILABLE,
 } from '../whatsapp/agents/bookAgent.js';
 import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
+import { fakeInbound } from './helpers/fakeInbound.js';
 
 const OWNER = '111@s.whatsapp.net';
 const STRANGER = '999@s.whatsapp.net';
 
-function fakeInbound(text, actorId = OWNER) {
-  return {
-    id: '1',
-    chatId: actorId,
-    actorId,
-    actorAltId: null,
-    text,
-    features: { hasImage: false },
-    raw: { key: { remoteJid: actorId, id: '1', fromMe: false }, message: { conversation: text } },
-  };
-}
+const inbound = (text, actorId = OWNER) => fakeInbound({ text, chatId: actorId, actorId });
 
 const isAllowedActor = (actorId) => actorId === OWNER;
 
@@ -85,34 +76,34 @@ describe('runBookAgent', () => {
   it("sends the owner's question and returns the service's answer as is", async () => {
     const answer = '*The Black Company* — Glen Cook\n_grimdark, mercenaries_';
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer, sources: [] });
-    const reply = await runBookAgent(fakeInbound('something like Mistborn but darker'), { askBookRecs, isAllowedActor });
+    const reply = await runBookAgent(inbound('something like Mistborn but darker'), { askBookRecs, isAllowedActor });
     assert.equal(reply, answer);
     assert.deepEqual(askBookRecs.calls, ['something like Mistborn but darker']);
   });
 
   it('skips when the service says not_a_request', async () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'not_a_request', answer: '', sources: [] });
-    const reply = await runBookAgent(fakeInbound('finished my book today'), { askBookRecs, isAllowedActor });
+    const reply = await runBookAgent(inbound('finished my book today'), { askBookRecs, isAllowedActor });
     assert.equal(reply, BOOK_AGENT_SKIP);
   });
 
   it('never calls the service for a non-owner', async () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: 'x', sources: [] });
-    const reply = await runBookAgent(fakeInbound('recommend a book', STRANGER), { askBookRecs, isAllowedActor });
+    const reply = await runBookAgent(inbound('recommend a book', STRANGER), { askBookRecs, isAllowedActor });
     assert.equal(reply, BOOK_AGENT_SKIP);
     assert.equal(askBookRecs.calls.length, 0);
   });
 
   it('denies when no isAllowedActor is given', async () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: 'x', sources: [] });
-    const reply = await runBookAgent(fakeInbound('recommend a book'), { askBookRecs });
+    const reply = await runBookAgent(inbound('recommend a book'), { askBookRecs });
     assert.equal(reply, BOOK_AGENT_SKIP);
     assert.equal(askBookRecs.calls.length, 0);
   });
 
   it('skips silently when not configured', async () => {
     const askBookRecs = fakeAsk({ ok: false, reason: 'not_configured' });
-    const reply = await runBookAgent(fakeInbound('recommend a book'), { askBookRecs, isAllowedActor });
+    const reply = await runBookAgent(inbound('recommend a book'), { askBookRecs, isAllowedActor });
     assert.equal(reply, BOOK_AGENT_SKIP);
   });
 
@@ -121,14 +112,14 @@ describe('runBookAgent', () => {
       { ok: false, reason: 'error', error: new Error('ECONNREFUSED') },
       { ok: false, reason: 'timeout', error: new Error('The operation was aborted due to timeout') },
     ]) {
-      const reply = await runBookAgent(fakeInbound('recommend a book'), { askBookRecs: fakeAsk(result), isAllowedActor });
+      const reply = await runBookAgent(inbound('recommend a book'), { askBookRecs: fakeAsk(result), isAllowedActor });
       assert.equal(reply, BOOK_RECS_UNAVAILABLE, result.reason);
     }
   });
 
   it('replies "unavailable" when the service answers with an empty answer', async () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: '  ', sources: [] });
-    const reply = await runBookAgent(fakeInbound('recommend a book'), { askBookRecs, isAllowedActor });
+    const reply = await runBookAgent(inbound('recommend a book'), { askBookRecs, isAllowedActor });
     assert.equal(reply, BOOK_RECS_UNAVAILABLE);
   });
 });
@@ -160,7 +151,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
     const sent = [];
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: 'Try *Prince of Thorns*.', sources: [] });
     const r = await runAgentsChainSequential(
-      fakeInbound('something like Mistborn but darker'),
+      inbound('something like Mistborn but darker'),
       chainDeps({
         messaging: { sendText: async (chatId, text) => sent.push({ chatId, text }) },
         shouldTryBookAgent,
@@ -176,7 +167,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
     const sent = [];
     const askBookRecs = fakeAsk({ ok: true, kind: 'not_a_request', answer: '', sources: [] });
     const r = await runAgentsChainSequential(
-      fakeInbound('finished my book today'),
+      inbound('finished my book today'),
       chainDeps({
         messaging: { sendText: async (chatId, text) => sent.push(text) },
         shouldTryBookAgent,
@@ -193,7 +184,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: 'Read *Dune*.', sources: [] });
     const sent = [];
     const r = await runAgentsChainSequential(
-      fakeInbound('what next after the Expanse'),
+      inbound('what next after the Expanse'),
       chainDeps({
         messaging: { sendText: async (chatId, text) => sent.push(text) },
         routeIntent: async () => ({ agent: 'books', probability: 0.9, answers: {} }),
@@ -209,7 +200,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
   it('a Jev "books" route that the service rejects is left for chat', async () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'not_a_request', answer: '', sources: [] });
     const r = await runAgentsChainSequential(
-      fakeInbound('finished my book today'),
+      inbound('finished my book today'),
       chainDeps({
         routeIntent: async () => ({ agent: 'books', probability: 0.8, answers: {} }),
         shouldTryBookAgent,
@@ -223,7 +214,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
   it('the chain gates non-owners before the agent runs', async () => {
     let ran = false;
     const r = await runAgentsChainSequential(
-      fakeInbound('recommend a book', STRANGER),
+      inbound('recommend a book', STRANGER),
       chainDeps({
         shouldTryBookAgent,
         runBookAgent: async () => {
@@ -240,7 +231,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
   it('without isAllowedActor the book agent is not registered', async () => {
     let ran = false;
     const r = await runAgentsChainSequential(
-      fakeInbound('recommend a book'),
+      inbound('recommend a book'),
       chainDeps({
         isAllowedActor: undefined,
         routeIntent: async () => ({ agent: 'books', probability: 0.9, answers: {} }),

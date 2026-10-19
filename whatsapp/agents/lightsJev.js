@@ -98,7 +98,7 @@ export function lightsJevQuestions(lights = getCachedLights()) {
  * @param {Array<{ id: string; name: string; room: string; state: string }>} [deps.lights]
  * @param {{ switchLight: Function; switchOffAllLights: Function; setLightBrightness: Function; setLightColor: Function; setLightColorTemperature: Function }} [deps.hue]
  * @param {number} [deps.minProbability] every answer used must reach this, else null
- * @param {{ info: Function }} [deps.logger]
+ * @param {Pick<import('../types.js').Logger, 'info'>} [deps.logger]
  * @param {typeof logAgentInvocation} [deps.logUsage]
  * @returns {Promise<string | null>} the reply, or null to hand over to the GPT lights agent
  */

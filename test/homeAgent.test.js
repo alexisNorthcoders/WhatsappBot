@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../whatsapp/agents/homeAgent.js';
 import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
+import { fakeInbound } from './helpers/fakeInbound.js';
 
 describe('shouldTryHomeAgent', () => {
   it('matches natural-language home questions from the issue examples', () => {
@@ -65,18 +66,6 @@ describe('runHomeAgent', () => {
   });
 });
 
-function fakeInbound(text) {
-  return {
-    id: '1',
-    chatId: '111@s.whatsapp.net',
-    actorId: '111@s.whatsapp.net',
-    fromMe: false,
-    text,
-    features: { hasImage: false },
-    raw: { key: { remoteJid: '111@s.whatsapp.net', id: '1', fromMe: false }, message: { conversation: text } },
-  };
-}
-
 function noopLogger() {
   return { info() {}, warn() {}, error() {} };
 }
@@ -84,7 +73,7 @@ function noopLogger() {
 describe('runAgentsChainSequential home agent wiring', () => {
   it('a natural-language home question reaches homeAgent and its reply is sent', async () => {
     const log = [];
-    const r = await runAgentsChainSequential(fakeInbound('what boiler do we have?'), {
+    const r = await runAgentsChainSequential(fakeInbound({ text: 'what boiler do we have?' }), {
       logger: noopLogger(),
       messaging: { sendText: async (chatId, text) => log.push({ chatId, text }) },
       chatMemory: { append: async () => {} },
@@ -113,7 +102,7 @@ describe('runAgentsChainSequential home agent wiring', () => {
 
   it('an unrelated question never calls the home service', async () => {
     let homeCalled = false;
-    const r = await runAgentsChainSequential(fakeInbound('tell me a joke'), {
+    const r = await runAgentsChainSequential(fakeInbound({ text: 'tell me a joke' }), {
       logger: noopLogger(),
       messaging: { sendText: async () => {} },
       chatMemory: { append: async () => {} },
