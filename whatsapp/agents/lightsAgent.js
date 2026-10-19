@@ -23,7 +23,6 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const LIGHTS_AGENT_MODEL = process.env.LIGHTS_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 
-/** Same preset colors as whatsapp/commands/lights.js */
 const COLOR_MAP = {
   red: [0, 254, 254],
   green: [25500, 254, 254],
@@ -85,6 +84,7 @@ Rules:
 - Otherwise give a short, friendly WhatsApp-style reply after tools succeed (you may call multiple tools). Do not mention "SKIP" to the user unless they asked about it.`;
 }
 
+/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
 const TOOLS = [
   {
     type: 'function',
@@ -342,6 +342,7 @@ export async function runLightsAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
+    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
     const messages = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },

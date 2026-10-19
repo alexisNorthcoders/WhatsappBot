@@ -114,10 +114,8 @@ export function truncateDigestMessage(text, maxChars = DEFAULT_MSG_MAX) {
  */
 export function shouldAttemptDigestSend(opts = {}) {
   const nowMs = opts.nowMs ?? Date.now();
-  const hourUtc = Number.isFinite(opts.hourUtc) ? opts.hourUtc : DEFAULT_HOUR_UTC;
-  const minuteUtc = Number.isFinite(opts.minuteUtc)
-    ? opts.minuteUtc
-    : DEFAULT_MINUTE_UTC;
+  const hourUtc = finiteOr(opts.hourUtc, DEFAULT_HOUR_UTC);
+  const minuteUtc = finiteOr(opts.minuteUtc, DEFAULT_MINUTE_UTC);
   const today = utcCalendarDay(nowMs);
   if (opts.digestSentToday === true) return false;
   // Legacy: callers that only pass lastSentYmd treat it as "digest already sent".
@@ -246,10 +244,10 @@ function errMsg(err) {
  * status file appears later, the real digest is still sent once.
  *
  * @param {{
- *   getSocket?: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
+ *   getSocket?: () => import('../types.js').MessageSender | null | undefined,
  *   getOwnerJid?: () => string | null | undefined,
  *   getSecondJid?: () => string | null | undefined,
- *   logger?: { info?: (o: object | string) => void, warn?: (o: object | string) => void },
+ *   logger?: { info?: (o: object | string, msg?: string) => void, warn?: (o: object | string, msg?: string) => void },
  *   nowMs?: number,
  *   statusFilePath?: string,
  *   maxAgeMs?: number,
@@ -271,13 +269,15 @@ export async function runRedditCronDigestTick(deps = {}) {
   const logger = deps.logger;
   const nowMs = deps.nowMs ?? Date.now();
   const statusPath = deps.statusFilePath ?? redditCronDigestStatusFilePath();
-  const maxAgeMs = Number.isFinite(deps.maxAgeMs) ? deps.maxAgeMs : DEFAULT_MAX_AGE_MS;
-  const hourUtc = Number.isFinite(deps.hourUtc)
-    ? deps.hourUtc
-    : parseEnvInt(process.env.REDDIT_CRON_DIGEST_HOUR_UTC, DEFAULT_HOUR_UTC);
-  const minuteUtc = Number.isFinite(deps.minuteUtc)
-    ? deps.minuteUtc
-    : parseEnvInt(process.env.REDDIT_CRON_DIGEST_MINUTE_UTC, DEFAULT_MINUTE_UTC);
+  const maxAgeMs = finiteOr(deps.maxAgeMs, DEFAULT_MAX_AGE_MS);
+  const hourUtc = finiteOr(
+    deps.hourUtc,
+    parseEnvInt(process.env.REDDIT_CRON_DIGEST_HOUR_UTC, DEFAULT_HOUR_UTC),
+  );
+  const minuteUtc = finiteOr(
+    deps.minuteUtc,
+    parseEnvInt(process.env.REDDIT_CRON_DIGEST_MINUTE_UTC, DEFAULT_MINUTE_UTC),
+  );
   const alsoSecond =
     deps.alsoSecondPhone ??
     truthyEnv(process.env.REDDIT_CRON_DIGEST_ALSO_SECOND_PHONE);
@@ -393,6 +393,14 @@ export async function runRedditCronDigestTick(deps = {}) {
 }
 
 /**
+ * @param {number | undefined} n
+ * @param {number} fallback
+ */
+function finiteOr(n, fallback) {
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+}
+
+/**
  * @param {string | undefined} raw
  * @param {number} fallback
  */
@@ -415,9 +423,9 @@ function truthyEnv(raw) {
  * Polls until a fresh, day-matching digest arrives; missing/stale alerts do not
  * suppress a later digest the same UTC day.
  * @param {{
- *   getSocket: () => import('@whiskeysockets/baileys').WASocket | null | undefined,
+ *   getSocket: () => import('../types.js').MessageSender | null | undefined,
  *   getOwnerJid: () => string | null | undefined,
- *   logger: { info?: (o: object | string) => void, warn?: (o: object | string) => void },
+ *   logger: { info?: (o: object | string, msg?: string) => void, warn?: (o: object | string, msg?: string) => void },
  *   pollMs?: number,
  * }} opts
  */

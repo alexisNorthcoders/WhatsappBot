@@ -80,8 +80,7 @@ export async function listNotebooks(sock, sender) {
         let message = "📁 *Available Notebooks:*\n\n";
         notebooks.forEach(notebook => {
             message += `• *${notebook.title}*\n`;
-            message += `  ID: ${notebook.id}\n`;
-            message += `  Notes: ${notebook.note_count || 0}\n\n`;
+            message += `  ID: ${notebook.id}\n\n`;
         });
 
         await sock.sendMessage(sender, { text: message });

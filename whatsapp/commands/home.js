@@ -34,7 +34,7 @@ const USAGE = 'Usage: home <question>, e.g. "home what model is the oven?"';
 
 /**
  * `home <question>` — asks the home-manuals service and replies with the answer + Sources.
- * @param {{ sendMessage: Function }} sock
+ * @param {import('../types.js').MessageSender} sock
  * @param {string} chatId
  * @param {string} text
  * @param {unknown} [fourthArg] raw Baileys message in production, or {@link homeInjectedDeps} in tests

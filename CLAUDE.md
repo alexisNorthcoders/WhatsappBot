@@ -23,15 +23,18 @@ Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `p
 
 ```bash
 npm start              # node --no-deprecation whatsapp.js — main bot process
-npm test               # node --test ./test/**/*.test.js — full test suite (node:test, no framework)
+npm test               # type check, then node --test ./test/**/*.test.js (node:test, no framework)
+npm run typecheck      # tsc -p . — type check only (~7s on the Pi)
 node --test test/foo.test.js          # run a single test file
 node --test --test-name-pattern="…" test/foo.test.js   # run a single test by name
 npm run eval:summarize -- --all       # offline eval for the `summarize` command against fixtures/gold
 npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Joplin integration check
 ```
 
-There is no lint/typecheck script at the repo root (JSDoc types are used for editor/AI hints
-only, not enforced by `tsc`). The `ChatAI/` sub-project has its own `npm run lint` (ESLint) and
+`tsc` type-checks the JS through its JSDoc types (`tsconfig.json`: `checkJs`, `strictNullChecks`,
+no emit). `test/` is not checked yet; tests join as they move to TypeScript. Shared JSDoc types
+(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.js`: take the narrowest one a
+function needs so tests can pass small fakes. The `ChatAI/` sub-project has its own `npm run lint` (ESLint) and
 `npm run build` (Vite) — run those from inside `ChatAI/`, not the repo root.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are
@@ -151,7 +154,7 @@ These share the root `package.json` but are not imported by `whatsapp.js`:
   talks to this server's OpenAI-proxying routes (see `index.js` for the Express routes it hits:
   `/gpt3`, `/gpt4`, `/dalle`, `/instruct`, `/recipe`, `/weather`, `/whatsapp?:number`).
 - `hue/` — Philips Hue bridge client (`HUE_IP`/`HUE_USERNAME`), wired into the WhatsApp agent
-  chain via `whatsapp/agents/lightsAgent.js` + `whatsapp/commands/lights.js`.
+  chain via `whatsapp/agents/lightsAgent.js`.
 - `joplin/` — Joplin Data API client, wired in via `whatsapp/agents/joplinAgent.js` +
   `whatsapp/commands/joplin.js`, and reused as a prompt source for `claude joplin:<note>`.
 - `simongame/` — a standalone browser music game (Bluey's Musical Keyboard), not part of the

@@ -138,6 +138,11 @@ class JoplinAPI {
         }
     }
 
+    /**
+     * @param {string} title
+     * @param {string} body
+     * @param {string | null} [parentId]
+     */
     async createNote(title, body, parentId = null) {
         try {
             // Ensure CLI is configured

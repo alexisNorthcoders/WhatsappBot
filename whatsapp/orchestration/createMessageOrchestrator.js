@@ -11,7 +11,7 @@ import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
  * @param {{ visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user'|'assistant'; content: string }>): Promise<string> }} ports.ai
  * @param {{ runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }} ports.routes
  * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
- * @param {{ info: Function; warn: Function; error: Function }} ports.logger
+ * @param {import('../types.js').Logger} ports.logger
  * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} ports.access
  * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} ports.agentRunner
  *   `claude…` commands go to agent-runner, never the command registry.
@@ -76,11 +76,11 @@ export function createMessageOrchestrator(ports) {
     const messageType = raw.message ? Object.keys(raw.message)[0] : 'unknown';
     const command = m.text.split(' ')[0].toLowerCase();
 
-    ports.logger.info('Processing message:', {
+    ports.logger.info({
       messageId: m.id,
       type: messageType,
       command,
-    });
+    }, 'Processing message');
 
     if (raw.message?.imageMessage) {
       const buffer = await ports.media.downloadImageBuffer(m);

@@ -132,14 +132,6 @@ async function startSock() {
     }
   });
 
-  // Handle received properties
-  sock.ev.on('received-patcher', async ({ data, namespace }) => {
-    logger.info('Received properties:', { namespace });
-    if (namespace === 'critical_block') {
-      logger.info('Received critical properties');
-    }
-  });
-
   sock.ev.on('connection.update', (update) => {
     const { qr, connection, lastDisconnect } = update;
 
@@ -173,7 +165,7 @@ async function startSock() {
     } else if (connection === 'close') {
       stopCalendarNudges();
       agentRunner.outbox.stop();
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const statusCode = /** @type {import('@hapi/boom').Boom | undefined} */ (lastDisconnect?.error)?.output?.statusCode;
       /*
        * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:
        * WhatsApp has invalidated this linked device (logout, device_removed conflict, ToS, etc.).
@@ -254,19 +246,17 @@ async function startSock() {
     for (const update of updates) {
       try {
         const { key, receipt } = update;
-        logger.info('Receipt update:', {
+        logger.info({
           messageId: key.id,
           remoteJid: key.remoteJid,
           fromMe: key.fromMe,
-          receiptType: receipt.type,
-          timestamp: receipt.timestamp,
-          receiptDetails: receipt
-        });
+          receipt,
+        }, 'Receipt update');
       } catch (err) {
-        logger.warn('Failed to process receipt update:', {
+        logger.warn({
           error: err.message,
           update: JSON.stringify(update)
-        });
+        }, 'Failed to process receipt update');
       }
     }
   });
@@ -275,16 +265,15 @@ async function startSock() {
   sock.ev.on('messages.update', async (updates) => {
     for (const update of updates) {
       try {
-        logger.info('Message update:', {
+        logger.info({
           messageId: update.key.id,
           update: update.update,
-          type: update.type
-        });
+        }, 'Message update');
       } catch (err) {
-        logger.warn('Failed to process message update:', {
+        logger.warn({
           error: err.message,
           update: JSON.stringify(update)
-        });
+        }, 'Failed to process message update');
       }
     }
   });

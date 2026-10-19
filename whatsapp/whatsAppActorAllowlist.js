@@ -20,7 +20,7 @@ function digitsOnly(s) {
   return String(s ?? '').replace(/\D/g, '');
 }
 
-/** User part before @, strip :device and _agent suffixes (matches Baileys jidDecode user). */
+/** User part before the `@`, strip :device and _agent suffixes (matches Baileys jidDecode user). */
 function jidUserPart(jid) {
   if (!jid || typeof jid !== 'string') return '';
   const at = jid.indexOf('@');
@@ -78,7 +78,7 @@ function allowedJidsExact() {
 
 /**
  * Who sent the message: in groups `remoteJid` is the group; use `participant`.
- * @param {import('@whiskeysockets/baileys').WAMessage} [msg]
+ * @param {import('@whiskeysockets/baileys').WAMessage | undefined} msg
  * @param {string} remoteJid
  */
 export function actorJid(msg, remoteJid) {
@@ -157,7 +157,7 @@ export function secondPhoneJid(actorJid, altJid) {
  * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
  * no-op, and any previously resolved set is kept.
  * @param {any} sock
- * @param {{ logger?: { warn: Function, info: Function } }} [opts]
+ * @param {{ logger?: Pick<import('./types.js').Logger, 'warn' | 'info'> }} [opts]
  */
 export async function resolveOwnerLids(sock, { logger } = {}) {
   const lidMapping = sock?.signalRepository?.lidMapping;
