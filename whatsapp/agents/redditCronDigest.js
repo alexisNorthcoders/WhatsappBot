@@ -393,10 +393,6 @@ export async function runRedditCronDigestTick(deps = {}) {
 }
 
 /**
- * @param {string | undefined} raw
- * @param {number} fallback
- */
-/**
  * @param {number | undefined} n
  * @param {number} fallback
  */
@@ -404,6 +400,10 @@ function finiteOr(n, fallback) {
   return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
 }
 
+/**
+ * @param {string | undefined} raw
+ * @param {number} fallback
+ */
 function parseEnvInt(raw, fallback) {
   if (raw == null || String(raw).trim() === '') return fallback;
   const n = parseInt(String(raw), 10);
