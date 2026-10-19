@@ -6,8 +6,8 @@ import {
   BOOK_AGENT_SKIP,
   BOOK_RECS_UNAVAILABLE,
 } from '../whatsapp/agents/bookAgent.ts';
-import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
-import { fakeInbound } from './helpers/fakeInbound.js';
+import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
+import { fakeInbound } from './helpers/fakeInbound.ts';
 
 const OWNER = '111@s.whatsapp.net';
 const STRANGER = '999@s.whatsapp.net';

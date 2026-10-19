@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createJevRouter, ROUTE_CHAT } from '../whatsapp/orchestration/jevRouter.ts';
-import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
+import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
 
 const quietLogger = { info() {}, warn() {}, error() {} };
 

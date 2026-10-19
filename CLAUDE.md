@@ -68,29 +68,29 @@ stored sessions to LID format one-way) — restoring that folder plus pinning `6
 rollback path. It delegates all message handling to `whatsapp/orchestration/`, which is a small
 hexagonal/ports architecture:
 
-- `createBaileysMessageHandler.js` — thin Baileys-specific adapter: dedupes `fromMe`, marks read
+- `createBaileysMessageHandler.ts` — thin Baileys-specific adapter: dedupes `fromMe`, marks read
   receipts, normalizes the raw message, catches/reports errors back to the sender.
 - `normalizeBaileysMessage.ts` — maps a raw Baileys `WAMessage` into a plain
   `InboundMessage` (`{ id, chatId, actorId, actorAltId, text, raw, features }`).
 - `createProductionPorts.js` — builds the concrete ports object (real Baileys `sock`, real
   filesystem, real command registry, real agents) that the orchestrator runs against. Swap this
-  factory out (see `test/messageOrchestrator.test.js`) to test orchestration logic without a
+  factory out (see `test/messageOrchestrator.test.ts`) to test orchestration logic without a
   socket.
-- `createMessageOrchestrator.js` — the actual routing decision tree, in priority order:
+- `createMessageOrchestrator.ts` — the actual routing decision tree, in priority order:
   1. inbound image + caption (`Text`/`Text high`/`Help` → vision commands)
   2. `sprite+` / `sdxl+` prefix → iterate-on-last-image commands
   3. first whitespace token matches a registered command (`whatsapp/commands/index.js`)
   4. legacy inline routes (`!help`, `!restart`, `!clear`, `!sendpoll`, `Send`, `Altweather`)
   5. the sequential **agent chain** (see below)
   6. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.js`)
-- `agentsTryHandle.js` (`runAgentsChainSequential`) — runs NL-intent agents in a fixed order
+- `agentsTryHandle.ts` (`runAgentsChainSequential`) — runs NL-intent agents in a fixed order
   (reminder → lights → weather → joplin → email → home → books), each with a `shouldTryX(text)` gate and a
   `SKIP` sentinel string convention: an agent's LLM call can return exactly `LIGHTS_AGENT_SKIP`
   (etc.) to mean "not actually for me," letting the chain fall through to the next agent instead
   of committing to a reply.
 
 When adding a new command or agent, wire it through `commands/index.js` or the agent chain in
-`createProductionPorts.js`/`agentsTryHandle.js` — don't special-case it directly in
+`createProductionPorts.js`/`agentsTryHandle.ts` — don't special-case it directly in
 `whatsapp.js`.
 
 **LIDs:** on Baileys 7.x the sender (`actorId`) and chat id (`chatId`) may be a `@lid`
@@ -166,7 +166,7 @@ there before assuming a default interval/threshold.
 
 - `test/*.test.js` uses `node:test` + `node:assert/strict` directly — no Jest/Mocha/Sinon.
 - Because the orchestration layer is ports-based, most tests build a fake `ports` object (see
-  `basePorts()` in `test/messageOrchestrator.test.js`) rather than mocking Baileys or `fetch`.
+  `basePorts()` in `test/messageOrchestrator.test.ts`) rather than mocking Baileys or `fetch`.
   Prefer that pattern for new orchestration/agent tests over module-level mocking.
 - `eval/summarize/` is a separate, non-`node:test` eval harness (`run.mjs`) for scoring the
   `summarize` command's LLM output against hand-authored gold facts; it's exercised inside the

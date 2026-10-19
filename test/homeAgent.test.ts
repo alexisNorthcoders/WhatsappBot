@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../whatsapp/agents/homeAgent.ts';
-import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
-import { fakeInbound } from './helpers/fakeInbound.js';
+import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
+import { fakeInbound } from './helpers/fakeInbound.ts';
 
 describe('shouldTryHomeAgent', () => {
   it('matches natural-language home questions from the issue examples', () => {

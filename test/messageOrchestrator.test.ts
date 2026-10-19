@@ -1,8 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMessageOrchestrator } from '../whatsapp/orchestration/createMessageOrchestrator.js';
-import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
-import { fakeInbound } from './helpers/fakeInbound.js';
+import { createMessageOrchestrator } from '../whatsapp/orchestration/createMessageOrchestrator.ts';
+import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
+import { fakeInbound } from './helpers/fakeInbound.ts';
 
 function noopLogger() {
   return {

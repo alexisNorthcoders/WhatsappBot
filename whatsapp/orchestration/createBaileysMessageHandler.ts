@@ -1,5 +1,5 @@
 import { normalizeBaileysMessage } from './normalizeBaileysMessage.ts';
-import { createMessageOrchestrator } from './createMessageOrchestrator.js';
+import { createMessageOrchestrator } from './createMessageOrchestrator.ts';
 
 /**
  * Thin adapter: Baileys upsert → owner check → read receipt → normalize → orchestrator.

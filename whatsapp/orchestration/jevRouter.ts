@@ -10,7 +10,7 @@ const DEFAULT_URL = 'https://api.typesafe.ai/v1/systemone';
 
 export const ROUTE_CHAT = 'chat';
 
-/** Option keys must match the agent keys in agentsTryHandle.js. */
+/** Option keys must match the agent keys in agentsTryHandle.ts. */
 export const ROUTE_CRITERIA = {
   reminder: {
     what:

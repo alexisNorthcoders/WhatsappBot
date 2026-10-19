@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBaileysMessageHandler } from '../whatsapp/orchestration/createBaileysMessageHandler.js';
+import { createBaileysMessageHandler } from '../whatsapp/orchestration/createBaileysMessageHandler.ts';
 import { isAllowedActor } from '../whatsapp/whatsAppActorAllowlist.ts';
 
 const OWNER_PN = '447700900001@s.whatsapp.net';
