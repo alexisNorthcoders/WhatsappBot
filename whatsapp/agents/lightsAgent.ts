@@ -24,7 +24,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const LIGHTS_AGENT_MODEL = process.env.LIGHTS_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 
-const COLOR_MAP = {
+const COLOR_MAP: Record<string, [number, number, number]> = {
   red: [0, 254, 254],
   green: [25500, 254, 254],
   blue: [46920, 254, 254],
@@ -42,7 +42,7 @@ const KEYWORD_PATTERN =
 
 export const LIGHTS_AGENT_SKIP = 'SKIP';
 
-export function shouldTryLightsAgent(text) {
+export function shouldTryLightsAgent(text: string): boolean {
   if (process.env.LIGHTS_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -222,11 +222,11 @@ const TOOLS: ChatCompletionTool[] = [
   },
 ];
 
-function miredsFromUserScale1to10(tempValue) {
+function miredsFromUserScale1to10(tempValue: number) {
   return Math.round(153 + ((10 - tempValue) / 9) * (500 - 153));
 }
 
-export async function executeLightsTool(name, args) {
+export async function executeLightsTool(name: string, args: Record<string, any>) {
   try {
     switch (name) {
       case 'lights_all_off': {
@@ -279,9 +279,9 @@ export async function executeLightsTool(name, args) {
       case 'lights_set_color': {
         const colorRaw = String(args.color || '').trim();
         const lightName = args.light_name;
-        let hue;
-        let sat;
-        let bri;
+        let hue: number;
+        let sat: number;
+        let bri: number;
         const preset = COLOR_MAP[colorRaw.toLowerCase()];
         if (preset) {
           [hue, sat, bri] = preset;
@@ -325,14 +325,14 @@ export async function executeLightsTool(name, args) {
         return `Error: Unknown tool "${name}".`;
     }
   } catch (e) {
-    return `Error: ${e.message || String(e)}`;
+    return `Error: ${(e as Error).message || String(e)}`;
   }
 }
 
 /**
  * @returns Final user-facing text, or LIGHTS_AGENT_SKIP to fall through to other handlers.
  */
-export async function runLightsAgent(userMessage): Promise<string> {
+export async function runLightsAgent(userMessage: string): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = LIGHTS_AGENT_MODEL;
   let outcome = 'error';

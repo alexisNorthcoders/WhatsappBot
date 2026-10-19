@@ -28,7 +28,7 @@ const transporter = nodemailer.createTransport({
 const KEYWORD_PATTERN =
   /\b(email|e-mail|mail|send\s+mail|send\s+email|send\s+an?\s+email|send\s+an?\s+mail|gmail)\b|\b(email|mail)\s+(to|from|about)\b/i;
 
-export function shouldTryEmailAgent(text) {
+export function shouldTryEmailAgent(text: string): boolean {
   if (process.env.EMAIL_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -76,7 +76,7 @@ const TOOLS: ChatCompletionTool[] = [
   },
 ];
 
-async function executeEmailTool(name, args) {
+async function executeEmailTool(name: string, args: Record<string, unknown>) {
   try {
     if (name !== 'email_send') {
       return `Error: Unknown tool "${name}".`;
@@ -106,11 +106,11 @@ async function executeEmailTool(name, args) {
     const info = await transporter.sendMail(mailOptions);
     return `OK: Email sent to ${to} — messageId: ${info.messageId}`;
   } catch (e) {
-    return `Error: ${e.message || String(e)}`;
+    return `Error: ${(e as Error).message || String(e)}`;
   }
 }
 
-export async function runEmailAgent(userMessage) {
+export async function runEmailAgent(userMessage: string): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = EMAIL_AGENT_MODEL;
   let outcome = 'error';

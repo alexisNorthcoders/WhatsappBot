@@ -12,12 +12,37 @@ import {
   setLightColor,
   setLightColorTemperature,
 } from '../../hue/api.ts';
+import type { HueLight } from '../../hue/api.ts';
 import { logAgentInvocation } from './agentUsageLog.ts';
 import type { Logger } from '../types.ts';
 
+export type JevAnswer = { choice?: string; probabilities?: Record<string, number> };
+type Criterion = string | null | { what: string; examples: string[] };
+export type JevChoiceQuestion = { type: 'choice'; instructions: string; criteria: Record<string, Criterion> };
+
+type JevLight = Pick<HueLight, 'id' | 'name' | 'room' | 'state'>;
+type ResolvedTarget = { target: string; label: string; members: JevLight[] };
+
+type HueControls = {
+  switchLight: (lightID: string, state: boolean) => Promise<unknown>;
+  switchOffAllLights: () => Promise<unknown>;
+  setLightBrightness: (lightID: string, brightness: number) => Promise<unknown>;
+  setLightColor: (lightID: string, hue: number, saturation: number, brightness: number) => Promise<unknown>;
+  setLightColorTemperature: (lightID: string, colorTemp: number) => Promise<unknown>;
+};
+
+export type LightsJevDeps = {
+  lights?: JevLight[];
+  hue?: HueControls;
+  /** every answer used must reach this, else null */
+  minProbability?: number;
+  logger?: Pick<Logger, 'info'>;
+  logUsage?: typeof logAgentInvocation;
+};
+
 const PREMISE = 'Assume `message` is a request to the home\'s Philips Hue lights.';
 
-const COLOURS = {
+const COLOURS: Record<string, [number, number, number]> = {
   red: [0, 254, 254],
   green: [25500, 254, 254],
   blue: [46920, 254, 254],
@@ -28,14 +53,16 @@ const COLOURS = {
   white: [0, 0, 254],
 };
 /** Colour-temperature presets in mireds (153 coolest … 500 warmest). */
-const WHITES = { warm: 450, cool: 190 };
+const WHITES: Record<string, number> = { warm: 450, cool: 190 };
 
 /**
  * @returns Jev questions, empty when there are no lights to target
  */
-export function lightsJevQuestions(lights: Array<{ id: string; name: string; room: string }> = getCachedLights()): Record<string, object> {
+export function lightsJevQuestions(
+  lights: Pick<HueLight, 'id' | 'name' | 'room'>[] = getCachedLights(),
+): Record<string, JevChoiceQuestion> {
   if (!lights.length) return {};
-  const targets = {
+  const targets: Record<string, Criterion> = {
     all: { what: 'Every light in the house, including when it just says "the lights" without naming a room or light.', examples: ['lights off', 'turn everything off'] },
   };
   for (const room of roomsOf(lights)) targets[`room:${room}`] = `All the lights in the ${room} room.`;
@@ -94,10 +121,13 @@ export function lightsJevQuestions(lights: Array<{ id: string; name: string; roo
 /**
  * @param text the user's message
  * @param answers Jev answers
- * @param deps.minProbability every answer used must reach this, else null
  * @returns the reply, or null to hand over to the GPT lights agent
  */
-export async function runLightsFromJev(text: string, answers: Record<string, { choice?: string; probabilities?: Record<string, number> }>, deps: { lights?: Array<{ id: string; name: string; room: string; state: string }>; hue?: { switchLight: Function; switchOffAllLights: Function; setLightBrightness: Function; setLightColor: Function; setLightColorTemperature: Function }; minProbability?: number; logger?: Pick<Logger, 'info'>; logUsage?: typeof logAgentInvocation } = {}): Promise<string | null> {
+export async function runLightsFromJev(
+  text: string,
+  answers: Record<string, JevAnswer>,
+  deps: LightsJevDeps = {},
+): Promise<string | null> {
   const {
     lights = getCachedLights(),
     hue = { switchLight, switchOffAllLights, setLightBrightness, setLightColor, setLightColorTemperature },
@@ -106,7 +136,7 @@ export async function runLightsFromJev(text: string, answers: Record<string, { c
     logUsage = logAgentInvocation,
   } = deps;
 
-  const confident = (id) => {
+  const confident = (id: string) => {
     const a = answers?.[id];
     return a && typeof a.choice === 'string' && Number(a.probabilities?.[a.choice] ?? 0) >= minProbability
       ? a.choice
@@ -120,7 +150,7 @@ export async function runLightsFromJev(text: string, answers: Record<string, { c
   if (!resolved) return null;
   const { target, label, members } = resolved;
 
-  let reply;
+  let reply: string;
   if (action === 'list') {
     reply = members.map((L) => `• ${L.name} (${L.room}): ${L.state}`).join('\n');
   } else if (action === 'off' && target === 'all') {
@@ -161,7 +191,7 @@ export async function runLightsFromJev(text: string, answers: Record<string, { c
   return reply;
 }
 
-function roomsOf(lights) {
+function roomsOf(lights: Pick<HueLight, 'room'>[]) {
   return [...new Set(lights.map((L) => L.room).filter((r) => r && r !== 'Unknown Room'))];
 }
 
@@ -169,8 +199,8 @@ function roomsOf(lights) {
  * Targets that name the same lights (a one-light room and that light) share their probability,
  * so Jev splitting between them doesn't read as uncertainty. Returns the confident group.
  */
-function pickTarget(answer, lights, minProbability) {
-  const groups = new Map();
+function pickTarget(answer: JevAnswer | undefined, lights: JevLight[], minProbability: number) {
+  const groups = new Map<string, { p: number; best: number; resolved: ResolvedTarget }>();
   for (const [key, p] of Object.entries(answer?.probabilities ?? {})) {
     const resolved = resolveTarget(key, lights);
     if (!resolved) continue;
@@ -186,7 +216,7 @@ function pickTarget(answer, lights, minProbability) {
   return top && top.p >= minProbability ? top.resolved : null;
 }
 
-function resolveTarget(target, lights) {
+function resolveTarget(target: string, lights: JevLight[]): ResolvedTarget | null {
   if (target === 'all') return lights.length ? { target, label: 'all the lights', members: lights } : null;
   if (target.startsWith('room:')) {
     const room = target.slice('room:'.length);
@@ -201,13 +231,13 @@ function resolveTarget(target, lights) {
 }
 
 /** "50%", "to 30 percent" → number; the user's own number beats Jev's nearest level. */
-function explicitPercent(text) {
+function explicitPercent(text: string) {
   const m = /\b(\d{1,3})\s*(?:%|percent\b)/i.exec(text);
   if (!m) return null;
   const n = Number(m[1]);
   return n >= 1 && n <= 100 ? n : null;
 }
 
-async function forEach(members, fn) {
+async function forEach(members: JevLight[], fn: (L: JevLight) => Promise<unknown>) {
   await Promise.all(members.map(fn));
 }
