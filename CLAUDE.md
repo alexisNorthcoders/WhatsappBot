@@ -12,10 +12,8 @@ OpenAI-backed chat fallback. `claude…` messages are forwarded to agent-runner
 headlessly — including working GitHub issues end-to-end and the cron issue tracer. The bot itself
 no longer spawns `claude`.
 
-The repo also contains several loosely-related side projects (a React chat UI, a Philips Hue
-controller, a Joplin notes integration, a browser music game) that
-share this top-level `package.json`/`node_modules` but are otherwise independent — see
-"Side projects" below.
+The repo also holds a Philips Hue client (`hue/`) and a Joplin client (`joplin/`) that the bot's
+agents use — see "Hue and Joplin clients" below.
 
 Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `pm2 restart`).
 
@@ -34,8 +32,7 @@ npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Jo
 `tsc` type-checks the JS through its JSDoc types (`tsconfig.json`: `checkJs`, `strictNullChecks`,
 no emit). `test/` is not checked yet; tests join as they move to TypeScript. Shared JSDoc types
 (`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.js`: take the narrowest one a
-function needs so tests can pass small fakes. The `ChatAI/` sub-project has its own `npm run lint` (ESLint) and
-`npm run build` (Vite) — run those from inside `ChatAI/`, not the repo root.
+function needs so tests can pass small fakes.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are
 injected as plain objects/functions and tests pass fakes directly (see "Testing" below).
@@ -146,19 +143,12 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
 Both are feature-flagged/tunable entirely through env vars documented in `.env.example` — check
 there before assuming a default interval/threshold.
 
-### Side projects (independent of the bot's request path)
+### Hue and Joplin clients
 
-These share the root `package.json` but are not imported by `whatsapp.js`:
-
-- `ChatAI/` — separate Vite/React app (its own `package.json`, `npm run dev`/`build`/`lint`) that
-  talks to this server's OpenAI-proxying routes (see `index.js` for the Express routes it hits:
-  `/gpt3`, `/gpt4`, `/dalle`, `/instruct`, `/recipe`, `/weather`, `/whatsapp?:number`).
 - `hue/` — Philips Hue bridge client (`HUE_IP`/`HUE_USERNAME`), wired into the WhatsApp agent
   chain via `whatsapp/agents/lightsAgent.js`.
 - `joplin/` — Joplin Data API client, wired in via `whatsapp/agents/joplinAgent.js` +
   `whatsapp/commands/joplin.js`, and reused as a prompt source for `claude joplin:<note>`.
-- `simongame/` — a standalone browser music game (Bluey's Musical Keyboard), not part of the
-  bot's runtime message path.
 
 ## Testing
 
