@@ -159,8 +159,8 @@ there before assuming a default interval/threshold.
 
 - `hue/` — Philips Hue bridge client (`HUE_IP`/`HUE_USERNAME`), wired into the WhatsApp agent
   chain via `whatsapp/agents/lightsAgent.ts`.
-- `joplin/` — Joplin Data API client, wired in via `whatsapp/agents/joplinAgent.ts` +
-  `whatsapp/commands/joplin.js`, and reused as a prompt source for `claude joplin:<note>`.
+- `joplin/` — Joplin Data API client, wired in via `whatsapp/agents/joplinAgent.ts`, and reused as a
+  prompt source for `claude joplin:<note>`.
 
 ## Testing
 
