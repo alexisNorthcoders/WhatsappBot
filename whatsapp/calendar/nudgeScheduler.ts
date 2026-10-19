@@ -2,7 +2,7 @@ import { secondPhoneJid } from '../whatsAppActorAllowlist.ts';
 import { createGoogleCalendar } from './googleCalendar.ts';
 import { nudgedLogPath } from './nudgedLog.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.ts';
-import type { MessageSender, Logger } from '../types.ts';
+import type { Logger, TextSender } from '../types.ts';
 
 const DEFAULT_POLL_MS = 60_000;
 
@@ -31,7 +31,7 @@ export function googleCalendarFromEnv(env: NodeJS.ProcessEnv = process.env) {
  * Alert times that came due while the bot was down.
  */
 export function startCalendarNudges(opts: {
-    getSocket: () => MessageSender | null | undefined;
+    getSocket: () => TextSender | null | undefined;
     getOwnerJid: () => string | null;
     logger?: Pick<Logger, 'info' | 'warn'>;
   }) {

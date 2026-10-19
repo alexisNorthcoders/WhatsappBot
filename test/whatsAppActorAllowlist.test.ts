@@ -8,6 +8,7 @@ import {
   secondPhoneJid,
 } from '../whatsapp/whatsAppActorAllowlist.ts';
 import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBaileysMessage.ts';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
 const OWNER_PN = '447700900001@s.whatsapp.net';
 const OWNER_LID = '123456789012345@lid';
@@ -16,14 +17,14 @@ const STRANGER_LID = '999999999999999@lid';
 const ENV_KEYS = ['MY_PHONE', 'SECOND_PHONE', 'CLAUDE_AGENT_EXTRA_JIDS'];
 
 /** Fake v7 socket exposing only the LID mapping store. */
-function sockWithLidMapping(getLIDForPN) {
+function sockWithLidMapping(getLIDForPN: (pn: string) => Promise<unknown>) {
   return { signalRepository: { lidMapping: { getLIDForPN } } };
 }
 
 const silentLogger = { warn() {}, info() {} };
 
 /** DM from a LID sender, optionally carrying the alternate PN id Baileys fills in. */
-function lidDm({ remoteJid = OWNER_LID, remoteJidAlt } = {}) {
+function lidDm({ remoteJid = OWNER_LID, remoteJidAlt }: { remoteJid?: string; remoteJidAlt?: string } = {}): WAMessage {
   return {
     key: { id: 'm1', remoteJid, fromMe: false, ...(remoteJidAlt ? { remoteJidAlt } : {}) },
     message: { conversation: 'claude hi' },
@@ -31,7 +32,9 @@ function lidDm({ remoteJid = OWNER_LID, remoteJidAlt } = {}) {
 }
 
 /** Group message from a LID participant, optionally carrying participantAlt. */
-function lidGroupMsg({ participant = OWNER_LID, participantAlt } = {}) {
+function lidGroupMsg(
+  { participant = OWNER_LID, participantAlt }: { participant?: string; participantAlt?: string } = {},
+): WAMessage {
   return {
     key: {
       id: 'g1',
@@ -45,7 +48,7 @@ function lidGroupMsg({ participant = OWNER_LID, participantAlt } = {}) {
 }
 
 describe('whatsAppActorAllowlist', () => {
-  let saved;
+  let saved: Record<string, string | undefined>;
   beforeEach(() => {
     saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
     for (const k of ENV_KEYS) delete process.env[k];
@@ -143,7 +146,7 @@ describe('whatsAppActorAllowlist', () => {
 
   describe('owner LIDs resolved from the LID mapping store', () => {
     it('allows a LID the store maps from MY_PHONE', async () => {
-      const asked = [];
+      const asked: string[] = [];
       await resolveOwnerLids(
         sockWithLidMapping(async (pn) => {
           asked.push(pn);

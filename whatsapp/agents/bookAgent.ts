@@ -1,5 +1,7 @@
 import { askBookRecs } from '../bookRecsClient.ts';
 import type { InboundMessage } from '../orchestration/normalizeBaileysMessage.ts';
+import type { isAllowedActor } from '../whatsAppActorAllowlist.ts';
+import type { Logger } from '../types.ts';
 
 export const BOOK_AGENT_SKIP = 'SKIP';
 export const BOOK_RECS_UNAVAILABLE = 'Book recommendations are unavailable right now.';
@@ -31,8 +33,8 @@ export function shouldTryBookAgent(text: string): boolean {
  */
 export async function runBookAgent(m: InboundMessage, deps: {
   askBookRecs?: typeof askBookRecs;
-  isAllowedActor?: (actorId: string | null, actorAltId?: string | null) => boolean;
-  logger?: { warn: Function };
+  isAllowedActor?: typeof isAllowedActor;
+  logger?: Pick<Logger, 'warn'>;
 } = {}): Promise<string> {
   const allowed = typeof deps.isAllowedActor === 'function' && deps.isAllowedActor(m.actorId, m.actorAltId);
   if (!allowed) return BOOK_AGENT_SKIP;

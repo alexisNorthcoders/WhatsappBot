@@ -1,4 +1,5 @@
 import { lidExtraJidsHint } from '../whatsAppActorAllowlist.ts';
+import type { isAllowedActor } from '../whatsAppActorAllowlist.ts';
 import { createCalendarReminder } from '../calendar/createReminder.ts';
 import { cancelReminder, listReminders } from '../calendar/manageReminders.ts';
 import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../calendar/reminderIntent.ts';
@@ -38,30 +39,31 @@ export function shouldTryReminderAgent(text: string): boolean {
   return reminderIntent(text) != null;
 }
 
+/** Without `calendar` (no Google credentials) only help works. */
+type ReminderAgentDeps = {
+  isAllowedActor: typeof isAllowedActor;
+  /**
+   * Picks the creator id recorded on a new Reminder (default: the actor id); the nudge tick
+   * reads it to Nudge SECOND_PHONE for its own Reminders.
+   */
+  creatorIdFor?: (actorId: string | null, actorAltId?: string | null) => string | null;
+  nowMs?: number;
+  calendar?: CalendarPort;
+  extractReminder?: ExtractReminder;
+  defaultDurationMin?: number;
+  allDayNudgeMin?: number;
+  lastLists?: ReturnType<typeof createLastLists>;
+  logger?: Pick<Logger, 'warn'>;
+};
+
 /**
  * Handle reminder help / create / list / cancel against the Owner's calendar.
  * Help is available to everyone; create/list/cancel require allowlisted actors.
- * @param deps
- *   Without `calendar` (no Google credentials) only help works. `creatorIdFor` picks the
- *   creator id recorded on a new Reminder (default: the actor id); the nudge tick reads it to
- *   Nudge SECOND_PHONE for its own Reminders.
  */
-export async function runReminderAgent(m: {
-    text: string;
-    chatId: string;
-    actorId: string | null;
-    actorAltId?: string | null;
-  }, deps: {
-    isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean;
-    creatorIdFor?: (actorId: string | null, actorAltId?: string | null) => string | null;
-    nowMs?: number;
-    calendar?: CalendarPort;
-    extractReminder?: ExtractReminder;
-    defaultDurationMin?: number;
-    allDayNudgeMin?: number;
-    lastLists?: ReturnType<typeof createLastLists>;
-    logger?: Pick<Logger, 'warn'>;
-  }): Promise<{ handled: boolean; replyText: string }> {
+export async function runReminderAgent(
+  m: { text: string; chatId: string; actorId: string | null; actorAltId?: string | null },
+  deps: ReminderAgentDeps,
+): Promise<{ handled: boolean; replyText: string }> {
   const text = m.text;
   const intent = reminderIntent(text);
   if (!intent) {

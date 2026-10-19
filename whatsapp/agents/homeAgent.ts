@@ -23,7 +23,10 @@ function looksLikeUnknownAnswer(answer: string): boolean {
 /**
  * @returns Final user-facing text, or HOME_AGENT_SKIP to fall through to other handlers.
  */
-export async function runHomeAgent(userMessage: string, deps: { askHomeManuals?: typeof askHomeManuals } = {}): Promise<string> {
+export async function runHomeAgent(
+  userMessage: string,
+  deps: { askHomeManuals?: typeof askHomeManuals } = {},
+): Promise<string> {
   const ask = deps.askHomeManuals ?? askHomeManuals;
   const result = await ask(userMessage);
 

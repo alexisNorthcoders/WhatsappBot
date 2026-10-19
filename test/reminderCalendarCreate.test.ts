@@ -6,7 +6,7 @@ import { parseExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
 import { CALENDAR_UNREACHABLE_REPLY } from '../whatsapp/calendar/createReminder.ts';
 import { ROUTE_CRITERIA } from '../whatsapp/orchestration/jevRouter.ts';
 import { createFakeCalendar } from './helpers/fakeCalendar.ts';
-import type { ReminderExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
+import type { ExtractReminder, ReminderExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
 
 const MIN = 60_000;
 // Sat 17 Oct 2026, 14:00 in London (BST).
@@ -18,8 +18,8 @@ const CHAT = OWNER;
  * Fake extraction: canned results by message text, recording what it was asked.
  */
 function fakeExtractor(byText: Record<string, ReminderExtraction>) {
-  const calls: { text: string; nowMs: number; timeZone: string }[] = [];
-  const extract = async (input) => {
+  const calls: Parameters<ExtractReminder>[0][] = [];
+  const extract: ExtractReminder = async (input) => {
     calls.push(input);
     const r = byText[input.text];
     if (!r) throw new Error(`no canned extraction for ${input.text}`);
@@ -158,7 +158,7 @@ describe('reminder agent: create on the Owner\'s calendar (#127)', () => {
 
   it('replies with a clear error when Google Calendar is unreachable, creating nothing', async () => {
     const text = 'Dentist Friday 3–4pm';
-    const fields = { ok: true, title: 'Dentist', start: '2026-10-23T15:00', allDay: false, kind: 'appointment' };
+    const fields: ReminderExtraction = { ok: true, title: 'Dentist', start: '2026-10-23T15:00', allDay: false, kind: 'appointment' };
     const down = { ...createFakeCalendar(), getSettings: async () => { throw new Error('ECONNREFUSED') } };
     const r = await send(text, { calendar: down, extractReminder: fakeExtractor({ [text]: fields }).extract });
     assert.equal(r.replyText, CALENDAR_UNREACHABLE_REPLY);

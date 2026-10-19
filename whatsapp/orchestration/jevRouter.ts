@@ -60,14 +60,30 @@ export const ROUTE_CRITERIA = {
   },
 };
 
+type JevRouterOptions = {
+  apiKey: string;
+  fetch?: FetchLike;
+  url?: string;
+  model?: string;
+  timeoutMs?: number;
+  /** below this, the message goes to chat */
+  minProbability?: number;
+  /** agent keys to offer (chat is always offered) */
+  agents?: string[];
+  /**
+   * speculative agent-specific questions asked in the same request (answers come back on
+   * `answers` whatever the route)
+   */
+  extraQuestions?: () => Record<string, object>;
+  logger: Pick<Logger, 'info' | 'warn'>;
+};
+
+type JevRoute = { agent: string; probability: number; answers: Record<string, any> };
+
 /**
- * @param [opts.minProbability] below this, the message goes to chat
- * @param [opts.agents] agent keys to offer (chat is always offered)
- * @param [opts.extraQuestions] speculative agent-specific questions
- *   asked in the same request (answers come back on `answers` whatever the route)
  * @returns null when Jev could not be reached (caller falls back to the keyword gates)
  */
-export function createJevRouter(opts: { apiKey: string; fetch?: FetchLike; url?: string; model?: string; timeoutMs?: number; minProbability?: number; agents?: string[]; extraQuestions?: () => Record<string, object>; logger: Pick<Logger, 'info' | 'warn'> }): (text: string) => Promise<{ agent: string; probability: number; answers: Record<string, any> } | null> {
+export function createJevRouter(opts: JevRouterOptions): (text: string) => Promise<JevRoute | null> {
   const {
     apiKey,
     fetch: fetchImpl = globalThis.fetch,
@@ -112,7 +128,7 @@ export function createJevRouter(opts: { apiKey: string; fetch?: FetchLike; url?:
       }
       body = await res.json();
     } catch (err) {
-      logger.warn({ err: err?.message || err, ms: Date.now() - started }, 'Jev routing failed, using keyword gates');
+      logger.warn({ err: (err as Error).message, ms: Date.now() - started }, 'Jev routing failed, using keyword gates');
       return null;
     }
 

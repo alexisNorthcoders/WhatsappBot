@@ -61,7 +61,8 @@ describe('reminder intents (#128)', () => {
   });
 
   it('reads "cancel N" only as a whole message', () => {
-    for (const [text, n] of [['cancel 2', 2], ['Cancel #3', 3], ['delete reminder 12', 12], ['remove 1.', 1], ['cancel my reminder #4', 4]]) {
+    const cases: [string, number][] = [['cancel 2', 2], ['Cancel #3', 3], ['delete reminder 12', 12], ['remove 1.', 1], ['cancel my reminder #4', 4]];
+    for (const [text, n] of cases) {
       assert.deepEqual(classifyReminderIntent(text), { kind: 'cancel', n }, text);
     }
     for (const text of ['remove 2 eggs from the list', 'cancel the 3 meetings please', 'cancel']) {

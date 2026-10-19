@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
 import { getRepoRoot } from '../repoRoot.ts';
-import type { MessageSender } from '../types.ts';
+import type { Logger, TextSender } from '../types.ts';
 
 const FILE = 'reddit-cron-digest-last-sent.json';
 const DEFAULT_STATUS_FILE =
@@ -148,7 +148,10 @@ export async function readRedditCronDigestLastSentDay(): Promise<string | null> 
 /**
  * @param day YYYY-MM-DD UTC
  */
-export async function writeRedditCronDigestState(day: string, flags: { digestSent?: boolean; alertSent?: boolean } = {}) {
+export async function writeRedditCronDigestState(
+  day: string,
+  flags: { digestSent?: boolean; alertSent?: boolean } = {},
+) {
   if (typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     throw new TypeError(`invalid digest last-sent day: ${JSON.stringify(day)}`);
   }
@@ -212,10 +215,10 @@ function errMsg(err: unknown) {
  * status file appears later, the real digest is still sent once.
  */
 export async function runRedditCronDigestTick(deps: {
-  getSocket?: () => MessageSender | null | undefined;
+  getSocket?: () => TextSender | null | undefined;
   getOwnerJid?: () => string | null | undefined;
   getSecondJid?: () => string | null | undefined;
-  logger?: { info?: (o: object | string, msg?: string) => void; warn?: (o: object | string, msg?: string) => void };
+  logger?: Pick<Logger, 'info' | 'warn'>;
   nowMs?: number;
   statusFilePath?: string;
   maxAgeMs?: number;
@@ -330,7 +333,7 @@ export async function runRedditCronDigestTick(deps: {
     try {
       await sock.sendMessage(jid, { text: message });
     } catch (e) {
-      logger?.warn?.(
+      logger?.warn(
         { err: errMsg(e), jid },
         'reddit cron digest: sendMessage failed'
       );
@@ -343,7 +346,7 @@ export async function runRedditCronDigestTick(deps: {
       digestSent: true,
       alertSent: alertSentToday,
     });
-    logger?.info?.(`reddit cron digest: sent digest for ${today}`);
+    logger?.info(`reddit cron digest: sent digest for ${today}`);
     return { sent: true, reason: 'sent digest' };
   }
 
@@ -351,7 +354,7 @@ export async function runRedditCronDigestTick(deps: {
     digestSent: false,
     alertSent: true,
   });
-  logger?.info?.(`reddit cron digest: sent missing/stale alert for ${today}`);
+  logger?.info(`reddit cron digest: sent missing/stale alert for ${today}`);
   return { sent: true, reason: 'sent alert' };
 }
 
@@ -376,14 +379,14 @@ function truthyEnv(raw: string | undefined) {
  * suppress a later digest the same UTC day.
  */
 export function startRedditCronDigest(opts: {
-    getSocket: () => MessageSender | null | undefined;
+    getSocket: () => TextSender | null | undefined;
     getOwnerJid: () => string | null | undefined;
-    logger: { info?: (o: object | string, msg?: string) => void; warn?: (o: object | string, msg?: string) => void };
+    logger: Pick<Logger, 'info' | 'warn'>;
     pollMs?: number;
   }) {
   const { getSocket, getOwnerJid, logger } = opts;
   if (truthyEnv(process.env.REDDIT_CRON_DIGEST_DISABLE)) {
-    logger?.info?.('reddit cron digest: disabled (REDDIT_CRON_DIGEST_DISABLE)');
+    logger.info('reddit cron digest: disabled (REDDIT_CRON_DIGEST_DISABLE)');
     return;
   }
   if (intervalId) return;
@@ -398,7 +401,7 @@ export function startRedditCronDigest(opts: {
     try {
       await runRedditCronDigestTick({ getSocket, getOwnerJid, logger });
     } catch (e) {
-      logger?.warn?.({ err: errMsg(e) }, 'reddit cron digest tick failed');
+      logger.warn({ err: errMsg(e) }, 'reddit cron digest tick failed');
     } finally {
       inFlight = false;
     }

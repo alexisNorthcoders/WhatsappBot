@@ -137,8 +137,8 @@ describe('shouldAttemptDigestSend', () => {
 });
 
 describe('runRedditCronDigestTick', () => {
-  let prevLastSent;
-  let tmpDir;
+  let prevLastSent: string | undefined;
+  let tmpDir: string;
 
   beforeEach(async () => {
     prevLastSent = process.env.REDDIT_CRON_DIGEST_LAST_SENT_FILE;
@@ -156,8 +156,8 @@ describe('runRedditCronDigestTick', () => {
     const sent: { jid: string; text: string }[] = [];
     return {
       sent,
-      sendMessage: async (jid, content) => {
-        sent.push({ jid, text: String(content?.text ?? '') });
+      sendMessage: async (jid: string, content: { text: string }) => {
+        sent.push({ jid, text: content.text });
       },
     };
   }

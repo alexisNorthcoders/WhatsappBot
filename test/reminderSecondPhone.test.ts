@@ -35,7 +35,7 @@ const extractReminder = async () => ({
 });
 
 describe('SECOND_PHONE manages Reminders and is Nudged for its own (#129)', () => {
-  let saved;
+  let saved: Record<string, string | undefined>;
   let dir: string;
   let calendar: ReturnType<typeof createFakeCalendar>;
   let lastLists: ReturnType<typeof createLastLists>;

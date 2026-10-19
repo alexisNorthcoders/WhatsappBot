@@ -12,18 +12,23 @@
 import type { WAMessage } from '@whiskeysockets/baileys';
 import type { Logger } from './types.ts';
 
+/** The part of a Baileys 7.x socket that maps phone JIDs to LIDs; absent on 6.x. */
+type LidLookupSocket = {
+  signalRepository?: { lidMapping?: { getLIDForPN?: (pn: string) => Promise<unknown> } };
+};
+
 /**
  * User parts of owner @lid ids resolved from the LID mapping store, each mapped to the phone
  * digits it was resolved from; replaced on each v7 connect.
  */
 let ownerLidUsers: Map<string, string> = new Map();
 
-function digitsOnly(s) {
+function digitsOnly(s: string | undefined): string {
   return String(s ?? '').replace(/\D/g, '');
 }
 
 /** User part before the `@`, strip :device and _agent suffixes (matches Baileys jidDecode user). */
-function jidUserPart(jid) {
+function jidUserPart(jid: string): string {
   if (!jid || typeof jid !== 'string') return '';
   const at = jid.indexOf('@');
   if (at < 0) return '';
@@ -33,7 +38,7 @@ function jidUserPart(jid) {
 }
 
 /** Phone digits for @s.whatsapp.net / @c.us only (not @lid). */
-function phoneDigitsFromPnJid(jid) {
+function phoneDigitsFromPnJid(jid: string | null | undefined): string {
   if (!jid || typeof jid !== 'string') return '';
   const server = jid.slice(jid.indexOf('@') + 1);
   if (server !== 's.whatsapp.net' && server !== 'c.us') return '';
@@ -41,14 +46,14 @@ function phoneDigitsFromPnJid(jid) {
 }
 
 /** User part of a well-formed @lid id (digits only), else ''. */
-function lidUserPart(jid) {
+function lidUserPart(jid: unknown): string {
   if (!jid || typeof jid !== 'string' || !jid.endsWith('@lid')) return '';
   const user = jidUserPart(jid);
   return /^\d+$/.test(user) ? user : '';
 }
 
 function allowedPhoneDigitsSet() {
-  const set = new Set();
+  const set = new Set<string>();
   for (const raw of [process.env.MY_PHONE, process.env.SECOND_PHONE]) {
     const d = digitsOnly(raw);
     if (d) set.add(d);
@@ -63,7 +68,7 @@ function extraAllowedJids() {
 }
 
 /** Baileys may use @s.whatsapp.net while .env sometimes stores @c.us — allow both for the same user id. */
-function jidVariants(envValue) {
+function jidVariants(envValue: string | undefined): string[] {
   const v = envValue?.trim();
   if (!v) return [];
   if (v.includes('@')) {
@@ -92,7 +97,7 @@ export function actorJid(msg: WAMessage | undefined, remoteJid: string) {
  * in DMs. Baileys 7.x fills it with the PN JID when the primary id is a LID (and vice versa).
  */
 export function actorAltJid(msg?: WAMessage): string | null {
-  const key = msg?.key as Record<string, unknown> | undefined;
+  const key = msg?.key;
   if (!key) return null;
   const { remoteJid, participant } = key;
   // A DM is decided by the chat id, not by `participant` (some DM keys carry it too). The
@@ -104,11 +109,11 @@ export function actorAltJid(msg?: WAMessage): string | null {
 }
 
 /** One-to-one chat ids (phone or LID); groups, broadcasts and newsletters are not DMs. */
-function isDmJid(jid) {
+function isDmJid(jid: string): boolean {
   return jid.endsWith('@s.whatsapp.net') || jid.endsWith('@c.us') || jid.endsWith('@lid');
 }
 
-function matchesAllowedJid(jid) {
+function matchesAllowedJid(jid: string | null | undefined): boolean {
   if (!jid || typeof jid !== 'string') return false;
   const fromPn = phoneDigitsFromPnJid(jid);
   if (fromPn && allowedPhoneDigitsSet().has(fromPn)) return true;
@@ -138,7 +143,10 @@ function phoneDigitsOf(jid: string | null | undefined) {
  * resolved from it), else null. The owner (MY_PHONE, its LIDs, CLAUDE_AGENT_EXTRA_JIDS) and
  * strangers are null, as is SECOND_PHONE set to the owner's own number.
  */
-export function secondPhoneJid(actorJid: string | null | undefined, altJid?: string | null | undefined): string | null {
+export function secondPhoneJid(
+  actorJid: string | null | undefined,
+  altJid?: string | null | undefined,
+): string | null {
   const second = digitsOnly(process.env.SECOND_PHONE);
   if (!second || second === digitsOnly(process.env.MY_PHONE)) return null;
   const isSecond = [actorJid, altJid].some((j) => j && phoneDigitsOf(j) === second);
@@ -151,11 +159,14 @@ export function secondPhoneJid(actorJid: string | null | undefined, altJid?: str
  * failed or empty lookup leaves the owner LIDs unrecognised (deny). On 6.x the store is absent:
  * no-op, and any previously resolved set is kept.
  */
-export async function resolveOwnerLids(sock: any, { logger }: { logger?: Pick<Logger, 'warn' | 'info'> } = {}) {
+export async function resolveOwnerLids(
+  sock: LidLookupSocket | null | undefined,
+  { logger }: { logger?: Pick<Logger, 'warn' | 'info'> } = {},
+) {
   const lidMapping = sock?.signalRepository?.lidMapping;
   if (typeof lidMapping?.getLIDForPN !== 'function') return;
 
-  const next = new Map();
+  const next = new Map<string, string>();
   for (const digits of allowedPhoneDigitsSet()) {
     try {
       const lid = await lidMapping.getLIDForPN(`${digits}@s.whatsapp.net`);
@@ -176,7 +187,7 @@ export function clearOwnerLids() {
 }
 
 /** Hint for denied @lid senders (same env as Claude agent). */
-export function lidExtraJidsHint(actorJid) {
+export function lidExtraJidsHint(actorJid: string | null): string {
   return actorJid?.endsWith('@lid')
     ? `\n\nAdd to .env:\nCLAUDE_AGENT_EXTRA_JIDS=${actorJid}`
     : '';

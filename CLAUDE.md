@@ -43,7 +43,7 @@ module, so convert a module's dependencies first. Convert files with `scripts/re
 its own, then fix the remaining strict errors by hand. Move the module's tests to `.ts` in the
 same PR. JS tests in `test/` are
 not type-checked. Shared types
-(`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
+(`Logger`, `MessageSender`, `TextSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
 function needs so tests can pass small fakes.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are
