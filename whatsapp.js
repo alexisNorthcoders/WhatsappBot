@@ -31,7 +31,7 @@ const BAILEYS_AUTH_DIR = path.join(
 );
 /** One-time copy of the auth folder from before Baileys 7.x's one-way LID session migration. */
 const BAILEYS_AUTH_BACKUP_DIR = path.join(path.dirname(BAILEYS_AUTH_DIR), 'baileys-pre-v7-backup');
-import { initializeLightCache } from './hue/index.js';
+import { initializeLightCache } from './hue/index.ts';
 import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.js';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
 import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.js';

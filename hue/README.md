@@ -4,7 +4,7 @@ This folder contains all the Philips Hue API related functions for the WhatsApp 
 
 ## Files
 
-- `api.js` - Contains all the Hue API functions
+- `api.ts` - Contains all the Hue API functions
 - `index.js` - Exports all functions for easy importing
 
 ## Available Functions
@@ -107,7 +107,7 @@ Gets detailed information about a light by name.
 ## Usage Example
 
 ```javascript
-import { listAllLights, switchLight, switchLightByName } from './hue/index.js';
+import { listAllLights, switchLight, switchLightByName } from './hue/index.ts';
 
 // List all lights
 const lights = await listAllLights();

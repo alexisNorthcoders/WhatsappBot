@@ -1,6 +1,6 @@
 /**
  * Thin client for reddit-bot's book recommendation service
- * (`POST /ask {question}` -> { kind, answer, sources }). Like homeManualsClient.js, this targets
+ * (`POST /ask {question}` -> { kind, answer, sources }). Like homeManualsClient.ts, this targets
  * a trusted local service (BOOK_RECS_URL), so the public-URL SSRF guard does not apply.
  */
 

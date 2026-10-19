@@ -5,7 +5,7 @@ import { SUMMARIZE_USAGE } from '../whatsapp/utils/summarizeArgs.ts';
 import {
   REMINDER_COMMAND_HELP_SNIPPET,
   REMINDER_HELP_TEXT,
-} from '../whatsapp/calendar/reminderIntent.js';
+} from '../whatsapp/calendar/reminderIntent.ts';
 
 describe('help command text', () => {
   it('includes the summarize usage aligned with SUMMARIZE_USAGE ([extra])', async () => {

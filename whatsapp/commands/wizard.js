@@ -1,4 +1,4 @@
-import { gPT3WizardgenerateResponse } from "../../models/models.js";
+import { gPT3WizardgenerateResponse } from "../../models/models.ts";
 
 export default async function wizardCommand(sock, sender, text) {
     const prompt = text.replace("Wizard ", "");

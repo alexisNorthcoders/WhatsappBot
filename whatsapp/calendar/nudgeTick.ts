@@ -4,10 +4,10 @@ import {
   pruneEndedNudges,
   readNudgedLog,
   writeNudgedLog,
-} from './nudgedLog.js';
+} from './nudgedLog.ts';
 
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
+/** @typedef {import('./calendarPort.ts').CalendarEvent} CalendarEvent */
+/** @typedef {import('./calendarPort.ts').CalendarPort} CalendarPort */
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;

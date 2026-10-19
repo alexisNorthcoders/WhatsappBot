@@ -1,4 +1,4 @@
-import { gptImageGenerateResponse } from "../../models/models.js";
+import { gptImageGenerateResponse } from "../../models/models.ts";
 
 export default async function imageCommand(sock, sender, text) {
     const prompt = text.replace("Image ", "");

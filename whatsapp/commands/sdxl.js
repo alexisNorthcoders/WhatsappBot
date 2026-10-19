@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { sdxlTurboGenerateResponse, qwenImageEditGenerateResponse } from '../../models/models.js';
+import { sdxlTurboGenerateResponse, qwenImageEditGenerateResponse } from '../../models/models.ts';
 import {
   setLastSdxlPath,
   getLastSdxlPath,

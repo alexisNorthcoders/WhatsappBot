@@ -1,10 +1,10 @@
 /**
- * In-memory `calendar` port (whatsapp/calendar/calendarPort.js) for tests.
+ * In-memory `calendar` port (whatsapp/calendar/calendarPort.ts) for tests.
  * Seed with `seed()`, edit with `move()`/`remove()`; recurring events are seeded as their
  * expanded occurrences, like the Google adapter returns them.
  */
 
-/** @typedef {import('../../whatsapp/calendar/calendarPort.js').CalendarEvent} CalendarEvent */
+/** @typedef {import('../../whatsapp/calendar/calendarPort.ts').CalendarEvent} CalendarEvent */
 
 const MIN = 60_000;
 
@@ -86,7 +86,7 @@ export function createFakeCalendar(settings = {}) {
         .sort((a, b) => a.startMs - b.startMs)
         .map((e) => ({ ...e }));
     },
-    /** @param {import('../../whatsapp/calendar/calendarPort.js').NewCalendarEvent} input */
+    /** @param {import('../../whatsapp/calendar/calendarPort.ts').NewCalendarEvent} input */
     async createEvent(input) {
       const startMs = input.startMs ?? Date.parse(`${input.startDate}T00:00:00Z`);
       const evt = build({

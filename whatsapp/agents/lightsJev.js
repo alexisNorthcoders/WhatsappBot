@@ -11,7 +11,7 @@ import {
   setLightBrightness,
   setLightColor,
   setLightColorTemperature,
-} from '../../hue/api.js';
+} from '../../hue/api.ts';
 import { logAgentInvocation } from './agentUsageLog.js';
 
 const PREMISE = 'Assume `message` is a request to the home\'s Philips Hue lights.';

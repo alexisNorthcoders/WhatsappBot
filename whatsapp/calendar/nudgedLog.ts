@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
-import { getRepoRoot } from '../repoRoot.js';
+import { getRepoRoot } from '../repoRoot.ts';
 
 /**
  * The nudged log: the only local Reminder state (ADR 0002). One entry per

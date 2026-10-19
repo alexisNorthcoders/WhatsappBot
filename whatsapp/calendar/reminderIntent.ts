@@ -1,6 +1,6 @@
 /**
  * What a reminder message asks for, and the reminder help text (#128). Times are read by the
- * extraction function (`reminderExtraction.js`), not here.
+ * extraction function (`reminderExtraction.ts`), not here.
  *
  * Intent precedence for {@link classifyReminderIntent} (first match wins):
  * 1. create — "remind/nudge me …" (wins even when task text embeds "list"/"cancel"/"help")

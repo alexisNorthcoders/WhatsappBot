@@ -14,7 +14,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import { deepInfraAPI, DEEPINFRA_DEFAULT_CHAT_MODEL } from '../../models/models.js';
+import { deepInfraAPI, DEEPINFRA_DEFAULT_CHAT_MODEL } from '../../models/models.ts';
 import { listFixtureGoldPairs } from './lib/loadFiles.js';
 import { runSummarizeEvalOnce, runSummarizeEvalAll } from './lib/runEval.js';
 

@@ -128,19 +128,19 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
 
 ### Other background jobs started from `whatsapp.js`
 
-- `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.js`),
-  its Google Calendar v3 adapter (`googleCalendar.js`, plain `fetch` + OAuth refresh token), and
-  a nudge tick (`nudgeTick.js`, started by `nudgeScheduler.js`) that Nudges the owner at each
+- `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.ts`),
+  its Google Calendar v3 adapter (`googleCalendar.ts`, plain `fetch` + OAuth refresh token), and
+  a nudge tick (`nudgeTick.ts`, started by `nudgeScheduler.js`) that Nudges the owner at each
   Alert time (all-day events without overrides: once at `CALENDAR_ALLDAY_NUDGE_TIME`), at
   most once per (event, occurrence start, offset) via a local nudged log. Off without
   `GOOGLE_CALENDAR_*` credentials.
-  Setup: `docs/google-calendar-setup.md`. Tests use the in-memory `test/helpers/fakeCalendar.js`.
+  Setup: `docs/google-calendar-setup.md`. Tests use the in-memory `test/helpers/fakeCalendar.ts`.
   With credentials set, the reminder agent creates Reminders on the calendar
-  (`createReminder.js`): an injected extraction function (`reminderExtraction.js`, DeepInfra
+  (`createReminder.ts`): an injected extraction function (`reminderExtraction.ts`, DeepInfra
   in production) turns text into wall-clock fields in the calendar's timezone, and the
   duration/alert/past-time rules are applied after it. "What's on tomorrow / this week" and
-  "list reminders" (`manageReminders.js`) reply with a numbered list remembered per chat for
-  30 minutes (`lastLists.js`); "cancel N" deletes item N of it (Owner-organised only). Calendar
+  "list reminders" (`manageReminders.ts`) reply with a numbered list remembered per chat for
+  30 minutes (`lastLists.ts`); "cancel N" deletes item N of it (Owner-organised only). Calendar
   is the only reminder store: without credentials, only reminder help works.
   SECOND_PHONE manages Reminders like the owner; the bot records it as the creator (as its
   phone JID, even from a LID, via `secondPhoneJid`), and the nudge tick then Nudges both the

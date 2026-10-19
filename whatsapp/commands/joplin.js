@@ -1,4 +1,4 @@
-import joplinAPI from '../../joplin/index.js';
+import joplinAPI from '../../joplin/index.ts';
 
 // Helper function to find note by title or partial title
 async function findNoteByTitle(titleQuery) {

@@ -12,8 +12,8 @@ import {
   refreshLightCache,
   getCacheStatus,
   getCachedLights,
-} from '../../hue/api.js';
-import { openaiChatTokenOpts } from '../../models/models.js';
+} from '../../hue/api.ts';
+import { openaiChatTokenOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
 
 dotenv.config();

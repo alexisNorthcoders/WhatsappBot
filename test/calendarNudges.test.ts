@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { runNudgeTick } from '../whatsapp/calendar/nudgeTick.js';
-import { createFakeCalendar } from './helpers/fakeCalendar.js';
+import { runNudgeTick } from '../whatsapp/calendar/nudgeTick.ts';
+import { createFakeCalendar } from './helpers/fakeCalendar.ts';
 
 const MIN = 60_000;
 const OWNER = '447700900001@s.whatsapp.net';

@@ -8,7 +8,7 @@ import {
 } from '../whatsapp/utils/summarizeArgs.ts';
 import { isHtmlLikeResponse } from '../whatsapp/utils/htmlResponse.ts';
 import { extractArticleTextFromHtml } from '../whatsapp/utils/articleExtract.ts';
-import { DEEPINFRA_DEFAULT_CHAT_MODEL } from '../models/models.js';
+import { DEEPINFRA_DEFAULT_CHAT_MODEL } from '../models/models.ts';
 import summarizeCommand, {
   SUMMARIZE_ACK,
   SUMMARIZE_BUSY,
@@ -202,7 +202,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
     }
 
     /**
-     * @type {typeof import('../models/models.js').deepInfraAPI}
+     * @type {typeof import('../models/models.ts').deepInfraAPI}
      */
     async function fakeDeepInfra(_content, _model, _opts) {
       return 'Mocked summary bullets.';

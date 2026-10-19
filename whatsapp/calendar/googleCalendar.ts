@@ -1,12 +1,12 @@
 /**
- * Google adapter for the `calendar` port (calendarPort.js): plain `fetch` against the
+ * Google adapter for the `calendar` port (calendarPort.ts): plain `fetch` against the
  * Calendar v3 REST API on the primary calendar. Authenticates with an OAuth client ID, secret
  * and refresh token (see scripts/googleCalendarConsent.js) and refreshes access tokens itself.
  */
 
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./calendarPort.js').CalendarNotifications} CalendarNotifications */
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
+/** @typedef {import('./calendarPort.ts').CalendarEvent} CalendarEvent */
+/** @typedef {import('./calendarPort.ts').CalendarNotifications} CalendarNotifications */
+/** @typedef {import('./calendarPort.ts').CalendarPort} CalendarPort */
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -96,7 +96,7 @@ export function normalizeGoogleEvent(g) {
 }
 
 /**
- * @param {import('./calendarPort.js').NewCalendarEvent} input
+ * @param {import('./calendarPort.ts').NewCalendarEvent} input
  */
 function toGoogleEvent(input) {
   const n = input.notifications ?? { mode: 'default' };
@@ -178,7 +178,7 @@ export function createGoogleCalendar(opts) {
   const now = opts.nowMs ?? Date.now;
   /** @type {{ token: string, expiresAt: number } | null} */
   let access = null;
-  /** @type {{ value: import('./calendarPort.js').CalendarSettings, at: number } | null} */
+  /** @type {{ value: import('./calendarPort.ts').CalendarSettings, at: number } | null} */
   let settingsCache = null;
 
   async function refreshAccessToken() {

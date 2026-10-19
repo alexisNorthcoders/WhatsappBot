@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { deepInfraAPI, DEEPINFRA_DEFAULT_CHAT_MODEL } from '../../models/models.js';
+import { deepInfraAPI, DEEPINFRA_DEFAULT_CHAT_MODEL } from '../../models/models.ts';
 import {
   botFetch,
   buildBotFetchRequestInit,

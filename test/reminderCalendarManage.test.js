@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { runReminderAgent, shouldTryReminderAgent, CALENDAR_NOT_CONNECTED_REPLY } from '../whatsapp/agents/reminderAgent.js';
-import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../whatsapp/calendar/reminderIntent.js';
-import { createLastLists } from '../whatsapp/calendar/lastLists.js';
-import { CALENDAR_UNREACHABLE_LIST_REPLY, LIST_LIMIT } from '../whatsapp/calendar/manageReminders.js';
-import { createFakeCalendar } from './helpers/fakeCalendar.js';
+import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../whatsapp/calendar/reminderIntent.ts';
+import { createLastLists } from '../whatsapp/calendar/lastLists.ts';
+import { CALENDAR_UNREACHABLE_LIST_REPLY, LIST_LIMIT } from '../whatsapp/calendar/manageReminders.ts';
+import { createFakeCalendar } from './helpers/fakeCalendar.ts';
 
 const MIN = 60_000;
 // Sat 17 Oct 2026, 14:00 in London (BST).

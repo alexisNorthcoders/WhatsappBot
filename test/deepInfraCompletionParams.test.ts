@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildDeepInfraCompletionCreateArgs,
   DEEPINFRA_DEFAULT_CHAT_MODEL,
-} from '../models/models.js';
+} from '../models/models.ts';
 
 describe('buildDeepInfraCompletionCreateArgs', () => {
   it('forwards temperature into the completion request body', () => {

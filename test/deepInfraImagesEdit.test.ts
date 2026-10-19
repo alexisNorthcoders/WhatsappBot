@@ -5,7 +5,7 @@ import {
   deepInfraImagesEdit,
   DEEPINFRA_IMAGE_EDITS_URL,
   DEEPINFRA_QWEN_IMAGE_EDIT_MODEL,
-} from '../models/models.js';
+} from '../models/models.ts';
 
 const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';

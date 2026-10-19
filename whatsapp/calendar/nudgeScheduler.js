@@ -1,7 +1,7 @@
 import { secondPhoneJid } from '../whatsAppActorAllowlist.js';
-import { createGoogleCalendar } from './googleCalendar.js';
-import { nudgedLogPath } from './nudgedLog.js';
-import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.js';
+import { createGoogleCalendar } from './googleCalendar.ts';
+import { nudgedLogPath } from './nudgedLog.ts';
+import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.ts';
 
 const DEFAULT_POLL_MS = 60_000;
 

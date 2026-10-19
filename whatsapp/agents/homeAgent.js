@@ -1,4 +1,4 @@
-import { askHomeManuals } from '../homeManualsClient.js';
+import { askHomeManuals } from '../homeManualsClient.ts';
 import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.ts';
 
 export const HOME_AGENT_SKIP = 'SKIP';

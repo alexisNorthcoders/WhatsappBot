@@ -8,12 +8,12 @@
  * - a start in the past → refused, nothing created
  */
 
-import { zonedTimeMs } from './nudgeTick.js';
+import { zonedTimeMs } from './nudgeTick.ts';
 
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./calendarPort.js').CalendarNotifications} CalendarNotifications */
-/** @typedef {import('./reminderExtraction.js').ExtractReminder} ExtractReminder */
+/** @typedef {import('./calendarPort.ts').CalendarPort} CalendarPort */
+/** @typedef {import('./calendarPort.ts').CalendarEvent} CalendarEvent */
+/** @typedef {import('./calendarPort.ts').CalendarNotifications} CalendarNotifications */
+/** @typedef {import('./reminderExtraction.ts').ExtractReminder} ExtractReminder */
 
 export const DEFAULT_DURATION_MIN = 15;
 const MIN = 60_000;
@@ -166,7 +166,7 @@ export function formatCreatedReply(event, settings, listNumber) {
  *   nowMs: number,
  *   defaultDurationMin?: number,
  *   allDayNudgeMin?: number,
- *   lastLists?: ReturnType<typeof import('./lastLists.js').createLastLists>,
+ *   lastLists?: ReturnType<typeof import('./lastLists.ts').createLastLists>,
  *   logger?: { warn?: Function },
  * }} deps
  * @returns {Promise<string | null>} the reply, or null when the message isn't a Reminder request
@@ -190,7 +190,7 @@ export async function createCalendarReminder(m, deps) {
     return fields.question;
   }
 
-  /** @type {import('./calendarPort.js').NewCalendarEvent} */
+  /** @type {import('./calendarPort.ts').NewCalendarEvent} */
   let input;
   if (fields.allDay) {
     const startDate = fields.start.slice(0, 10);

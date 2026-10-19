@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { askHomeManuals } from '../whatsapp/homeManualsClient.js';
+import { askHomeManuals } from '../whatsapp/homeManualsClient.ts';
 
 describe('askHomeManuals', () => {
   let prevUrl;

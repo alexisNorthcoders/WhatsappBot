@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { dirname, join } from 'path';
-import { getRepoRoot } from '../repoRoot.js';
+import { getRepoRoot } from '../repoRoot.ts';
 
 const FILE = 'reddit-cron-digest-last-sent.json';
 const DEFAULT_STATUS_FILE =

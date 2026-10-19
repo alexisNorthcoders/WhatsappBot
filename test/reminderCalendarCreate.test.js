@@ -1,11 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { runReminderAgent, shouldTryReminderAgent } from '../whatsapp/agents/reminderAgent.js';
-import { createLastLists } from '../whatsapp/calendar/lastLists.js';
-import { parseExtraction } from '../whatsapp/calendar/reminderExtraction.js';
-import { CALENDAR_UNREACHABLE_REPLY } from '../whatsapp/calendar/createReminder.js';
+import { createLastLists } from '../whatsapp/calendar/lastLists.ts';
+import { parseExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
+import { CALENDAR_UNREACHABLE_REPLY } from '../whatsapp/calendar/createReminder.ts';
 import { ROUTE_CRITERIA } from '../whatsapp/orchestration/jevRouter.js';
-import { createFakeCalendar } from './helpers/fakeCalendar.js';
+import { createFakeCalendar } from './helpers/fakeCalendar.ts';
 
 const MIN = 60_000;
 // Sat 17 Oct 2026, 14:00 in London (BST).
@@ -15,7 +15,7 @@ const CHAT = OWNER;
 
 /**
  * Fake extraction: canned results by message text, recording what it was asked.
- * @param {Record<string, import('../whatsapp/calendar/reminderExtraction.js').ReminderExtraction>} byText
+ * @param {Record<string, import('../whatsapp/calendar/reminderExtraction.ts').ReminderExtraction>} byText
  */
 function fakeExtractor(byText) {
   /** @type {{ text: string, nowMs: number, timeZone: string }[]} */

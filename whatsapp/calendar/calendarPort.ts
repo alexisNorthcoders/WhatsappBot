@@ -1,6 +1,6 @@
 /**
  * The `calendar` port: the one boundary to the Owner's calendar (see #124, ADR 0002).
- * Adapters: `googleCalendar.js` (production), `test/helpers/fakeCalendar.js` (tests).
+ * Adapters: `googleCalendar.ts` (production), `test/helpers/fakeCalendar.ts` (tests).
  *
  * @typedef {{ mode: 'default' }
  *   | { mode: 'explicit', offsetsMin: number[] }

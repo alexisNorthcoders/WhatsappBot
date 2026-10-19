@@ -1,4 +1,4 @@
-import { deepInfraAPI } from '../../models/models.js';
+import { deepInfraAPI } from '../../models/models.ts';
 
 export default async function deepInfraCommand(sock, sender, text) {
     const prompt = text.replace("Deepinfra ", "");

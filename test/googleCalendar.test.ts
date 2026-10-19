@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createGoogleCalendar,
   normalizeGoogleEvent,
-} from '../whatsapp/calendar/googleCalendar.js';
+} from '../whatsapp/calendar/googleCalendar.ts';
 
 /**
  * Scripted fetch: each route returns a canned JSON response; requests are recorded.

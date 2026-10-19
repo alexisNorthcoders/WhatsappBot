@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
-import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.js';
-import { openaiChatTokenOpts } from '../../models/models.js';
+import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.ts';
+import { openaiChatTokenOpts } from '../../models/models.ts';
 import {
   botFetch,
   buildBotFetchRequestInit,

@@ -1,16 +1,16 @@
 /**
  * List and cancel Reminders on the Owner's calendar (#128). A list reply is numbered and
- * remembered per chat (`lastLists.js`); "cancel N" deletes item N of that list. Only Reminders
+ * remembered per chat (`lastLists.ts`); "cancel N" deletes item N of that list. Only Reminders
  * the Owner organises can be cancelled: invites from someone else are declined in Calendar.
  */
 
-import { addDays, formatClock, formatDay, localDate } from './createReminder.js';
-import { occurrenceSpan, zonedTimeMs } from './nudgeTick.js';
+import { addDays, formatClock, formatDay, localDate } from './createReminder.ts';
+import { occurrenceSpan, zonedTimeMs } from './nudgeTick.ts';
 
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./reminderIntent.js').ListWindow} ListWindow */
-/** @typedef {ReturnType<typeof import('./lastLists.js').createLastLists>} LastLists */
+/** @typedef {import('./calendarPort.ts').CalendarPort} CalendarPort */
+/** @typedef {import('./calendarPort.ts').CalendarEvent} CalendarEvent */
+/** @typedef {import('./reminderIntent.ts').ListWindow} ListWindow */
+/** @typedef {ReturnType<typeof import('./lastLists.ts').createLastLists>} LastLists */
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;

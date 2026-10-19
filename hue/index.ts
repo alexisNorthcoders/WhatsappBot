@@ -17,4 +17,4 @@ export {
   refreshLightCache,
   getCachedLights,
   getCacheStatus
-} from './api.js';
+} from './api.ts';

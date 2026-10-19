@@ -1,4 +1,4 @@
-import joplinAPI from './joplin/index.js';
+import joplinAPI from './joplin/index.ts';
 
 async function testJoplinConnection() {
     console.log('🧪 Testing Joplin integration thoroughly...');

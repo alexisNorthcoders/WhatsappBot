@@ -1,7 +1,7 @@
 import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
-import { createCalendarReminder } from '../calendar/createReminder.js';
-import { cancelReminder, listReminders } from '../calendar/manageReminders.js';
-import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../calendar/reminderIntent.js';
+import { createCalendarReminder } from '../calendar/createReminder.ts';
+import { cancelReminder, listReminders } from '../calendar/manageReminders.ts';
+import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../calendar/reminderIntent.ts';
 
 export const CALENDAR_NOT_CONNECTED_REPLY =
   "Reminders live on Google Calendar, which isn't connected to this bot " +
@@ -28,7 +28,7 @@ export function looksLikeAppointment(text) {
 
 /**
  * @param {string} text
- * @returns {import('../calendar/reminderIntent.js').ReminderIntent | null}
+ * @returns {import('../calendar/reminderIntent.ts').ReminderIntent | null}
  */
 function reminderIntent(text) {
   return classifyReminderIntent(text) ?? (looksLikeAppointment(text) ? { kind: 'create' } : null);
@@ -55,11 +55,11 @@ export function shouldTryReminderAgent(text) {
  *   isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean,
  *   creatorIdFor?: (actorId: string | null, actorAltId?: string | null) => string | null,
  *   nowMs?: number,
- *   calendar?: import('../calendar/calendarPort.js').CalendarPort,
- *   extractReminder?: import('../calendar/reminderExtraction.js').ExtractReminder,
+ *   calendar?: import('../calendar/calendarPort.ts').CalendarPort,
+ *   extractReminder?: import('../calendar/reminderExtraction.ts').ExtractReminder,
  *   defaultDurationMin?: number,
  *   allDayNudgeMin?: number,
- *   lastLists?: ReturnType<typeof import('../calendar/lastLists.js').createLastLists>,
+ *   lastLists?: ReturnType<typeof import('../calendar/lastLists.ts').createLastLists>,
  *   logger?: { warn?: Function },
  * }} deps
  *   Without `calendar` (no Google credentials) only help works. `creatorIdFor` picks the

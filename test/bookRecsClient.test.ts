@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { askBookRecs } from '../whatsapp/bookRecsClient.js';
+import { askBookRecs } from '../whatsapp/bookRecsClient.ts';
 
 describe('askBookRecs', () => {
   let prevUrl;
