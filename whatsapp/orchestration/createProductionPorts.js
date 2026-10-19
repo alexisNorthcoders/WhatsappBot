@@ -22,7 +22,7 @@ import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.ts';
 import { createLlmReminderExtractor } from '../calendar/reminderExtraction.ts';
 import { createLastLists } from '../calendar/lastLists.ts';
-import { runAgentsChainSequential } from './agentsTryHandle.js';
+import { runAgentsChainSequential } from './agentsTryHandle.ts';
 import { createJevRouter } from './jevRouter.ts';
 
 /**

@@ -1,25 +1,27 @@
 import { normalizeBaileysMessage } from './normalizeBaileysMessage.ts';
-import { createMessageOrchestrator } from './createMessageOrchestrator.js';
+import { createMessageOrchestrator } from './createMessageOrchestrator.ts';
+import type { OrchestratorPorts } from './createMessageOrchestrator.ts';
+import type { TextSender } from '../types.ts';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
 /**
  * Thin adapter: Baileys upsert → owner check → read receipt → normalize → orchestrator.
  * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.ts)
  * are dropped silently: no read receipt, no reply, so another bot can't start a reply loop.
- * @param {object} opts
- * @param {import('../types.ts').MessageSender} opts.sock
- * @param {() => object} opts.createPorts factory returning full orchestrator ports
- * @param {Record<string, unknown>} opts.commands registry object (for error context only)
  */
-export function createBaileysMessageHandler(opts) {
+export function createBaileysMessageHandler(opts: {
+  sock: TextSender;
+  /** factory returning full orchestrator ports */
+  createPorts: () => OrchestratorPorts;
+  /** registry object (for error context only) */
+  commands: Record<string, unknown>;
+}) {
   const { sock, createPorts, commands } = opts;
   const ports = createPorts();
   const { handleInbound } = createMessageOrchestrator(ports);
 
   return {
-    /**
-     * @param {{ messages?: import('@whiskeysockets/baileys').WAMessage[]; type?: string }} upsert
-     */
-    async handleUpsert(upsert) {
+    async handleUpsert(upsert: { messages?: WAMessage[]; type?: string }) {
       const msg = upsert.messages?.[0];
       if (!msg?.message || msg.key.fromMe) {
         return;
@@ -51,11 +53,12 @@ export function createBaileysMessageHandler(opts) {
           await ports.receipts.markRead(inbound);
           ports.logger.info(`Sent read receipt for message ${msg.key.id}`);
         } catch (err) {
-          ports.logger.warn(`Failed to send read receipt: ${err.message}`);
+          ports.logger.warn(`Failed to send read receipt: ${(err as Error).message}`);
         }
 
         await handleInbound(inbound);
-      } catch (err) {
+      } catch (caught) {
+        const err = caught as Error;
         ports.logger.error({
           error: err.message,
           stack: err.stack,
@@ -78,7 +81,7 @@ export function createBaileysMessageHandler(opts) {
           await sock.sendMessage(inbound.chatId, { text: errorMessage });
         } catch (notifyErr) {
           ports.logger.error({
-            error: notifyErr.message,
+            error: (notifyErr as Error).message,
             originalError: err.message,
             sender: msg.key.remoteJid,
           }, 'Failed to send error notification');

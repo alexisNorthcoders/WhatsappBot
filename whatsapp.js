@@ -8,7 +8,7 @@ import {
 } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
 import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.ts';
-import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.js';
+import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.ts';
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
 import { createSentMessageStore } from './whatsapp/sentMessageStore.js';

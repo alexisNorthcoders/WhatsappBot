@@ -1,8 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../whatsapp/agents/homeAgent.ts';
-import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
-import { fakeInbound } from './helpers/fakeInbound.js';
+import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
+import type { askHomeManuals as askHomeManualsImpl } from '../whatsapp/homeManualsClient.ts';
+import { fakeInbound } from './helpers/fakeInbound.ts';
+
+type AskHomeManuals = typeof askHomeManualsImpl;
 
 describe('shouldTryHomeAgent', () => {
   it('matches natural-language home questions from the issue examples', () => {
@@ -19,7 +22,7 @@ describe('shouldTryHomeAgent', () => {
 
 describe('runHomeAgent', () => {
   it('returns the formatted answer with sources when the service answers', async () => {
-    const askHomeManuals = async (question) => {
+    const askHomeManuals: AskHomeManuals = async (question) => {
       assert.equal(question, 'what boiler do we have?');
       return {
         ok: true,
@@ -34,19 +37,19 @@ describe('runHomeAgent', () => {
   });
 
   it('skips when the service is unreachable/errors', async () => {
-    const askHomeManuals = async () => ({ ok: false, reason: 'error', error: new Error('down') });
+    const askHomeManuals: AskHomeManuals = async () => ({ ok: false, reason: 'error', error: new Error('down') });
     const reply = await runHomeAgent('what boiler do we have?', { askHomeManuals });
     assert.equal(reply, HOME_AGENT_SKIP);
   });
 
   it('skips when not configured', async () => {
-    const askHomeManuals = async () => ({ ok: false, reason: 'not_configured' });
+    const askHomeManuals: AskHomeManuals = async () => ({ ok: false, reason: 'not_configured' });
     const reply = await runHomeAgent('what boiler do we have?', { askHomeManuals });
     assert.equal(reply, HOME_AGENT_SKIP);
   });
 
   it('skips on an "I don\'t know" answer with no sources', async () => {
-    const askHomeManuals = async () => ({
+    const askHomeManuals: AskHomeManuals = async () => ({
       ok: true,
       answer: "I don't know based on the manuals I have.",
       sources: [],
@@ -56,7 +59,7 @@ describe('runHomeAgent', () => {
   });
 
   it('does not skip an "I don\'t know" style answer if sources are present', async () => {
-    const askHomeManuals = async () => ({
+    const askHomeManuals: AskHomeManuals = async () => ({
       ok: true,
       answer: "I don't know the exact model, but here is the relevant manual.",
       sources: [{ item: 'Boiler', manual: 'Boiler Manual' }],
@@ -72,7 +75,7 @@ function noopLogger() {
 
 describe('runAgentsChainSequential home agent wiring', () => {
   it('a natural-language home question reaches homeAgent and its reply is sent', async () => {
-    const log = [];
+    const log: { chatId: string; text: string }[] = [];
     const r = await runAgentsChainSequential(fakeInbound({ text: 'what boiler do we have?' }), {
       logger: noopLogger(),
       messaging: { sendText: async (chatId, text) => log.push({ chatId, text }) },

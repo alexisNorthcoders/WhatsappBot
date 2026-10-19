@@ -6,21 +6,25 @@ import {
   BOOK_AGENT_SKIP,
   BOOK_RECS_UNAVAILABLE,
 } from '../whatsapp/agents/bookAgent.ts';
-import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
-import { fakeInbound } from './helpers/fakeInbound.js';
+import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.ts';
+import type { AgentChainDeps } from '../whatsapp/orchestration/agentsTryHandle.ts';
+import type { askBookRecs } from '../whatsapp/bookRecsClient.ts';
+import { fakeInbound } from './helpers/fakeInbound.ts';
+
+type BookRecsResult = Awaited<ReturnType<typeof askBookRecs>>;
 
 const OWNER = '111@s.whatsapp.net';
 const STRANGER = '999@s.whatsapp.net';
 
-const inbound = (text, actorId = OWNER) => fakeInbound({ text, chatId: actorId, actorId });
+const inbound = (text: string, actorId = OWNER) => fakeInbound({ text, chatId: actorId, actorId });
 
-const isAllowedActor = (actorId) => actorId === OWNER;
+const isAllowedActor = (actorId: string | null | undefined) => actorId === OWNER;
 
-function fakeAsk(result) {
-  const calls = [];
-  const ask = async (question) => {
+function fakeAsk(result: BookRecsResult) {
+  const calls: string[] = [];
+  const ask = async (question: string) => {
     calls.push(question);
-    return typeof result === 'function' ? result(question) : result;
+    return result;
   };
   ask.calls = calls;
   return ask;
@@ -111,7 +115,7 @@ describe('runBookAgent', () => {
     for (const result of [
       { ok: false, reason: 'error', error: new Error('ECONNREFUSED') },
       { ok: false, reason: 'timeout', error: new Error('The operation was aborted due to timeout') },
-    ]) {
+    ] satisfies BookRecsResult[]) {
       const reply = await runBookAgent(inbound('recommend a book'), { askBookRecs: fakeAsk(result), isAllowedActor });
       assert.equal(reply, BOOK_RECS_UNAVAILABLE, result.reason);
     }
@@ -124,9 +128,9 @@ describe('runBookAgent', () => {
   });
 });
 
-function chainDeps(overrides) {
+function chainDeps(overrides: Partial<AgentChainDeps>): AgentChainDeps {
   return {
-    logger: { info() {}, warn() {}, error() {} },
+    logger: { error() {} },
     messaging: { sendText: async () => {} },
     chatMemory: { append: async () => {} },
     shouldTryLightsAgent: () => false,
@@ -148,7 +152,7 @@ function chainDeps(overrides) {
 
 describe('runAgentsChainSequential book agent wiring', () => {
   it("an owner's book request gets the service's answer", async () => {
-    const sent = [];
+    const sent: unknown[] = [];
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: 'Try *Prince of Thorns*.', sources: [] });
     const r = await runAgentsChainSequential(
       inbound('something like Mistborn but darker'),
@@ -164,7 +168,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
   });
 
   it('not_a_request falls through to the normal handlers', async () => {
-    const sent = [];
+    const sent: unknown[] = [];
     const askBookRecs = fakeAsk({ ok: true, kind: 'not_a_request', answer: '', sources: [] });
     const r = await runAgentsChainSequential(
       inbound('finished my book today'),
@@ -182,7 +186,7 @@ describe('runAgentsChainSequential book agent wiring', () => {
 
   it('a Jev "books" route runs the book agent', async () => {
     const askBookRecs = fakeAsk({ ok: true, kind: 'recommendation', answer: 'Read *Dune*.', sources: [] });
-    const sent = [];
+    const sent: unknown[] = [];
     const r = await runAgentsChainSequential(
       inbound('what next after the Expanse'),
       chainDeps({
