@@ -1,25 +1,22 @@
 import { normalizeBaileysMessage } from './normalizeBaileysMessage.ts';
 import { createMessageOrchestrator } from './createMessageOrchestrator.ts';
+import type { MessageSender } from '../types.ts';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
 /**
  * Thin adapter: Baileys upsert → owner check → read receipt → normalize → orchestrator.
  * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.ts)
  * are dropped silently: no read receipt, no reply, so another bot can't start a reply loop.
- * @param {object} opts
- * @param {import('../types.ts').MessageSender} opts.sock
- * @param {() => object} opts.createPorts factory returning full orchestrator ports
- * @param {Record<string, unknown>} opts.commands registry object (for error context only)
+ * @param opts.createPorts factory returning full orchestrator ports
+ * @param opts.commands registry object (for error context only)
  */
-export function createBaileysMessageHandler(opts) {
+export function createBaileysMessageHandler(opts: { sock: MessageSender; createPorts: () => object; commands: Record<string, unknown> }) {
   const { sock, createPorts, commands } = opts;
   const ports = createPorts();
   const { handleInbound } = createMessageOrchestrator(ports);
 
   return {
-    /**
-     * @param {{ messages?: import('@whiskeysockets/baileys').WAMessage[]; type?: string }} upsert
-     */
-    async handleUpsert(upsert) {
+    async handleUpsert(upsert: { messages?: WAMessage[]; type?: string }) {
       const msg = upsert.messages?.[0];
       if (!msg?.message || msg.key.fromMe) {
         return;

@@ -1,50 +1,24 @@
+import type { InboundMessage } from './normalizeBaileysMessage.ts';
+import type { Logger } from '../types.ts';
+
 /**
  * Agent chain. With `routeIntent` (Jev), one call picks the agent and only that agent runs;
  * otherwise (or when Jev is unreachable) agents are tried in order behind their keyword gates,
  * with SKIP fallthrough (same semantics as legacy whatsapp.js).
- * @param {import('./normalizeBaileysMessage.ts').InboundMessage} m
- * @param {object} deps
- * @param {import('../types.ts').Logger} deps.logger
- * @param {{ sendText(chatId: string, text: string): Promise<void> }} deps.messaging
- * @param {{ append(chatId: string, role: 'user'|'assistant', content: string): Promise<void> }} deps.chatMemory
- * @param {(text: string) => Promise<{ agent: string; probability: number; answers?: Record<string, any> } | null>} [deps.routeIntent]
- * @param {(text: string, answers: Record<string, any>) => Promise<string | null>} [deps.runLightsFromJev]
+ * @param deps.runLightsFromJev
  *   Jev-answered lights request; null hands over to runLightsAgent
- * @param {(text: string) => boolean} [deps.shouldTryReminderAgent]
- * @param {(m: import('./normalizeBaileysMessage.ts').InboundMessage) => Promise<{ handled: boolean, replyText?: string }>} [deps.runReminderAgent]
- * @param {(text: string) => boolean} deps.shouldTryLightsAgent
- * @param {(text: string) => Promise<string>} deps.runLightsAgent
- * @param {string} deps.LIGHTS_AGENT_SKIP
- * @param {(text: string) => boolean} deps.shouldTryWeatherAgent
- * @param {(text: string) => Promise<string>} deps.runWeatherAgent
- * @param {string} deps.WEATHER_AGENT_SKIP
- * @param {(text: string) => boolean} deps.shouldTryJoplinAgent
- * @param {(text: string) => Promise<string>} deps.runJoplinAgent
- * @param {string} deps.JOPLIN_AGENT_SKIP
- * @param {(text: string) => boolean} deps.shouldTryEmailAgent
- * @param {(text: string) => Promise<string>} deps.runEmailAgent
- * @param {string} deps.EMAIL_AGENT_SKIP
- * @param {(text: string) => boolean} [deps.shouldTryHomeAgent]
- * @param {(text: string) => Promise<string>} [deps.runHomeAgent]
- * @param {string} [deps.HOME_AGENT_SKIP]
- * @param {(text: string) => boolean} [deps.shouldTryBookAgent]
- * @param {(m: import('./normalizeBaileysMessage.ts').InboundMessage) => Promise<string>} [deps.runBookAgent]
+ * @param deps.runBookAgent
  *   gets the whole message (owner check needs the actor)
- * @param {string} [deps.BOOK_AGENT_SKIP]
- * @param {(actorId: string | null, actorAltId?: string | null) => boolean} [deps.isAllowedActor]
+ * @param deps.isAllowedActor
  *   owner gate for the book agent; without it the book agent is never registered
- * @returns {Promise<{ handled: boolean }>}
  */
-export async function runAgentsChainSequential(m, deps) {
+export async function runAgentsChainSequential(m: InboundMessage, deps: { logger: Logger; messaging: { sendText(chatId: string, text: string): Promise<void> }; chatMemory: { append(chatId: string, role: 'user' | 'assistant', content: string): Promise<void> }; routeIntent?: (text: string) => Promise<{ agent: string; probability: number; answers?: Record<string, any> } | null>; runLightsFromJev?: (text: string, answers: Record<string, any>) => Promise<string | null>; shouldTryReminderAgent?: (text: string) => boolean; runReminderAgent?: (m: InboundMessage) => Promise<{ handled: boolean; replyText?: string }>; shouldTryLightsAgent: (text: string) => boolean; runLightsAgent: (text: string) => Promise<string>; LIGHTS_AGENT_SKIP: string; shouldTryWeatherAgent: (text: string) => boolean; runWeatherAgent: (text: string) => Promise<string>; WEATHER_AGENT_SKIP: string; shouldTryJoplinAgent: (text: string) => boolean; runJoplinAgent: (text: string) => Promise<string>; JOPLIN_AGENT_SKIP: string; shouldTryEmailAgent: (text: string) => boolean; runEmailAgent: (text: string) => Promise<string>; EMAIL_AGENT_SKIP: string; shouldTryHomeAgent?: (text: string) => boolean; runHomeAgent?: (text: string) => Promise<string>; HOME_AGENT_SKIP?: string; shouldTryBookAgent?: (text: string) => boolean; runBookAgent?: (m: InboundMessage) => Promise<string>; BOOK_AGENT_SKIP?: string; isAllowedActor?: (actorId: string | null, actorAltId?: string | null) => boolean }): Promise<{ handled: boolean }> {
   const { logger, messaging, chatMemory, routeIntent } = deps;
   const text = m.text;
   const chatId = m.chatId;
   const agents = listAgents(deps);
 
-  /**
-   * @returns {Promise<boolean>} handled
-   */
-  async function runAgent(agent, route) {
+  async function runAgent(agent, route): Promise<boolean> {
     try {
       const reply = await agent.run(m, route);
       if (reply === null) return false;
@@ -78,9 +52,8 @@ export async function runAgentsChainSequential(m, deps) {
 /**
  * Keys match the Choice options in jevRouter.ts. `run(m, route?)` returns the reply, or null to
  * fall through; `route` is the Jev route when Jev picked this agent.
- * @param {Parameters<typeof runAgentsChainSequential>[1]} deps
  */
-export function listAgents(deps) {
+export function listAgents(deps: Parameters<typeof runAgentsChainSequential>[1]) {
   const skipAware = (run, skip, input = (m) => m.text) => async (m) => {
     const reply = await run(input(m));
     return reply.trim().toUpperCase() === skip ? null : reply;

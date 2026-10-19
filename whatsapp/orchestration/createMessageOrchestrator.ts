@@ -1,27 +1,17 @@
 import { lidExtraJidsHint } from '../whatsAppActorAllowlist.ts';
-
-/** @typedef {import('./normalizeBaileysMessage.ts').InboundMessage} InboundMessage */
+import type { InboundMessage } from './normalizeBaileysMessage.ts';
+import type { Logger } from '../types.ts';
+import type { WAMessage } from '@whiskeysockets/baileys';
 
 /**
- * @param {object} ports
- * @param {{ markRead(m: InboundMessage): Promise<void> }} ports.receipts
- * @param {{ sendText(chatId: string, text: string): Promise<void>; sendPoll(chatId: string, poll: { name: string; values: string[]; selectableCount: number }): Promise<void>; sendImage(chatId: string, image: { buffer: Buffer; caption?: string }): Promise<void> }} ports.messaging
- * @param {{ downloadImageBuffer(m: InboundMessage): Promise<Buffer> }} ports.media
- * @param {{ get(chatId: string): Promise<Array<{ role: 'user'|'assistant'; content: string }>>; append(chatId: string, role: 'user'|'assistant', content: string): Promise<void>; clear(chatId: string): Promise<number> }} ports.chatMemory
- * @param {{ visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user'|'assistant'; content: string }>): Promise<string> }} ports.ai
- * @param {{ runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }} ports.routes
- * @param {{ tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }} ports.agents
- * @param {import('../types.ts').Logger} ports.logger
- * @param {{ isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }} ports.access
- * @param {{ sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> }} ports.agentRunner
+ * @param ports.agentRunner
  *   `claude…` commands go to agent-runner, never the command registry.
  */
-export function createMessageOrchestrator(ports) {
+export function createMessageOrchestrator(ports: { receipts: { markRead(m: InboundMessage): Promise<void> }; messaging: { sendText(chatId: string, text: string): Promise<void>; sendPoll(chatId: string, poll: { name: string; values: string[]; selectableCount: number }): Promise<void>; sendImage(chatId: string, image: { buffer: Buffer; caption?: string }): Promise<void> }; media: { downloadImageBuffer(m: InboundMessage): Promise<Buffer> }; chatMemory: { get(chatId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>>; append(chatId: string, role: 'user' | 'assistant', content: string): Promise<void>; clear(chatId: string): Promise<number> }; ai: { visionText(b64: string): Promise<string>; visionTextHigh(b64: string): Promise<string>; visionHelp(b64: string): Promise<string>; assistant(userText: string, prior: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<string> }; routes: { runSpritePlus(m: InboundMessage): Promise<{ handled: boolean }>; runSdxlPlus(m: InboundMessage): Promise<{ handled: boolean }>; runCommandByFirstToken(m: InboundMessage): Promise<{ handled: boolean }>; runLegacyRoutes(m: InboundMessage): Promise<{ handled: boolean }> }; agents: { tryHandle(m: InboundMessage): Promise<{ handled: boolean; replyText?: string }> }; logger: Logger; access: { isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean }; agentRunner: { sendCommand(req: { text: string; replyTo: string }): Promise<string>; status(): Promise<{ busy: boolean; activeRun: { runId: string } | null }>; missedReport(): Promise<string> } }) {
   /**
    * `claude…` → agent-runner (`claude:missed` is answered from the bot's own outbox cursor).
-   * @param {InboundMessage} m
    */
-  async function delegateToAgentRunner(m, command) {
+  async function delegateToAgentRunner(m: InboundMessage, command) {
     if (!ports.access.isAllowedActor(m.actorId, m.actorAltId)) {
       await ports.messaging.sendText(
         m.chatId,
@@ -48,10 +38,9 @@ export function createMessageOrchestrator(ports) {
   /**
    * A bot restart mid-run can load a half-edited checkout, so `!restart` waits for the runner.
    * Unreachable runner → nothing to wait for. Non-allowlisted actors fall through to the denial.
-   * @param {InboundMessage} m
-   * @returns {Promise<boolean>} true when the restart was refused
+   * @returns true when the restart was refused
    */
-  async function refuseRestartWhileRunActive(m) {
+  async function refuseRestartWhileRunActive(m: InboundMessage): Promise<boolean> {
     if (!ports.access.isAllowedActor(m.actorId, m.actorAltId)) return false;
     let status;
     try {
@@ -68,11 +57,8 @@ export function createMessageOrchestrator(ports) {
     return true;
   }
 
-  /**
-   * @param {InboundMessage} m
-   */
-  async function handleInbound(m) {
-    const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
+  async function handleInbound(m: InboundMessage) {
+    const raw = m.raw as WAMessage;
     const messageType = raw.message ? Object.keys(raw.message)[0] : 'unknown';
     const command = m.text.split(' ')[0].toLowerCase();
 

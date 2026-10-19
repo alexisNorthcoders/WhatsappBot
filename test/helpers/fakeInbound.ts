@@ -1,11 +1,9 @@
-/** @typedef {import('../../whatsapp/orchestration/normalizeBaileysMessage.ts').InboundMessage} InboundMessage */
+import type { InboundMessage } from '../../whatsapp/orchestration/normalizeBaileysMessage.ts';
 
 /**
  * A complete InboundMessage from the owner's DM; override any field.
- * @param {Partial<InboundMessage>} [overrides]
- * @returns {InboundMessage}
  */
-export function fakeInbound(overrides = {}) {
+export function fakeInbound(overrides: Partial<InboundMessage> = {}): InboundMessage {
   const text = overrides.text ?? 'hello';
   return {
     id: '1',
