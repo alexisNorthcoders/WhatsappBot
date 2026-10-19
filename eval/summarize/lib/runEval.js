@@ -11,7 +11,7 @@ import { loadFixture, loadGold } from './loadFiles.js';
  *   model: string;
  *   temperature?: number;
  *   extraFocus?: string;
- *   deepInfraAPI: typeof import('../../../models/models.js').deepInfraAPI;
+ *   deepInfraAPI: typeof import('../../../models/models.ts').deepInfraAPI;
  *   signal?: AbortSignal;
  * }} opts
  */
@@ -65,7 +65,7 @@ export async function runSummarizeEvalOnce(opts) {
  *   model: string;
  *   temperature?: number;
  *   extraFocus?: string;
- *   deepInfraAPI: typeof import('../../../models/models.js').deepInfraAPI;
+ *   deepInfraAPI: typeof import('../../../models/models.ts').deepInfraAPI;
  *   signal?: AbortSignal;
  * }} opts
  */

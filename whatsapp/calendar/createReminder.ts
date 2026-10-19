@@ -8,12 +8,17 @@
  * - a start in the past → refused, nothing created
  */
 
-import { zonedTimeMs } from './nudgeTick.js';
+import { zonedTimeMs } from './nudgeTick.ts';
+import type {
+  CalendarPort,
+  CalendarEvent,
+  CalendarNotifications,
+  NewCalendarEvent,
+} from './calendarPort.ts';
+import type { ExtractReminder } from './reminderExtraction.ts';
+import type { LastLists } from './lastLists.ts';
+import type { Logger } from '../types.ts';
 
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./calendarPort.js').CalendarNotifications} CalendarNotifications */
-/** @typedef {import('./reminderExtraction.js').ExtractReminder} ExtractReminder */
 
 export const DEFAULT_DURATION_MIN = 15;
 const MIN = 60_000;
@@ -23,48 +28,34 @@ export const CALENDAR_UNREACHABLE_REPLY =
   "Couldn't reach Google Calendar, so nothing was created. Please try again in a minute.";
 
 /**
- * @param {string} local `YYYY-MM-DDTHH:MM`
- * @param {string} timeZone
+ * @param local `YYYY-MM-DDTHH:MM`
  */
-function localDateTimeMs(local, timeZone) {
+function localDateTimeMs(local: string, timeZone: string) {
   const [date, time] = local.split('T');
   const [h, m] = time.split(':').map(Number);
   return zonedTimeMs(date, h * 60 + m, timeZone);
 }
 
 /**
- * @param {string} date `YYYY-MM-DD`
- * @param {number} days
+ * @param date `YYYY-MM-DD`
  */
-export function addDays(date, days) {
+export function addDays(date: string, days: number) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY).toISOString().slice(0, 10);
 }
 
-/**
- * @param {number} ms
- * @param {string} timeZone
- */
-export function localDate(ms, timeZone) {
+export function localDate(ms: number, timeZone: string) {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
     new Date(ms)
   );
 }
 
-/**
- * @param {number} ms
- * @param {string} timeZone
- */
-export function formatDay(ms, timeZone) {
+export function formatDay(ms: number, timeZone: string) {
   return new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'short', day: 'numeric', month: 'short' }).format(
     new Date(ms)
   );
 }
 
-/**
- * @param {number} ms
- * @param {string} timeZone
- */
-export function formatClock(ms, timeZone) {
+export function formatClock(ms: number, timeZone: string) {
   return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(
     new Date(ms)
   );
@@ -72,9 +63,8 @@ export function formatClock(ms, timeZone) {
 
 /**
  * 15 → "15 min", 60 → "1 hr", 90 → "1 hr 30 min", 1440 → "1 day".
- * @param {number} min
  */
-export function formatMinutes(min) {
+export function formatMinutes(min: number) {
   if (min > 0 && min % (24 * 60) === 0) {
     const d = min / (24 * 60);
     return `${d} day${d === 1 ? '' : 's'}`;
@@ -89,11 +79,8 @@ export function formatMinutes(min) {
 
 /**
  * One Alert time, e.g. "14:00 (1 hr before)" or "Thu 23 Oct 23:00 (1 hr before)".
- * @param {number} startMs
- * @param {number} offsetMin
- * @param {string} timeZone
  */
-function formatAlert(startMs, offsetMin, timeZone) {
+function formatAlert(startMs: number, offsetMin: number, timeZone: string) {
   const at = startMs - offsetMin * MIN;
   const day = localDate(at, timeZone) === localDate(startMs, timeZone) ? '' : `${formatDay(at, timeZone)} `;
   const rel = offsetMin === 0 ? 'at the start' : `${formatMinutes(offsetMin)} before`;
@@ -101,18 +88,19 @@ function formatAlert(startMs, offsetMin, timeZone) {
 }
 
 /**
- * @param {CalendarEvent} event
- * @param {{ timeZone: string, defaultOffsetsMin: number[], allDayNudgeMin?: number }} settings
- * @param {number | null} listNumber the event's number in the chat's last list, or null when
+ * @param listNumber the event's number in the chat's last list, or null when
  *   there is no list to cancel from (the reply then omits the number and the cancel hint)
  */
-export function formatCreatedReply(event, settings, listNumber) {
+export function formatCreatedReply(
+  event: CalendarEvent,
+  settings: { timeZone: string; defaultOffsetsMin: number[]; allDayNudgeMin?: number },
+  listNumber: number | null,
+) {
   const { timeZone } = settings;
   const lines = [`Added to your calendar${listNumber == null ? '' : ` (#${listNumber})`}: ${event.title}`];
-  /** @type {number} */
-  let alertBaseMs;
+  let alertBaseMs: number;
   if (event.allDay) {
-    const startDate = /** @type {string} */ (event.startDate);
+    const startDate = event.startDate as string;
     const endDate = event.endDate ?? addDays(startDate, 1);
     const days = Math.round((Date.parse(`${endDate}T00:00:00Z`) - Date.parse(`${startDate}T00:00:00Z`)) / DAY);
     const startMs = Date.parse(`${startDate}T12:00:00Z`);
@@ -158,20 +146,21 @@ export function formatCreatedReply(event, settings, listNumber) {
 }
 
 /**
- * @param {{ text: string, chatId: string, actorId: string | null, creatorActorId?: string | null }} m
- *   `creatorActorId` is recorded as the Reminder's creator (default: `actorId`).
- * @param {{
- *   calendar: CalendarPort,
- *   extractReminder: ExtractReminder,
- *   nowMs: number,
- *   defaultDurationMin?: number,
- *   allDayNudgeMin?: number,
- *   lastLists?: ReturnType<typeof import('./lastLists.js').createLastLists>,
- *   logger?: { warn?: Function },
- * }} deps
- * @returns {Promise<string | null>} the reply, or null when the message isn't a Reminder request
+ * `creatorActorId` is recorded as the Reminder's creator (default: `actorId`).
+ * @returns the reply, or null when the message isn't a Reminder request
  */
-export async function createCalendarReminder(m, deps) {
+export async function createCalendarReminder(
+  m: { text: string; chatId: string; actorId: string | null; creatorActorId?: string | null },
+  deps: {
+    calendar: CalendarPort;
+    extractReminder: ExtractReminder;
+    nowMs: number;
+    defaultDurationMin?: number;
+    allDayNudgeMin?: number;
+    lastLists?: LastLists;
+    logger?: Pick<Logger, 'warn'>;
+  },
+): Promise<string | null> {
   const { calendar, extractReminder, nowMs, lastLists, logger } = deps;
   const defaultDurationMin = deps.defaultDurationMin ?? DEFAULT_DURATION_MIN;
 
@@ -179,7 +168,7 @@ export async function createCalendarReminder(m, deps) {
   try {
     settings = await calendar.getSettings();
   } catch (err) {
-    logger?.warn?.({ err: err instanceof Error ? err.message : String(err) }, 'calendar: read settings failed');
+    logger?.warn({ err: err instanceof Error ? err.message : String(err) }, 'calendar: read settings failed');
     return CALENDAR_UNREACHABLE_REPLY;
   }
   const { timeZone } = settings;
@@ -190,8 +179,7 @@ export async function createCalendarReminder(m, deps) {
     return fields.question;
   }
 
-  /** @type {import('./calendarPort.js').NewCalendarEvent} */
-  let input;
+  let input: NewCalendarEvent;
   if (fields.allDay) {
     const startDate = fields.start.slice(0, 10);
     if (startDate < localDate(nowMs, timeZone)) {
@@ -214,8 +202,7 @@ export async function createCalendarReminder(m, deps) {
     input = { title: fields.title, allDay: false, startMs, endMs };
   }
 
-  /** @type {CalendarNotifications} */
-  const notifications = fields.alertOffsetsMin?.length
+  const notifications: CalendarNotifications = fields.alertOffsetsMin?.length
     ? { mode: 'explicit', offsetsMin: fields.alertOffsetsMin }
     : fields.kind === 'remind'
       ? { mode: 'explicit', offsetsMin: [0] }
@@ -227,7 +214,7 @@ export async function createCalendarReminder(m, deps) {
   try {
     event = await calendar.createEvent(input);
   } catch (err) {
-    logger?.warn?.({ err: err instanceof Error ? err.message : String(err) }, 'calendar: create event failed');
+    logger?.warn({ err: err instanceof Error ? err.message : String(err) }, 'calendar: create event failed');
     return CALENDAR_UNREACHABLE_REPLY;
   }
   // A creation reply is a one-item list: it replaces the chat's last list, so "cancel <n>"

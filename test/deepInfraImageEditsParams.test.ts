@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildDeepInfraImageEditsFormFields,
   DEEPINFRA_QWEN_IMAGE_EDIT_MODEL,
-} from '../models/models.js';
+} from '../models/models.ts';
 
 describe('buildDeepInfraImageEditsFormFields', () => {
   it('fills defaults and omits prompt when not provided', () => {

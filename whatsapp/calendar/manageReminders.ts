@@ -1,16 +1,22 @@
 /**
  * List and cancel Reminders on the Owner's calendar (#128). A list reply is numbered and
- * remembered per chat (`lastLists.js`); "cancel N" deletes item N of that list. Only Reminders
+ * remembered per chat (`lastLists.ts`); "cancel N" deletes item N of that list. Only Reminders
  * the Owner organises can be cancelled: invites from someone else are declined in Calendar.
  */
 
-import { addDays, formatClock, formatDay, localDate } from './createReminder.js';
-import { occurrenceSpan, zonedTimeMs } from './nudgeTick.js';
+import { addDays, formatClock, formatDay, localDate } from './createReminder.ts';
+import { occurrenceSpan, zonedTimeMs } from './nudgeTick.ts';
+import type { CalendarPort, CalendarEvent } from './calendarPort.ts';
+import type { ListWindow } from './reminderIntent.ts';
+import type { LastLists } from './lastLists.ts';
+import type { Logger } from '../types.ts';
 
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./reminderIntent.js').ListWindow} ListWindow */
-/** @typedef {ReturnType<typeof import('./lastLists.js').createLastLists>} LastLists */
+type ReminderListDeps = {
+  calendar: CalendarPort;
+  lastLists?: LastLists;
+  nowMs: number;
+  logger?: Pick<Logger, 'warn'>;
+};
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -24,15 +30,15 @@ export const CALENDAR_UNREACHABLE_LIST_REPLY = "Couldn't reach Google Calendar. 
 /**
  * The window a list covers, in the calendar's timezone. Weeks run Monday to Sunday; "today" and
  * "this week" start now, so finished Reminders are left out.
- * @param {ListWindow} window
- * @param {number} nowMs
- * @param {string} timeZone
- * @returns {{ timeMinMs: number, timeMaxMs: number, label: string, empty: string }}
  */
-export function listWindow(window, nowMs, timeZone) {
+export function listWindow(
+  window: ListWindow,
+  nowMs: number,
+  timeZone: string,
+): { timeMinMs: number; timeMaxMs: number; label: string; empty: string } {
   const today = localDate(nowMs, timeZone);
-  const midnight = (/** @type {number} */ days) => zonedTimeMs(addDays(today, days), 0, timeZone);
-  const dayName = (/** @type {number} */ days) => formatDay(Date.parse(`${addDays(today, days)}T12:00:00Z`), 'UTC');
+  const midnight = (days: number) => zonedTimeMs(addDays(today, days), 0, timeZone);
+  const dayName = (days: number) => formatDay(Date.parse(`${addDays(today, days)}T12:00:00Z`), 'UTC');
   const dow = new Date(`${today}T00:00:00Z`).getUTCDay();
   const toMonday = (8 - dow) % 7 || 7;
   switch (window) {
@@ -63,11 +69,12 @@ export function listWindow(window, nowMs, timeZone) {
  * Reminders in the window, by start. All-day Reminders are matched on their local dates (the
  * port carries them as UTC midnights, so the query is widened by a day each side). Declined
  * invites are left out.
- * @param {CalendarPort} calendar
- * @param {{ timeMinMs: number, timeMaxMs: number }} win
- * @param {string} timeZone
  */
-async function remindersIn(calendar, { timeMinMs, timeMaxMs }, timeZone) {
+async function remindersIn(
+  calendar: CalendarPort,
+  { timeMinMs, timeMaxMs }: { timeMinMs: number; timeMaxMs: number },
+  timeZone: string,
+) {
   const events = await calendar.listEvents({ timeMinMs: timeMinMs - DAY, timeMaxMs: timeMaxMs + DAY });
   return events
     .filter((e) => e.responseStatus !== 'declined')
@@ -79,14 +86,12 @@ async function remindersIn(calendar, { timeMinMs, timeMaxMs }, timeZone) {
 
 /**
  * One list line (without its number), e.g. "Mon 19 Oct 15:00–16:00 Dentist".
- * @param {CalendarEvent} event
- * @param {string} timeZone
  */
-export function formatListItem(event, timeZone) {
+export function formatListItem(event: CalendarEvent, timeZone: string) {
   let when;
   if (event.allDay && event.startDate) {
     const lastDay = event.endDate ? addDays(event.endDate, -1) : event.startDate;
-    const day = (/** @type {string} */ d) => formatDay(Date.parse(`${d}T12:00:00Z`), 'UTC');
+    const day = (d: string) => formatDay(Date.parse(`${d}T12:00:00Z`), 'UTC');
     when = lastDay > event.startDate ? `${day(event.startDate)} – ${day(lastDay)}, all day` : `${day(event.startDate)}, all day`;
   } else {
     const sameDay = localDate(event.startMs, timeZone) === localDate(event.endMs - 1, timeZone);
@@ -97,13 +102,11 @@ export function formatListItem(event, timeZone) {
   return `${when}: ${event.title}${event.isOrganizer ? '' : ' (invite)'}`;
 }
 
-/**
- * @param {{ chatId: string }} m
- * @param {ListWindow} window
- * @param {{ calendar: CalendarPort, lastLists?: LastLists, nowMs: number, logger?: { warn?: Function } }} deps
- * @returns {Promise<string>}
- */
-export async function listReminders(m, window, deps) {
+export async function listReminders(
+  m: { chatId: string },
+  window: ListWindow,
+  deps: ReminderListDeps,
+): Promise<string> {
   const { calendar, lastLists, nowMs, logger } = deps;
   let timeZone;
   let events;
@@ -113,7 +116,7 @@ export async function listReminders(m, window, deps) {
     win = listWindow(window, nowMs, timeZone);
     events = await remindersIn(calendar, win, timeZone);
   } catch (err) {
-    logger?.warn?.({ err: err instanceof Error ? err.message : String(err) }, 'calendar: list events failed');
+    logger?.warn({ err: err instanceof Error ? err.message : String(err) }, 'calendar: list events failed');
     return CALENDAR_UNREACHABLE_LIST_REPLY;
   }
   const shown = events.slice(0, LIST_LIMIT);
@@ -129,12 +132,12 @@ export async function listReminders(m, window, deps) {
 
 /**
  * Delete item `n` of the chat's last list.
- * @param {{ chatId: string }} m
- * @param {number} n
- * @param {{ calendar: CalendarPort, lastLists?: LastLists, nowMs: number, logger?: { warn?: Function } }} deps
- * @returns {Promise<string>}
  */
-export async function cancelReminder(m, n, deps) {
+export async function cancelReminder(
+  m: { chatId: string },
+  n: number,
+  deps: ReminderListDeps,
+): Promise<string> {
   const { calendar, lastLists, nowMs, logger } = deps;
   const list = lastLists?.get(m.chatId, nowMs) ?? null;
   if (!list) {
@@ -151,7 +154,7 @@ export async function cancelReminder(m, n, deps) {
   try {
     await calendar.deleteEvent(evt.id);
   } catch (err) {
-    logger?.warn?.({ err: err instanceof Error ? err.message : String(err) }, 'calendar: delete event failed');
+    logger?.warn({ err: err instanceof Error ? err.message : String(err) }, 'calendar: delete event failed');
     return "Couldn't reach Google Calendar, so nothing was cancelled. Please try again.";
   }
   return `Cancelled #${n}: ${evt.title}`;

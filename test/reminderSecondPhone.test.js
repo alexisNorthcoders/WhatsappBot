@@ -4,15 +4,15 @@ import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { runReminderAgent } from '../whatsapp/agents/reminderAgent.js';
-import { createLastLists } from '../whatsapp/calendar/lastLists.js';
-import { runNudgeTick } from '../whatsapp/calendar/nudgeTick.js';
+import { createLastLists } from '../whatsapp/calendar/lastLists.ts';
+import { runNudgeTick } from '../whatsapp/calendar/nudgeTick.ts';
 import {
   clearOwnerLids,
   isAllowedActor,
   resolveOwnerLids,
   secondPhoneJid,
 } from '../whatsapp/whatsAppActorAllowlist.js';
-import { createFakeCalendar } from './helpers/fakeCalendar.js';
+import { createFakeCalendar } from './helpers/fakeCalendar.ts';
 
 const MIN = 60_000;
 // Sat 17 Oct 2026, 14:00 in London (BST).

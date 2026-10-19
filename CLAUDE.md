@@ -24,6 +24,7 @@ npm start              # node --no-deprecation whatsapp.js — main bot process
 npm test               # type check, then node --test on test/**/*.test.{js,ts} (node:test, no framework)
 npm run typecheck      # both tsc passes below — type check only (~7s on the Pi)
 node scripts/renameToTs.ts <file.js>…  # rename to .ts and rewrite every import and path mention
+node scripts/jsdocToTs.ts <file.ts>…   # then move the renamed files' JSDoc types into TS syntax
 node --test test/foo.test.js          # run a single test file
 node --test --test-name-pattern="…" test/foo.test.js   # run a single test by name
 npm run eval:summarize -- --all       # offline eval for the `summarize` command against fixtures/gold
@@ -33,11 +34,14 @@ npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Jo
 The repo is moving from JS to TypeScript, leaf modules first. Node 24 runs `.ts` directly (type
 stripping), so there is no build step: imports name the real `.ts` extension, and only erasable
 syntax is allowed (no enums, namespaces or parameter properties; `import type` for types).
-Typechecking runs two `tsc` passes, both with no emit. `tsconfig.json` checks every `.ts` file with
-`strict`. `tsconfig.checkjs.json` checks the remaining JS through its JSDoc types with
-`strictNullChecks` only; delete it once no `.js` is left. A `.ts` file can't import a `.js` module,
-so convert a module's dependencies first. Convert a file with `scripts/renameToTs.ts`, then add
-the types by hand, and move the module's tests to `.ts` in the same PR. JS tests in `test/` are
+Typechecking runs two passes, both with no emit. `tsc -p .` checks every `.ts` file with
+`strict` (`tsconfig.json`). `scripts/typecheckJs.ts` checks the remaining JS through its JSDoc
+types with `strictNullChecks` only (`tsconfig.checkjs.json`), and reports nothing in `.ts` files,
+which the strict pass owns. Delete both once no `.js` is left. A `.ts` file can't import a `.js`
+module, so convert a module's dependencies first. Convert files with `scripts/renameToTs.ts`, then
+`scripts/jsdocToTs.ts` (TypeScript's own JSDoc-to-TS code fixes), commit each script's output on
+its own, then fix the remaining strict errors by hand. Move the module's tests to `.ts` in the
+same PR. JS tests in `test/` are
 not type-checked. Shared types
 (`Logger`, `MessageSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
 function needs so tests can pass small fakes.
@@ -128,19 +132,19 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
 
 ### Other background jobs started from `whatsapp.js`
 
-- `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.js`),
-  its Google Calendar v3 adapter (`googleCalendar.js`, plain `fetch` + OAuth refresh token), and
-  a nudge tick (`nudgeTick.js`, started by `nudgeScheduler.js`) that Nudges the owner at each
+- `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.ts`),
+  its Google Calendar v3 adapter (`googleCalendar.ts`, plain `fetch` + OAuth refresh token), and
+  a nudge tick (`nudgeTick.ts`, started by `nudgeScheduler.js`) that Nudges the owner at each
   Alert time (all-day events without overrides: once at `CALENDAR_ALLDAY_NUDGE_TIME`), at
   most once per (event, occurrence start, offset) via a local nudged log. Off without
   `GOOGLE_CALENDAR_*` credentials.
-  Setup: `docs/google-calendar-setup.md`. Tests use the in-memory `test/helpers/fakeCalendar.js`.
+  Setup: `docs/google-calendar-setup.md`. Tests use the in-memory `test/helpers/fakeCalendar.ts`.
   With credentials set, the reminder agent creates Reminders on the calendar
-  (`createReminder.js`): an injected extraction function (`reminderExtraction.js`, DeepInfra
+  (`createReminder.ts`): an injected extraction function (`reminderExtraction.ts`, DeepInfra
   in production) turns text into wall-clock fields in the calendar's timezone, and the
   duration/alert/past-time rules are applied after it. "What's on tomorrow / this week" and
-  "list reminders" (`manageReminders.js`) reply with a numbered list remembered per chat for
-  30 minutes (`lastLists.js`); "cancel N" deletes item N of it (Owner-organised only). Calendar
+  "list reminders" (`manageReminders.ts`) reply with a numbered list remembered per chat for
+  30 minutes (`lastLists.ts`); "cancel N" deletes item N of it (Owner-organised only). Calendar
   is the only reminder store: without credentials, only reminder help works.
   SECOND_PHONE manages Reminders like the owner; the bot records it as the creator (as its
   phone JID, even from a LID, via `secondPhoneJid`), and the nudge tick then Nudges both the

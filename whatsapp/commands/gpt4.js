@@ -1,4 +1,4 @@
-import { gPT4generateResponse } from "../../models/models.js";
+import { gPT4generateResponse } from "../../models/models.ts";
 
 export default async function gpt4Command(sock, sender, text) {
   const prompt = text.replace(/^gpt4\s*/i, '');

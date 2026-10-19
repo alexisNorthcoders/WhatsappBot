@@ -3,14 +3,20 @@ import dotenv from 'dotenv';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
+import type { CompletionUsage } from 'openai/resources/completions';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const GENERATED_DIR = path.join(__dirname, '..', 'assets', 'generated');
 
-/** @returns {Promise<string|null>} absolute filepath or null on failure */
-async function saveGeneratedImage(response, prompt) {
+type ImageDataEntry = { b64_json?: string; url?: string };
+
+async function saveGeneratedImage(
+  response: { data?: ImageDataEntry[] },
+  prompt: string,
+): Promise<string | null> {
   try {
     await fs.mkdir(GENERATED_DIR, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -18,10 +24,10 @@ async function saveGeneratedImage(response, prompt) {
     const filename = `${timestamp}_${slug}.png`;
     const filepath = path.join(GENERATED_DIR, filename);
 
-    const entry = response.data[0];
-    if (entry.b64_json) {
+    const entry = response.data?.[0];
+    if (entry?.b64_json) {
       await fs.writeFile(filepath, Buffer.from(entry.b64_json, 'base64'));
-    } else if (entry.url) {
+    } else if (entry?.url) {
       const res = await fetch(entry.url);
       const buffer = Buffer.from(await res.arrayBuffer());
       await fs.writeFile(filepath, buffer);
@@ -31,7 +37,7 @@ async function saveGeneratedImage(response, prompt) {
     console.log(`Saved generated image: ${filepath}`);
     return filepath;
   } catch (err) {
-    console.error('Failed to save generated image:', err.message);
+    console.error('Failed to save generated image:', (err as Error).message);
     return null;
   }
 }
@@ -45,10 +51,8 @@ const DEFAULT_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-5-mini';
 
 /**
  * GPT-5 and o-series chat models use `max_completion_tokens` instead of `max_tokens`.
- * @param {string} model
- * @param {number} max
  */
-export function openaiChatTokenOpts(model, max) {
+export function openaiChatTokenOpts(model: string, max: number) {
   const m = String(model || '').trim();
   if (/^(gpt-5|o\d)/i.test(m)) {
     return { max_completion_tokens: max };
@@ -65,14 +69,16 @@ export const deepInfra = new OpenAI({
 /** Default chat model for `deepInfraAPI` when `model` is omitted. */
 export const DEEPINFRA_DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V3';
 
+type DeepInfraChatOptions = { signal?: AbortSignal; temperature?: number | null };
+
 /**
  * Build the body passed to `deepInfra.chat.completions.create` (pure; used by tests for option plumbing).
- * @param {string} content
- * @param {string} model
- * @param {{ temperature?: number | null }} [options]
- * @returns {import('openai/resources/chat/completions').ChatCompletionCreateParamsNonStreaming}
  */
-export function buildDeepInfraCompletionCreateArgs(content, model, options = {}) {
+export function buildDeepInfraCompletionCreateArgs(
+  content: string,
+  model: string,
+  options: DeepInfraChatOptions = {},
+): ChatCompletionCreateParamsNonStreaming {
   const { temperature } = options;
   return {
     messages: [{ role: 'user', content }],
@@ -81,15 +87,10 @@ export function buildDeepInfraCompletionCreateArgs(content, model, options = {})
   };
 }
 
-/**
- * @param {string} content
- * @param {string} [model]
- * @param {{ signal?: AbortSignal; temperature?: number | null }} [options]
- */
 export async function deepInfraAPI(
-  content,
-  model = DEEPINFRA_DEFAULT_CHAT_MODEL,
-  options = {},
+  content: string,
+  model: string = DEEPINFRA_DEFAULT_CHAT_MODEL,
+  options: DeepInfraChatOptions = {},
 ) {
   if (!process.env.DEEPINFRA_API_KEY?.trim()) {
     throw new Error('DEEPINFRA_API_KEY is not set; cannot call the DeepInfra chat model.');
@@ -105,7 +106,7 @@ export async function deepInfraAPI(
   return completion.choices[0]?.message?.content ?? '';
 }
 
-export async function getGeocoding(city) {
+export async function getGeocoding(city: string) {
   const apiKey = process.env.OPENWEATHER_API_KEY;
   const geocodeURL = `http://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=1&appid=${apiKey}`;
   try {
@@ -118,7 +119,7 @@ export async function getGeocoding(city) {
   }
 
 }
-export async function getWeatherData(city) {
+export async function getWeatherData(city: string) {
   const apiKey = process.env.OPENWEATHER_API_KEY;
   try {
     const geocode = await getGeocoding(city);
@@ -142,11 +143,8 @@ const CHAT_HISTORY_CONTENT_CAP = parseInt(process.env.CHAT_MEMORY_MAX_CONTENT ||
  * GPT-5 / o-series models use internal reasoning tokens that count toward the same
  * `max_completion_tokens` budget as visible text. Too low a limit often yields
  * empty `message.content` (reasoning exhausts the budget first).
- *
- * @param {string} model
- * @returns {number}
  */
-function assistantMaxCompletionTokens(model) {
+function assistantMaxCompletionTokens(model: string): number {
   const fromEnv = parseInt(process.env.OPENAI_ASSISTANT_MAX_COMPLETION_TOKENS || '', 10);
   if (Number.isFinite(fromEnv) && fromEnv > 0) {
     return fromEnv;
@@ -155,11 +153,11 @@ function assistantMaxCompletionTokens(model) {
   return /^(gpt-5|o\d)/i.test(m) ? 8192 : 1000;
 }
 
-/**
- * @param {string} userMessage
- * @param {{ role: string, content: string }[]} [priorMessages] prior user/assistant turns only (no system)
- */
-export async function assistantgenerateResponse(userMessage, priorMessages = []) {
+/** @param priorMessages prior user/assistant turns only (no system) */
+export async function assistantgenerateResponse(
+  userMessage: string,
+  priorMessages: { role: string; content: string }[] = [],
+) {
   try {
     const maxPrior = Math.max(0, CHAT_HISTORY_API_CAP - 1);
     const valid = Array.isArray(priorMessages)
@@ -171,7 +169,7 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
               typeof m.content === 'string'
           )
           .map((m) => ({
-            role: /** @type {'user' | 'assistant'} */ (m.role),
+            role: m.role as 'user' | 'assistant',
             content: String(m.content).slice(0, CHAT_HISTORY_CONTENT_CAP),
           }))
       : [];
@@ -210,7 +208,7 @@ export async function assistantgenerateResponse(userMessage, priorMessages = [])
     throw new Error('Error generating response');
   }
 }
-export async function gPT4generateResponse(userMessage) {
+export async function gPT4generateResponse(userMessage: string) {
   try {
     const completion = await openai.chat.completions.create({
       model: DEFAULT_CHAT_MODEL,
@@ -229,7 +227,7 @@ export async function gPT4generateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-export async function visionQuality(base64) {
+export async function visionQuality(base64: string) {
   const response = await openai.chat.completions.create({
     model: DEFAULT_CHAT_MODEL,
     messages: [
@@ -250,10 +248,10 @@ export async function visionQuality(base64) {
     ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 10000),
   });
   console.log(response.usage)
-  console.log(`Total cost: $${calculateCost(response.usage)}`)
+  console.log(`Total cost: $${calculateCost(response.usage!)}`)
   return response.choices[0].message.content;
 }
-export async function vision(base64) {
+export async function vision(base64: string) {
   const response = await openai.chat.completions.create({
     model: DEFAULT_CHAT_MODEL,
     messages: [
@@ -274,10 +272,10 @@ export async function vision(base64) {
     ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1500),
   });
   console.log(response.usage)
-  console.log(`Total cost: $${calculateCost(response.usage)}`)
+  console.log(`Total cost: $${calculateCost(response.usage!)}`)
   return response.choices[0].message.content;
 }
-export async function visionHelp(base64) {
+export async function visionHelp(base64: string) {
   const response = await openai.chat.completions.create({
     model: DEFAULT_CHAT_MODEL,
     messages: [
@@ -298,12 +296,12 @@ export async function visionHelp(base64) {
     ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1500),
   });
   console.log(response.usage)
-  console.log(`Total cost: $${calculateCost(response.usage)}`)
+  console.log(`Total cost: $${calculateCost(response.usage!)}`)
   return response.choices[0].message.content;
 }
 const VALID_SPRITE_SIZES = ['16x16', '32x32', '48x48', '64x64', '128x128'];
 
-function buildPixelArtPromptText(userMessage, size = '32x32') {
+function buildPixelArtPromptText(userMessage: string, size = '32x32') {
   return [
     `Create a ${size} pixel art game sprite of: ${userMessage}.`,
     `Style rules: clean pixel art, limited retro color palette,`,
@@ -313,10 +311,10 @@ function buildPixelArtPromptText(userMessage, size = '32x32') {
   ].join(' ');
 }
 
-/**
- * @returns {Promise<{ buffer: Buffer, filepath: string|null }>}
- */
-export async function pixelArtGenerateResponse(userMessage, size = '32x32') {
+export async function pixelArtGenerateResponse(
+  userMessage: string,
+  size = '32x32',
+): Promise<{ buffer: Buffer; filepath: string | null }> {
   try {
     const pixelArtPrompt = buildPixelArtPromptText(userMessage, size);
 
@@ -341,7 +339,7 @@ export async function pixelArtGenerateResponse(userMessage, size = '32x32') {
   }
 }
 
-async function spriteRefinePromptFromImageFile(absPath, editInstruction, size) {
+async function spriteRefinePromptFromImageFile(absPath: string, editInstruction: string, size: string) {
   const b64 = (await fs.readFile(absPath)).toString('base64');
   const response = await openai.chat.completions.create({
     model: DEFAULT_CHAT_MODEL,
@@ -372,12 +370,13 @@ async function spriteRefinePromptFromImageFile(absPath, editInstruction, size) {
 
 /**
  * Edit an on-disk sprite via images.edit; on API failure, vision-led regenerate.
- * @param {string} resolvedPath absolute path under assets/generated
- * @param {string} editInstruction user request
- * @param {string} [size]
- * @returns {Promise<{ buffer: Buffer, filepath: string|null }>}
+ * @param resolvedPath absolute path under assets/generated
  */
-export async function pixelArtEditFromFile(resolvedPath, editInstruction, size = '32x32') {
+export async function pixelArtEditFromFile(
+  resolvedPath: string,
+  editInstruction: string,
+  size = '32x32',
+): Promise<{ buffer: Buffer; filepath: string | null }> {
   const buf = await fs.readFile(resolvedPath);
   if (buf.length > 4 * 1024 * 1024) {
     throw new Error('Image file too large for edit API (max 4MB).');
@@ -388,7 +387,7 @@ export async function pixelArtEditFromFile(resolvedPath, editInstruction, size =
   const prompt = (stylePrefix + editInstruction).slice(0, 1000);
   const slug = `sprite_edit_${size}_${editInstruction}`;
 
-  const tryEdit = async (model) => {
+  const tryEdit = async (model: string) => {
     const imageFile = await toFile(buf, 'sprite.png', { type: 'image/png' });
     return openai.images.edit({
       model,
@@ -405,11 +404,11 @@ export async function pixelArtEditFromFile(resolvedPath, editInstruction, size =
     try {
       response = await tryEdit('gpt-image-1.5');
     } catch (e1) {
-      console.warn('images.edit gpt-image-1.5 failed, trying gpt-image-1', e1.message);
+      console.warn('images.edit gpt-image-1.5 failed, trying gpt-image-1', (e1 as Error).message);
       try {
         response = await tryEdit('gpt-image-1');
       } catch (e2) {
-        console.warn('images.edit gpt-image-1 failed, trying dall-e-2', e2.message);
+        console.warn('images.edit gpt-image-1 failed, trying dall-e-2', (e2 as Error).message);
         response = await tryEdit('dall-e-2');
       }
     }
@@ -427,13 +426,13 @@ export async function pixelArtEditFromFile(resolvedPath, editInstruction, size =
     const filepath = await saveGeneratedImage(response, slug);
     return { buffer: outBuf, filepath };
   } catch (err) {
-    console.error('images.edit chain failed, using vision-led regenerate', err.message);
+    console.error('images.edit chain failed, using vision-led regenerate', (err as Error).message);
     const refined = await spriteRefinePromptFromImageFile(resolvedPath, editInstruction, size);
     return pixelArtGenerateResponse(refined, size);
   }
 }
 
-export async function gptImageGenerateResponse(userMessage) {
+export async function gptImageGenerateResponse(userMessage: string) {
   try {
     const response = await openai.images.generate({
       model: "dall-e-3",
@@ -455,9 +454,10 @@ export const DEEPINFRA_IMAGE_GENERATIONS_URL = 'https://api.deepinfra.com/v1/ope
 
 /**
  * Pure builder for DeepInfra /v1/openai/images/generations body.
- * @param {{ prompt: string; model: string; size?: string; n?: number }} args
  */
-export function buildDeepInfraImageGenerationsBody(args) {
+type DeepInfraImageGenerationArgs = { prompt: string; model: string; size?: string; n?: number };
+
+export function buildDeepInfraImageGenerationsBody(args: DeepInfraImageGenerationArgs) {
   const { prompt, model, size = '1024x1024', n = 1 } = args || {};
   return {
     prompt,
@@ -475,12 +475,11 @@ export const DEEPINFRA_QWEN_IMAGE_EDIT_MODEL = 'Qwen/Qwen-Image-Edit';
 /**
  * Decode the first OpenAI-style image object (`b64_json` or download `url`).
  * Used by DeepInfra image helpers so decode/download behavior stays consistent.
- *
- * @param {{ b64_json?: string; url?: string } | null | undefined} entry
- * @param {{ fetchFn?: typeof fetch; downloadFailureMessage?: string }} [options]
- * @returns {Promise<Buffer>}
  */
-export async function bufferFromOpenAIImageDataEntry(entry, options = {}) {
+export async function bufferFromOpenAIImageDataEntry(
+  entry: ImageDataEntry | null | undefined,
+  options: { fetchFn?: typeof fetch; downloadFailureMessage?: string } = {},
+): Promise<Buffer> {
   const { fetchFn = fetch, downloadFailureMessage = 'Failed to download image' } = options;
   if (entry?.b64_json) {
     return Buffer.from(entry.b64_json, 'base64');
@@ -495,30 +494,33 @@ export async function bufferFromOpenAIImageDataEntry(entry, options = {}) {
 
 /**
  * Scalar fields for DeepInfra `POST /v1/openai/images/edits` multipart body (the `image` file is appended separately).
- * @param {{ model?: string; size?: string; n?: number; prompt?: string }} [args]
  */
-export function buildDeepInfraImageEditsFormFields(args = {}) {
+export function buildDeepInfraImageEditsFormFields(
+  args: { model?: string; size?: string; n?: number; prompt?: string } = {},
+) {
   const {
     model = DEEPINFRA_QWEN_IMAGE_EDIT_MODEL,
     size = '1024x1024',
     n = 1,
     prompt,
   } = args;
-  const out = { model, size, n };
+  const out: { model: string; size: string; n: number; prompt?: string } = { model, size, n };
   if (prompt != null && String(prompt).trim() !== '') {
     out.prompt = String(prompt).trim();
   }
   return out;
 }
 
+type DeepInfraFetchOptions = { signal?: AbortSignal; fetchFn?: typeof fetch };
+
 /**
  * Call DeepInfra OpenAI-compatible image generations endpoint.
  * Returns the raw JSON response.
- *
- * @param {{ prompt: string; model: string; size?: string; n?: number }} args
- * @param {{ signal?: AbortSignal; fetchFn?: typeof fetch }} [options]
  */
-export async function deepInfraImagesGenerate(args, options = {}) {
+export async function deepInfraImagesGenerate(
+  args: DeepInfraImageGenerationArgs,
+  options: DeepInfraFetchOptions = {},
+) {
   if (!process.env.DEEPINFRA_API_KEY?.trim()) {
     throw new Error('DEEPINFRA_API_KEY is not set; cannot call DeepInfra image models.');
   }
@@ -550,21 +552,20 @@ export async function deepInfraImagesGenerate(args, options = {}) {
   return json;
 }
 
-/**
- * Call DeepInfra OpenAI-compatible image edits endpoint (multipart form-data).
- *
- * @param {{
- *   image: Buffer | Uint8Array;
- *   imageFilename?: string;
- *   imageMimeType?: string;
- *   prompt?: string;
- *   model?: string;
- *   size?: string;
- *   n?: number;
- * }} args
- * @param {{ signal?: AbortSignal; fetchFn?: typeof fetch }} [options]
- */
-export async function deepInfraImagesEdit(args, options = {}) {
+type DeepInfraImageEditArgs = {
+  image: Buffer | Uint8Array;
+  imageFilename?: string;
+  imageMimeType?: string;
+  prompt?: string;
+  model?: string;
+  size?: string;
+  n?: number;
+};
+
+export async function deepInfraImagesEdit(
+  args: DeepInfraImageEditArgs,
+  options: DeepInfraFetchOptions = {},
+) {
   if (!process.env.DEEPINFRA_API_KEY?.trim()) {
     throw new Error('DEEPINFRA_API_KEY is not set; cannot call DeepInfra image edits.');
   }
@@ -623,11 +624,11 @@ export async function deepInfraImagesEdit(args, options = {}) {
 
 /**
  * Generate an image with Stability SDXL Turbo via DeepInfra (OpenAI-compatible images API).
- * @param {string} prompt
- * @param {{ size?: string; fetchFn?: typeof fetch }} [options]
- * @returns {Promise<{ buffer: Buffer; filepath: string|null }>}
  */
-export async function sdxlTurboGenerateResponse(prompt, options = {}) {
+export async function sdxlTurboGenerateResponse(
+  prompt: string,
+  options: { size?: string; fetchFn?: typeof fetch } = {},
+): Promise<{ buffer: Buffer; filepath: string | null }> {
   const { size = '1024x1024', fetchFn } = options;
   const json = await deepInfraImagesGenerate(
     { prompt, model: 'stabilityai/sdxl-turbo', size, n: 1 },
@@ -652,21 +653,13 @@ export async function sdxlTurboGenerateResponse(prompt, options = {}) {
 /**
  * Edit an image with Qwen Image Edit via DeepInfra (`/v1/openai/images/edits`).
  *
- * @param {{
- *   image: Buffer | Uint8Array;
- *   prompt?: string;
- *   imageFilename?: string;
- *   imageMimeType?: string;
- *   model?: string;
- *   size?: string;
- *   n?: number;
- * }} args
- * @param {{ fetchFn?: typeof fetch }} [options]
- * @returns {Promise<{ buffer: Buffer; filepath: string|null }>}
  * Persisted beside other bot images via {@link saveGeneratedImage}: each run gets a distinct
  * `{ISO timestamp}_{sanitizedSlug}.png` under `assets/generated/` (prompt-based slug or `qwen_edit` fallback).
  */
-export async function qwenImageEditGenerateResponse(args, options = {}) {
+export async function qwenImageEditGenerateResponse(
+  args: DeepInfraImageEditArgs,
+  options: { fetchFn?: typeof fetch } = {},
+): Promise<{ buffer: Buffer; filepath: string | null }> {
   const resolvedArgs = args ?? {};
   const { fetchFn } = options;
   const json = await deepInfraImagesEdit(
@@ -692,7 +685,7 @@ export async function qwenImageEditGenerateResponse(args, options = {}) {
   return { buffer, filepath };
 }
 
-export async function recipeGenerateResponse(userMessage) {
+export async function recipeGenerateResponse(userMessage: string) {
   try {
     const completion = await openai.completions.create({
       model: 'gpt-3.5-turbo-instruct',
@@ -707,7 +700,7 @@ export async function recipeGenerateResponse(userMessage) {
     throw new Error('Error generating response');
   }
 }
-export async function gPT3WizardgenerateResponse(userMessage) {
+export async function gPT3WizardgenerateResponse(userMessage: string) {
   try {
     const completion = await openai.chat.completions.create({
       model: DEFAULT_CHAT_MODEL,
@@ -727,7 +720,7 @@ export async function gPT3WizardgenerateResponse(userMessage) {
   }
 }
 
-export function calculateCost(tokens) {
+export function calculateCost(tokens: CompletionUsage) {
   const promptCost = tokens.prompt_tokens * 10 / 1000000
   const outputCost = tokens.completion_tokens * 30 / 1000000
   return (promptCost + outputCost).toFixed(3)

@@ -1,4 +1,4 @@
-import { askBookRecs } from '../bookRecsClient.js';
+import { askBookRecs } from '../bookRecsClient.ts';
 
 export const BOOK_AGENT_SKIP = 'SKIP';
 export const BOOK_RECS_UNAVAILABLE = 'Book recommendations are unavailable right now.';

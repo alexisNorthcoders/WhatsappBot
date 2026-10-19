@@ -38,14 +38,21 @@ function rewriteSpecifiers(file: string, text: string, renames: Map<string, stri
   });
 }
 
-function rewritePathMentions(text: string, renames: Map<string, string>): string {
-  for (const [from, to] of renames) {
-    text = text.replace(new RegExp(`(?<![\\w./-])${escapeRegExp(from)}\\b`, 'g'), to);
-  }
+function rewriteMentions(text: string, mentions: [RegExp, string][]): string {
+  for (const [pattern, replacement] of mentions) text = text.replace(pattern, replacement);
   return text;
 }
 
 const renames = renameAll(process.argv.slice(2));
+
+const trackedBasenames = git('ls-files').split('\n').map((f) => path.basename(f));
+const mentions: [RegExp, string][] = [...renames].map(([from, to]) => {
+  const name = path.basename(from);
+  const unique = !trackedBasenames.includes(name) && [...renames.keys()].filter((f) => path.basename(f) === name).length === 1;
+  return unique
+    ? [new RegExp(`(?<![\\w.-])${escapeRegExp(name)}\\b`, 'g'), path.basename(to)]
+    : [new RegExp(`(?<![\\w.-]|[\\w-]/|\\.\\./)${escapeRegExp(from)}\\b`, 'g'), to];
+});
 
 const basenames = [...renames.keys()].flatMap((f) => ['-e', path.basename(f)]);
 const candidates = git('grep', '-lIF', ...basenames)
@@ -55,7 +62,7 @@ const candidates = git('grep', '-lIF', ...basenames)
 for (const file of candidates) {
   const abs = path.join(root, file);
   const before = readFileSync(abs, 'utf8');
-  let after = rewritePathMentions(before, renames);
+  let after = rewriteMentions(before, mentions);
   if (/\.(m?js|ts)$/.test(file)) after = rewriteSpecifiers(file, after, renames);
   if (after !== before) {
     writeFileSync(abs, after);

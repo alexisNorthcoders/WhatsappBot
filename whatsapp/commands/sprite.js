@@ -1,5 +1,5 @@
 import path from 'path';
-import { pixelArtGenerateResponse, pixelArtEditFromFile } from '../../models/models.js';
+import { pixelArtGenerateResponse, pixelArtEditFromFile } from '../../models/models.ts';
 import {
   setLastSpritePath,
   getLastSpritePath,

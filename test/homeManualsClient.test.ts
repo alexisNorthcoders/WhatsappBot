@@ -1,9 +1,10 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { askHomeManuals } from '../whatsapp/homeManualsClient.js';
+import type { FetchLike } from '../whatsapp/types.ts';
+import { askHomeManuals } from '../whatsapp/homeManualsClient.ts';
 
 describe('askHomeManuals', () => {
-  let prevUrl;
+  let prevUrl: string | undefined;
 
   beforeEach(() => {
     prevUrl = process.env.HOME_MANUALS_URL;
@@ -17,13 +18,12 @@ describe('askHomeManuals', () => {
 
   it('returns not_configured when HOME_MANUALS_URL is unset and no baseUrl given', async () => {
     const result = await askHomeManuals('what boiler do we have?');
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, 'not_configured');
+    assert.deepEqual(result, { ok: false, reason: 'not_configured' });
   });
 
   it('POSTs { question } to baseUrl/ask and returns { answer, sources }', async () => {
-    const calls = [];
-    const fetchImpl = async (url, init) => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const fetchImpl: FetchLike = async (url, init) => {
       calls.push({ url, init });
       return {
         ok: true,
@@ -42,18 +42,19 @@ describe('askHomeManuals', () => {
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, 'http://127.0.0.1:3100/ask');
-    assert.equal(calls[0].init.method, 'POST');
-    assert.equal(calls[0].init.headers['Content-Type'], 'application/json');
-    assert.deepEqual(JSON.parse(calls[0].init.body), { question: 'what boiler do we have?' });
+    const init = calls[0].init!;
+    assert.equal(init.method, 'POST');
+    assert.deepEqual(init.headers, { 'Content-Type': 'application/json' });
+    assert.deepEqual(JSON.parse(String(init.body)), { question: 'what boiler do we have?' });
 
-    assert.equal(result.ok, true);
+    assert.ok(result.ok);
     assert.equal(result.answer, 'It is a Worcester Bosch Greenstar.');
     assert.deepEqual(result.sources, [{ item: 'Boiler', manual: 'Worcester Bosch Manual', page: 4 }]);
   });
 
   it('strips a trailing slash from baseUrl before appending /ask', async () => {
-    const calls = [];
-    const fetchImpl = async (url) => {
+    const calls: string[] = [];
+    const fetchImpl: FetchLike = async (url) => {
       calls.push(url);
       return { ok: true, status: 200, json: async () => ({ answer: 'ok', sources: [] }) };
     };
@@ -64,8 +65,7 @@ describe('askHomeManuals', () => {
   it('returns ok:false reason:error on non-OK HTTP status', async () => {
     const fetchImpl = async () => ({ ok: false, status: 500, json: async () => ({}) });
     const result = await askHomeManuals('q', { baseUrl: 'http://127.0.0.1:3100', fetchImpl });
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, 'error');
+    assert.ok(!result.ok && result.reason === 'error');
     assert.match(result.error.message, /500/);
   });
 
@@ -74,15 +74,14 @@ describe('askHomeManuals', () => {
       throw new Error('ECONNREFUSED');
     };
     const result = await askHomeManuals('q', { baseUrl: 'http://127.0.0.1:3100', fetchImpl });
-    assert.equal(result.ok, false);
-    assert.equal(result.reason, 'error');
+    assert.ok(!result.ok && result.reason === 'error');
     assert.match(result.error.message, /ECONNREFUSED/);
   });
 
   it('defaults sources to [] when missing from the response', async () => {
     const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ answer: 'ok' }) });
     const result = await askHomeManuals('q', { baseUrl: 'http://127.0.0.1:3100', fetchImpl });
-    assert.equal(result.ok, true);
+    assert.ok(result.ok);
     assert.deepEqual(result.sources, []);
   });
 });

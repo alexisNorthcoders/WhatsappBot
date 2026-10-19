@@ -3,17 +3,16 @@ import assert from 'node:assert/strict';
 import {
   createGoogleCalendar,
   normalizeGoogleEvent,
-} from '../whatsapp/calendar/googleCalendar.js';
+} from '../whatsapp/calendar/googleCalendar.ts';
 
 /**
  * Scripted fetch: each route returns a canned JSON response; requests are recorded.
- * @param {Record<string, (req: { url: URL, init: RequestInit }) => { status?: number, body?: unknown }>} routes
  */
-function fakeFetch(routes) {
-  /** @type {{ url: URL, init: RequestInit }[]} */
-  const calls = [];
-  /** @type {typeof fetch} */
-  const f = async (input, init = {}) => {
+type FakeRequest = { url: URL; init: RequestInit };
+
+function fakeFetch(routes: Record<string, (req: FakeRequest) => { status?: number; body?: unknown }>) {
+  const calls: FakeRequest[] = [];
+  const f: typeof fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     calls.push({ url, init });
     const key = `${init.method ?? 'GET'} ${url.origin}${url.pathname}`;
@@ -115,8 +114,7 @@ describe('google calendar adapter', () => {
   });
 
   it('creates an event with the creator in private extended properties', async () => {
-    /** @type {any} */
-    let posted;
+    let posted: any;
     const { fetch } = fakeFetch({
       [TOKEN]: () => ({ body: { access_token: 'at', expires_in: 3600 } }),
       'POST https://www.googleapis.com/calendar/v3/calendars/primary/events': ({ init }) => {
@@ -202,8 +200,7 @@ describe('normalizeGoogleEvent', () => {
 
 describe('google calendar adapter: all-day create', () => {
   it('ends a one-day all-day event on the next day (exclusive end)', async () => {
-    /** @type {any} */
-    let posted;
+    let posted: any;
     const { fetch } = fakeFetch({
       [TOKEN]: () => ({ body: { access_token: 'at', expires_in: 3600 } }),
       'POST https://www.googleapis.com/calendar/v3/calendars/primary/events': ({ init }) => {

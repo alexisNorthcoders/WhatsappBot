@@ -1,12 +1,18 @@
 /**
- * Google adapter for the `calendar` port (calendarPort.js): plain `fetch` against the
+ * Google adapter for the `calendar` port (calendarPort.ts): plain `fetch` against the
  * Calendar v3 REST API on the primary calendar. Authenticates with an OAuth client ID, secret
  * and refresh token (see scripts/googleCalendarConsent.js) and refreshes access tokens itself.
  */
 
-/** @typedef {import('./calendarPort.js').CalendarEvent} CalendarEvent */
-/** @typedef {import('./calendarPort.js').CalendarNotifications} CalendarNotifications */
-/** @typedef {import('./calendarPort.js').CalendarPort} CalendarPort */
+import type {
+  CalendarEvent,
+  CalendarNotifications,
+  CalendarPort,
+  NewCalendarEvent,
+  CalendarSettings,
+} from './calendarPort.ts';
+import type { FetchLike } from '../types.ts';
+
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -18,10 +24,7 @@ const TOKEN_SKEW_MS = 60_000;
 const SETTINGS_TTL_MS = 15 * 60_000;
 const RESPONSE_STATUSES = new Set(['accepted', 'declined', 'tentative', 'needsAction']);
 
-/**
- * @param {{ dateTime?: string, date?: string } | undefined} t
- */
-function timeMs(t) {
+function timeMs(t: { dateTime?: string; date?: string } | undefined) {
   if (t?.dateTime) return Date.parse(t.dateTime);
   if (t?.date) return Date.parse(`${t.date}T00:00:00Z`);
   return NaN;
@@ -29,31 +32,28 @@ function timeMs(t) {
 
 /**
  * Google `{ minutes }` reminder entries → deduped minute offsets.
- * @param {unknown} list
- * @returns {number[]}
  */
-function offsetsFromReminders(list) {
+function offsetsFromReminders(list: unknown): number[] {
   return [
     ...new Set(
       (Array.isArray(list) ? list : [])
-        .map((/** @type {any} */ r) => Number(r?.minutes))
+        .map((r: any) => Number(r?.minutes))
         .filter(Number.isFinite)
     ),
   ];
 }
 
 /**
- * @param {string} date `YYYY-MM-DD`
+ * @param date `YYYY-MM-DD`
  */
-function nextDay(date) {
+function nextDay(date: string) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + 24 * 60 * 60_000).toISOString().slice(0, 10);
 }
 
 /**
- * @param {any} reminders Google `event.reminders`
- * @returns {CalendarNotifications}
+ * @param reminders Google `event.reminders`
  */
-function normalizeNotifications(reminders) {
+function normalizeNotifications(reminders: any): CalendarNotifications {
   if (!reminders || reminders.useDefault !== false) return { mode: 'default' };
   const offsetsMin = offsetsFromReminders(reminders.overrides);
   return offsetsMin.length ? { mode: 'explicit', offsetsMin } : { mode: 'none' };
@@ -61,20 +61,17 @@ function normalizeNotifications(reminders) {
 
 /**
  * Google Calendar v3 event resource → plain {@link CalendarEvent}.
- * @param {any} g
- * @returns {CalendarEvent}
  */
-export function normalizeGoogleEvent(g) {
+export function normalizeGoogleEvent(g: any): CalendarEvent {
   const allDay = Boolean(g?.start?.date && !g?.start?.dateTime);
   const self = Array.isArray(g?.attendees)
-    ? g.attendees.find((/** @type {any} */ a) => a?.self)
+    ? g.attendees.find((a: any) => a?.self)
     : undefined;
   const isOrganizer = g?.organizer ? Boolean(g.organizer.self) : true;
   const status = self?.responseStatus;
   const priv = g?.extendedProperties?.private ?? {};
   const createdByBot = priv.createdBy === BOT_CREATOR_TAG;
-  /** @type {CalendarEvent} */
-  const event = {
+  const event: CalendarEvent = {
     id: String(g?.id ?? ''),
     title: String(g?.summary ?? ''),
     allDay,
@@ -95,13 +92,9 @@ export function normalizeGoogleEvent(g) {
   return event;
 }
 
-/**
- * @param {import('./calendarPort.js').NewCalendarEvent} input
- */
-function toGoogleEvent(input) {
+function toGoogleEvent(input: NewCalendarEvent) {
   const n = input.notifications ?? { mode: 'default' };
-  /** @type {Record<string, unknown>} */
-  const body = {
+  const body: Record<string, unknown> = {
     summary: input.title,
     reminders:
       n.mode === 'default'
@@ -134,22 +127,16 @@ function toGoogleEvent(input) {
 }
 
 export class GoogleCalendarError extends Error {
-  /**
-   * @param {string} message
-   * @param {number} status
-   */
-  constructor(message, status) {
+  status: number;
+
+  constructor(message: string, status: number) {
     super(message);
     this.name = 'GoogleCalendarError';
     this.status = status;
   }
 }
 
-/**
- * @param {Pick<Response, 'ok' | 'status' | 'json'>} res
- * @param {string} what
- */
-async function failure(res, what) {
+async function failure(res: Pick<Response, 'ok' | 'status' | 'json'>, what: string) {
   let detail = '';
   try {
     const body = await res.json();
@@ -163,23 +150,17 @@ async function failure(res, what) {
   );
 }
 
-/**
- * @param {{
- *   clientId: string,
- *   clientSecret: string,
- *   refreshToken: string,
- *   fetch?: import('../types.ts').FetchLike,
- *   nowMs?: () => number,
- * }} opts
- * @returns {CalendarPort}
- */
-export function createGoogleCalendar(opts) {
+export function createGoogleCalendar(opts: {
+    clientId: string;
+    clientSecret: string;
+    refreshToken: string;
+    fetch?: FetchLike;
+    nowMs?: () => number;
+  }): CalendarPort {
   const doFetch = opts.fetch ?? globalThis.fetch;
   const now = opts.nowMs ?? Date.now;
-  /** @type {{ token: string, expiresAt: number } | null} */
-  let access = null;
-  /** @type {{ value: import('./calendarPort.js').CalendarSettings, at: number } | null} */
-  let settingsCache = null;
+  let access: { token: string; expiresAt: number } | null = null;
+  let settingsCache: { value: CalendarSettings; at: number } | null = null;
 
   async function refreshAccessToken() {
     const res = await doFetch(TOKEN_URL, {
@@ -204,15 +185,9 @@ export function createGoogleCalendar(opts) {
     return refreshAccessToken();
   }
 
-  /**
-   * @param {string} url
-   * @param {RequestInit & { allow?: number[] }} [init]
-   * @param {string} [what]
-   */
-  async function api(url, init = {}, what = 'request') {
+  async function api(url: string, init: RequestInit & { allow?: number[] } = {}, what: string = 'request') {
     const { allow = [], ...rest } = init;
-    /** @param {string} token */
-    const send = (token) =>
+    const send = (token: string) =>
       doFetch(url, {
         ...rest,
         headers: {
@@ -229,8 +204,7 @@ export function createGoogleCalendar(opts) {
 
   return {
     async listEvents({ timeMinMs, timeMaxMs }) {
-      /** @type {CalendarEvent[]} */
-      const out = [];
+      const out: CalendarEvent[] = [];
       let pageToken = '';
       do {
         const q = new URLSearchParams({

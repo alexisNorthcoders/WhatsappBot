@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDeepInfraImageGenerationsBody } from '../models/models.js';
+import { buildDeepInfraImageGenerationsBody } from '../models/models.ts';
 
 describe('buildDeepInfraImageGenerationsBody', () => {
   it('fills defaults (size, n)', () => {

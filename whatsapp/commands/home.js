@@ -1,4 +1,4 @@
-import { askHomeManuals } from '../homeManualsClient.js';
+import { askHomeManuals } from '../homeManualsClient.ts';
 import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.ts';
 
 /** Test-only: marks injected `{ askHomeManuals? }` so raw WhatsApp messages are never mistaken for deps. */

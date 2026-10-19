@@ -204,7 +204,7 @@ describe('runSummarizeEvalOnce (mocked LLM, no network)', () => {
       ],
     });
 
-    /** @type {typeof import('../models/models.js').deepInfraAPI} */
+    /** @type {typeof import('../models/models.ts').deepInfraAPI} */
     async function fakeLlm() {
       return good;
     }
@@ -241,7 +241,7 @@ describe('runSummarizeEvalOnce (mocked LLM, no network)', () => {
       ],
     });
 
-    /** @type {typeof import('../models/models.js').deepInfraAPI} */
+    /** @type {typeof import('../models/models.ts').deepInfraAPI} */
     async function fakeLlm() {
       return good;
     }
@@ -266,7 +266,7 @@ describe('runSummarizeEvalOnce (mocked LLM, no network)', () => {
   });
 
   it('runSummarizeEvalAll propagates when gold file path does not exist', async () => {
-    /** @type {typeof import('../models/models.js').deepInfraAPI} */
+    /** @type {typeof import('../models/models.ts').deepInfraAPI} */
     async function fakeLlm() {
       return '{}';
     }
@@ -297,7 +297,7 @@ describe('runSummarizeEvalOnce (mocked LLM, no network)', () => {
       }),
     );
 
-    /** @type {typeof import('../models/models.js').deepInfraAPI} */
+    /** @type {typeof import('../models/models.ts').deepInfraAPI} */
     async function fakeLlm() {
       return '{}';
     }

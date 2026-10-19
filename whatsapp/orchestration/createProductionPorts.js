@@ -2,7 +2,7 @@ import restartCommand from '../commands/restart.js';
 import { spriteIterateCommand } from '../commands/sprite.js';
 import { sdxlIterateCommand } from '../commands/sdxl.js';
 import { lidExtraJidsHint, secondPhoneJid } from '../whatsAppActorAllowlist.js';
-import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.js';
+import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.ts';
 import { pickRandomTopic } from '../../data/helper.js';
 import { topics } from '../../data/topics.js';
 import { getMessages, appendMessage, clearMessages } from '../chatMemory.js';
@@ -19,9 +19,9 @@ import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/hom
 import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.js';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.js';
 import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.js';
-import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.js';
-import { createLlmReminderExtractor } from '../calendar/reminderExtraction.js';
-import { createLastLists } from '../calendar/lastLists.js';
+import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.ts';
+import { createLlmReminderExtractor } from '../calendar/reminderExtraction.ts';
+import { createLastLists } from '../calendar/lastLists.ts';
 import { runAgentsChainSequential } from './agentsTryHandle.js';
 import { createJevRouter } from './jevRouter.js';
 
