@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { createClient } from 'redis';
+import type { RedisClientType } from 'redis';
 
 dotenv.config();
 
@@ -9,12 +10,9 @@ export const CHAT_MEMORY_MAX_MESSAGES = parseInt(process.env.CHAT_MEMORY_MAX_MES
 const BACKEND = (process.env.CHAT_MEMORY_BACKEND || 'memory').toLowerCase() === 'redis' ? 'redis' : 'memory';
 const REDIS_KEY_PREFIX = 'whatsapp:chat:';
 
-/** @type {Map<string, { role: string, content: string }[]>} */
-/** @type {Map<string, { role: 'user' | 'assistant', content: string }[]>} */
-const memoryStore = new Map();
+const memoryStore: Map<string, { role: 'user' | 'assistant'; content: string }[]> = new Map();
 
-/** @type {import('redis').RedisClientType | null} */
-let redisClient = null;
+let redisClient: RedisClientType | null = null;
 
 function truncate(content) {
   const s = String(content ?? '');
@@ -44,11 +42,7 @@ function redisKey(jid) {
   return `${REDIS_KEY_PREFIX}${jid}`;
 }
 
-/**
- * @param {string} jid
- * @returns {Promise<{ role: 'user' | 'assistant', content: string }[]>}
- */
-export async function getMessages(jid) {
+export async function getMessages(jid: string): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
   if (!jid) return [];
   if (BACKEND === 'redis') {
     const client = await getRedis();
@@ -71,15 +65,9 @@ export async function getMessages(jid) {
 }
 
 /**
- * @param {string} jid
- * @param {'user' | 'assistant'} role
- * @param {string} content
+ * @returns number of messages that were cleared
  */
-/**
- * @param {string} jid
- * @returns {Promise<number>} number of messages that were cleared
- */
-export async function clearMessages(jid) {
+export async function clearMessages(jid: string): Promise<number> {
   if (!jid) return 0;
   if (BACKEND === 'redis') {
     const client = await getRedis();
@@ -94,12 +82,7 @@ export async function clearMessages(jid) {
   return len;
 }
 
-/**
- * @param {string} jid
- * @param {'user' | 'assistant'} role
- * @param {string} content
- */
-export async function appendMessage(jid, role, content) {
+export async function appendMessage(jid: string, role: 'user' | 'assistant', content: string) {
   if (!jid) return;
   if (role !== 'user' && role !== 'assistant') return;
   const entry = { role, content: truncate(content) };

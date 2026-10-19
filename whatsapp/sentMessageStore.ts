@@ -7,9 +7,8 @@ const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
  * Retry receipts name a specific device (`123:4@s.whatsapp.net`) and we may have sent to the
  * `@c.us` form, so both sides are normalized to `123@s.whatsapp.net` before matching.
  * Matching stays per-chat (not id-only) so a retry can never pull another chat's message.
- * @param {{ remoteJid: string, id: string }} key
  */
-function entryKey({ remoteJid, id }) {
+function entryKey({ remoteJid, id }: { remoteJid: string; id: string }) {
   return `${jidNormalizedUser(remoteJid)}|${id}`;
 }
 
@@ -20,16 +19,13 @@ function entryKey({ remoteJid, id }) {
  *
  * Map insertion order doubles as age order: the first entry is always the oldest, so both
  * TTL pruning and size eviction only ever touch the front.
- *
- * @param {{ maxEntries?: number, ttlMs?: number, now?: () => number }} [opts]
  */
 export function createSentMessageStore({
   maxEntries = DEFAULT_MAX_ENTRIES,
   ttlMs = DEFAULT_TTL_MS,
   now = Date.now,
-} = {}) {
-  /** @type {Map<string, { message: object, expiresAt: number }>} */
-  const entries = new Map();
+}: { maxEntries?: number; ttlMs?: number; now?: () => number } = {}) {
+  const entries: Map<string, { message: object; expiresAt: number }> = new Map();
 
   const isExpired = (entry) => entry.expiresAt <= now();
 

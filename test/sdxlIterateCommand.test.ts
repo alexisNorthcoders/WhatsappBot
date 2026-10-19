@@ -6,10 +6,9 @@ const JID = '15550001111@s.whatsapp.net';
 
 describe('sdxlIterateCommand (sdxl+)', () => {
   it('sends usage when called with no change request after sdxl+', async () => {
-    /** @type {string[]} */
-    const texts = [];
+    const texts: string[] = [];
     const sock = {
-      sendMessage: async (/** @type {string} */ _jid, /** @type {{ text?: string }} */ content) => {
+      sendMessage: async (_jid: string, content: { text?: string }) => {
         if (content?.text != null) texts.push(String(content.text));
       },
     };
@@ -25,10 +24,9 @@ describe('sdxlIterateCommand (sdxl+)', () => {
   });
 
   it('sends a friendly message when there is no last SDXL image for this chat', async () => {
-    /** @type {string[]} */
-    const texts = [];
+    const texts: string[] = [];
     const sock = {
-      sendMessage: async (/** @type {string} */ _jid, /** @type {{ text?: string }} */ content) => {
+      sendMessage: async (_jid: string, content: { text?: string }) => {
         if (content?.text != null) texts.push(String(content.text));
       },
     };

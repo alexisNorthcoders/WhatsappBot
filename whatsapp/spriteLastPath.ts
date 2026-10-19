@@ -7,26 +7,23 @@ const GENERATED_DIR = path.join(__dirname, '..', 'assets', 'generated');
 
 const TTL_MS = parseInt(process.env.SPRITE_LAST_PATH_TTL_MS || String(24 * 60 * 60 * 1000), 10);
 
-/** @type {Map<string, { path: string, at: number }>} */
-const store = new Map();
+const store: Map<string, { path: string; at: number }> = new Map();
 
 /** Basenames only: timestamp-style PNGs from saveGeneratedImage. */
 const SAFE_BASENAME = /^[a-zA-Z0-9._-]+\.png$/;
 
 /**
- * @param {string} jid
- * @param {string} absPath absolute path written under assets/generated
+ * @param absPath absolute path written under assets/generated
  */
-export function setLastSpritePath(jid, absPath) {
+export function setLastSpritePath(jid: string, absPath: string) {
   if (!jid || !absPath) return;
   store.set(jid, { path: absPath, at: Date.now() });
 }
 
 /**
- * @param {string} jid
- * @returns {string | null} absolute path or null if missing / expired
+ * @returns absolute path or null if missing / expired
  */
-export function getLastSpritePath(jid) {
+export function getLastSpritePath(jid: string): string | null {
   if (!jid) return null;
   const row = store.get(jid);
   if (!row) return null;
@@ -39,10 +36,10 @@ export function getLastSpritePath(jid) {
 
 /**
  * Resolve a user-supplied basename to a real file under assets/generated.
- * @param {string} basename e.g. 2026-03-23T00-08-06-174Z_sprite_32x32_foo.png
- * @returns {Promise<string>} absolute path
+ * @param basename e.g. 2026-03-23T00-08-06-174Z_sprite_32x32_foo.png
+ * @returns absolute path
  */
-export async function resolveGeneratedPngBasename(basename) {
+export async function resolveGeneratedPngBasename(basename: string): Promise<string> {
   const base = String(basename || '').trim();
   if (!SAFE_BASENAME.test(base) || base.includes('..') || path.basename(base) !== base) {
     throw new Error('Invalid filename');

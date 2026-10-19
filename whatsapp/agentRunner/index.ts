@@ -1,28 +1,26 @@
 import { createClient } from 'redis';
 import { createAgentRunnerClient } from './agentRunnerClient.ts';
 import { createOutboxDrain, createRedisOutboxStore } from './agentRunnerOutbox.ts';
+import type { Logger } from '../types.ts';
 
 const REDIS_CONNECT_TIMEOUT_MS = 3000;
 
 /**
  * Bot side of agent-runner (docs/adr/0001-agent-runner-out-of-process.md): the orchestrator's
  * `agentRunner` port, plus the outbox drain that `whatsapp.js` starts on connect.
- *
- * @param {{
- *   url: string,
- *   redisUrl?: string,
- *   sendText: (chatId: string, text: string) => Promise<void>,
- *   getOwnerJid: () => string | null,
- *   logger: import('../types.ts').Logger,
- * }} p
  */
-export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwnerJid, logger }) {
+export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwnerJid, logger }: {
+    url: string;
+    redisUrl?: string;
+    sendText: (chatId: string, text: string) => Promise<void>;
+    getOwnerJid: () => string | null;
+    logger: Logger;
+  }) {
   const client = createAgentRunnerClient({ baseUrl: url });
 
   // node-redis keeps retrying a failed connect (and queues commands while offline) without ever
   // settling, which would hang `claude:missed`. Time-box the connect and fail commands fast instead.
-  /** @type {Promise<ReturnType<typeof createClient>> | null} */
-  let connecting = null;
+  let connecting: Promise<ReturnType<typeof createClient>> | null = null;
   const connect = () => {
     if (!connecting) {
       const redis = createClient({ url: redisUrl || 'redis://127.0.0.1:6379', disableOfflineQueue: true });

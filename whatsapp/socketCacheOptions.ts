@@ -14,9 +14,8 @@ export function createMsgRetryCounterCache() {
 /**
  * Cache-related `makeWASocket` options. Deliberately no `userDevicesCache`: Baileys' default
  * TTL cache refreshes a contact's device list, so newly linked devices can decrypt our messages.
- * @param {NodeCache} msgRetryCounterCache
  */
-export function socketCacheOptions(msgRetryCounterCache) {
+export function socketCacheOptions(msgRetryCounterCache: NodeCache) {
   return {
     maxMsgRetryCount: 3,
     msgRetryCounterCache,

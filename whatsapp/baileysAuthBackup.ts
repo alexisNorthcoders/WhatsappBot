@@ -6,10 +6,8 @@ import path from 'node:path';
  * format (one-way). An existing backup is never touched, so later starts keep the pre-v7 copy.
  * The copy is staged in `<backupDir>.partial` and renamed into place, so a crash mid-copy never
  * leaves a half backup that would then be treated as final.
- * @param {{ authDir: string, backupDir: string }} opts
- * @returns {Promise<{ status: 'created' | 'exists' | 'no-auth' }>}
  */
-export async function backupAuthDirOnce({ authDir, backupDir }) {
+export async function backupAuthDirOnce({ authDir, backupDir }: { authDir: string; backupDir: string }): Promise<{ status: 'created' | 'exists' | 'no-auth' }> {
   const auth = path.resolve(authDir);
   const backup = path.resolve(backupDir);
   if (backup === auth || backup.startsWith(auth + path.sep)) {

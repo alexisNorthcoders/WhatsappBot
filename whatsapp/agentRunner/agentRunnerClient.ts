@@ -21,15 +21,12 @@ export class AgentRunnerUnreachableError extends Error {
   }
 }
 
-/**
- * @param {{ baseUrl: string, fetchImpl?: typeof fetch, commandTimeoutMs?: number, statusTimeoutMs?: number }} p
- */
 export function createAgentRunnerClient({
   baseUrl,
   fetchImpl = fetch,
   commandTimeoutMs = COMMAND_TIMEOUT_MS,
   statusTimeoutMs = STATUS_TIMEOUT_MS,
-}) {
+}: { baseUrl: string; fetchImpl?: typeof fetch; commandTimeoutMs?: number; statusTimeoutMs?: number }) {
   const root = baseUrl.replace(/\/+$/, '');
 
   async function call(method, path, body, timeoutMs) {
@@ -50,15 +47,14 @@ export function createAgentRunnerClient({
   }
 
   return {
-    /** @returns {Promise<string>} the runner's reply text */
-    async sendCommand({ text, replyTo }) {
+    /** @returns the runner's reply text */
+    async sendCommand({ text, replyTo }): Promise<string> {
       const { reply } = await call('POST', '/command', { text, replyTo }, commandTimeoutMs);
       if (typeof reply !== 'string') throw new AgentRunnerUnreachableError('response has no reply');
       return reply;
     },
 
-    /** @returns {Promise<{ busy: boolean, activeRun: { runId: string } | null, paused: boolean }>} */
-    status() {
+    status(): Promise<{ busy: boolean; activeRun: { runId: string } | null; paused: boolean }> {
       return call('GET', '/status', undefined, statusTimeoutMs);
     },
   };

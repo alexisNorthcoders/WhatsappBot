@@ -1,5 +1,6 @@
 import { askHomeManuals } from '../homeManualsClient.ts';
 import { formatHomeAnswerReply } from '../utils/formatHomeAnswer.ts';
+import type { MessageSender } from '../types.ts';
 
 /** Test-only: marks injected `{ askHomeManuals? }` so raw WhatsApp messages are never mistaken for deps. */
 const homeInjectedDepsBrand = Symbol.for('WhatsappBot.home.injectedDeps');
@@ -7,25 +8,22 @@ const homeInjectedDepsBrand = Symbol.for('WhatsappBot.home.injectedDeps');
 /**
  * Wrap test-only `{ askHomeManuals? }`. Production passes the raw Baileys message as the
  * 4th argument; it must not be mistaken for injected deps.
- * @param {{ askHomeManuals?: typeof askHomeManuals }} partial
  */
-export function homeInjectedDeps(partial) {
+export function homeInjectedDeps(partial: { askHomeManuals?: typeof askHomeManuals }) {
   return { [homeInjectedDepsBrand]: true, ...partial };
 }
 
 /**
- * @param {unknown} fourthArg raw Baileys message in production, or {@link homeInjectedDeps} in tests
+ * @param fourthArg raw Baileys message in production, or {@link homeInjectedDeps} in tests
  */
-function resolveHomeDeps(fourthArg) {
+function resolveHomeDeps(fourthArg: unknown) {
   if (
     fourthArg != null &&
     typeof fourthArg === 'object' &&
-    /** @type {Record<symbol, unknown>} */ (fourthArg)[homeInjectedDepsBrand] === true
+    (fourthArg as Record<symbol, unknown>)[homeInjectedDepsBrand] === true
   ) {
-    const { [homeInjectedDepsBrand]: _b, ...rest } = /** @type {Record<symbol | string, unknown>} */ (
-      fourthArg
-    );
-    return /** @type {{ askHomeManuals?: typeof askHomeManuals }} */ (rest);
+    const { [homeInjectedDepsBrand]: _b, ...rest } = fourthArg as Record<symbol | string, unknown>;
+    return rest as { askHomeManuals?: typeof askHomeManuals };
   }
   return {};
 }
@@ -34,12 +32,9 @@ const USAGE = 'Usage: home <question>, e.g. "home what model is the oven?"';
 
 /**
  * `home <question>` — asks the home-manuals service and replies with the answer + Sources.
- * @param {import('../types.ts').MessageSender} sock
- * @param {string} chatId
- * @param {string} text
- * @param {unknown} [fourthArg] raw Baileys message in production, or {@link homeInjectedDeps} in tests
+ * @param fourthArg raw Baileys message in production, or {@link homeInjectedDeps} in tests
  */
-export default async function homeCommand(sock, chatId, text, fourthArg) {
+export default async function homeCommand(sock: MessageSender, chatId: string, text: string, fourthArg?: unknown) {
   const deps = resolveHomeDeps(fourthArg);
   const ask = deps.askHomeManuals ?? askHomeManuals;
 

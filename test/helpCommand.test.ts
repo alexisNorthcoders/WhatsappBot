@@ -9,10 +9,9 @@ import {
 
 describe('help command text', () => {
   it('includes the summarize usage aligned with SUMMARIZE_USAGE ([extra])', async () => {
-    /** @type {string[]} */
-    const texts = [];
+    const texts: string[] = [];
     const sock = {
-      sendMessage: async (/** @type {string} */ _jid, /** @type {{ text?: string }} */ content) => {
+      sendMessage: async (_jid: string, content: { text?: string }) => {
         texts.push(String(content?.text ?? ''));
       },
     };

@@ -7,30 +7,29 @@
  * merges what's waiting into one message per recipient, so messages never go out back to back.
  */
 
+import type { Logger } from '../types.ts';
+import type { RedisClientType } from 'redis';
+
 export const OWNER = 'owner';
 const START_ID = '0-0';
 const FIRST_LINE_MAX = 120;
 
-/**
- * @typedef {{ id: string, fields: Record<string, string> }} OutboxEntry
- * @typedef {{
- *   readAfter(afterId: string, toId?: string): Promise<OutboxEntry[]>,
- *   getCursor(): Promise<string | null>,
- *   setCursor(id: string): Promise<void>,
- *   getMissed(): Promise<{ afterId: string, toId: string } | null>,
- *   setMissed(range: { afterId: string, toId: string }): Promise<void>,
- * }} OutboxStore
- */
+export type OutboxEntry = { id: string; fields: Record<string, string> };
 
-/**
- * @param {{
- *   store: OutboxStore,
- *   sendText: (chatId: string, text: string) => Promise<void>,
- *   getOwnerJid: () => string | null,
- *   logger: import('../types.ts').Logger,
- * }} deps
- */
-export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
+export type OutboxStore = {
+  readAfter(afterId: string, toId?: string): Promise<OutboxEntry[]>;
+  getCursor(): Promise<string | null>;
+  setCursor(id: string): Promise<void>;
+  getMissed(): Promise<{ afterId: string; toId: string } | null>;
+  setMissed(range: { afterId: string; toId: string }): Promise<void>;
+};
+
+export function createOutboxDrain({ store, sendText, getOwnerJid, logger }: {
+    store: OutboxStore;
+    sendText: (chatId: string, text: string) => Promise<void>;
+    getOwnerJid: () => string | null;
+    logger: Logger;
+  }) {
   let caughtUp = false;
   let polling = null;
   let timer = null;
@@ -64,9 +63,7 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
     const entries = await store.readAfter(cursor);
     if (!entries.length) return;
 
-    /** @type {Map<string, string[]>} */
-    /** @type {Map<string, string[]>} */
-    const byRecipient = new Map();
+    const byRecipient: Map<string, string[]> = new Map();
     for (const { id, fields } of entries) {
       const to = recipientOf(fields.replyTo);
       if (!to) {
@@ -96,8 +93,8 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
   return {
     poll,
 
-    /** @returns {Promise<string>} the `claude:missed` reply */
-    async missedReport() {
+    /** @returns the `claude:missed` reply */
+    async missedReport(): Promise<string> {
       const range = await store.getMissed();
       const entries = range ? await store.readAfter(range.afterId, range.toId) : [];
       if (!entries.length) return 'No missed agent messages.';
@@ -130,15 +127,12 @@ export function createOutboxDrain({ store, sendText, getOwnerJid, logger }) {
 /**
  * Redis-backed {@link OutboxStore}. `connect` resolves a connected node-redis client (lazily, so a
  * Redis outage only fails polls, not bot startup).
- *
- * @param {{ connect: () => Promise<import('redis').RedisClientType>, streamKey?: string, keyPrefix?: string }} p
- * @returns {OutboxStore}
  */
 export function createRedisOutboxStore({
   connect,
   streamKey = 'agent-runner:outbox',
   keyPrefix = 'whatsapp-bot:agent-runner-outbox:',
-}) {
+}: { connect: () => Promise<RedisClientType>; streamKey?: string; keyPrefix?: string }): OutboxStore {
   const cursorKey = `${keyPrefix}cursor`;
   const missedKey = `${keyPrefix}missed`;
   return {

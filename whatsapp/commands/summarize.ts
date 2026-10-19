@@ -12,6 +12,7 @@ import {
   releaseSummarizeLock,
   tryAcquireSummarizeLock,
 } from '../utils/summarizeLock.ts';
+import type { Logger, MessageSender } from '../types.ts';
 
 /** Test-only: marks injected `{ botFetch?, deepInfraAPI?, logger? }` so raw WhatsApp messages are never mistaken for deps. */
 const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDeps');
@@ -19,29 +20,24 @@ const summarizeInjectedDepsBrand = Symbol.for('WhatsappBot.summarize.injectedDep
 /**
  * Wrap test-only `{ botFetch?, deepInfraAPI?, logger? }`. Production passes the raw Baileys
  * message as the 4th argument; it must not be mistaken for injected deps.
- * @param {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.ts').Logger, 'info'> }} partial
  */
-export function summarizeInjectedDeps(partial) {
+export function summarizeInjectedDeps(partial: { botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<Logger, 'info'> }) {
   return { [summarizeInjectedDepsBrand]: true, ...partial };
 }
 
 const summarizeRunLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 /**
- * @param {unknown} fourthArg raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
+ * @param fourthArg raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
  */
-function resolveSummarizeDeps(fourthArg) {
+function resolveSummarizeDeps(fourthArg: unknown) {
   if (
     fourthArg != null &&
     typeof fourthArg === 'object' &&
-    /** @type {Record<symbol, unknown>} */ (fourthArg)[summarizeInjectedDepsBrand] === true
+    (fourthArg as Record<symbol, unknown>)[summarizeInjectedDepsBrand] === true
   ) {
-    const { [summarizeInjectedDepsBrand]: _b, ...rest } = /** @type {Record<symbol | string, unknown>} */ (
-      fourthArg
-    );
-    return /** @type {{ botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<import('../types.ts').Logger, 'info'> }} */ (
-      rest
-    );
+    const { [summarizeInjectedDepsBrand]: _b, ...rest } = fourthArg as Record<symbol | string, unknown>;
+    return rest as { botFetch?: typeof botFetch; deepInfraAPI?: typeof deepInfraAPI; logger?: Pick<Logger, 'info'> };
   }
   return {};
 }
@@ -49,18 +45,15 @@ function resolveSummarizeDeps(fourthArg) {
 /**
  * One JSON log object per summarize run (no page body or prompts).
  * Every key is always present: use null when a value does not apply (see outcome).
- *
- * @param {{ info: (o: object) => void }} log
- * @param {{
- *   host: string;
- *   httpStatus: number | null;
- *   extractedLength: number | null;
- *   startedAt: number;
- *   model: string;
- *   outcome: string;
- * }} fields
  */
-function logSummarizeRun(log, { host, httpStatus, extractedLength, startedAt, model, outcome }) {
+function logSummarizeRun(log: { info: (o: object) => void }, { host, httpStatus, extractedLength, startedAt, model, outcome }: {
+    host: string;
+    httpStatus: number | null;
+    extractedLength: number | null;
+    startedAt: number;
+    model: string;
+    outcome: string;
+  }) {
   log.info({
     event: 'summarize_run',
     host: host || '',
@@ -103,12 +96,10 @@ function buildSummaryPrompt(extractedText, extra) {
 }
 
 /**
- * @param {import('../types.ts').MessageSender} sock
- * @param {string} sender
- * @param {string} text full message
- * @param {unknown} [fourthArg] raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
+ * @param text full message
+ * @param fourthArg raw Baileys message in production, or {@link summarizeInjectedDeps} in tests
  */
-export default async function summarizeCommand(sock, sender, text, fourthArg) {
+export default async function summarizeCommand(sock: MessageSender, sender: string, text: string, fourthArg?: unknown) {
   const deps = resolveSummarizeDeps(fourthArg);
   const fetchPage = deps.botFetch ?? botFetch;
   const runLlm = deps.deepInfraAPI ?? deepInfraAPI;
@@ -131,9 +122,9 @@ export default async function summarizeCommand(sock, sender, text, fourthArg) {
   /** Hostname from URL, or '' if parsing failed. */
   let host = '';
   /** Set only after a Response exists; null on fetch/network errors before that. */
-  let httpStatus = /** @type {number | null} */ (null);
+  let httpStatus = null as number | null;
   /** Character length of extracted article text; null until extraction succeeds. */
-  let extractedLength = /** @type {number | null} */ (null);
+  let extractedLength = null as number | null;
   let outcome = 'unknown';
 
   try {

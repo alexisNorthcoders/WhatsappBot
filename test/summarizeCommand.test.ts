@@ -144,8 +144,7 @@ const SENDER = '15551234567@s.whatsapp.net';
 const HTML_ONLY_MSG =
   'This command only supports HTML web pages. The response was not HTML (check Content-Type or body).';
 
-/** @param {unknown} line */
-function assertSummarizeLogHasNoPageTextLeak(line) {
+function assertSummarizeLogHasNoPageTextLeak(line: unknown) {
   const json = JSON.stringify(line);
   assert.match(
     json,
@@ -174,7 +173,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
 
     const sent = [];
     const sock = {
-      sendMessage: async (/** @type {string} */ jid, /** @type {{ text?: string }} */ content) => {
+      sendMessage: async (jid: string, content: { text?: string }) => {
         sent.push({ jid, text: String(content?.text ?? '') });
       },
     };
@@ -191,9 +190,6 @@ describe('summarize command (WhatsApp lock UX)', () => {
   it('sends acknowledgement then the model reply on the happy path', async () => {
     const articleHtml = readFileSync(path.join(fixturesDir, 'article.html'), 'utf8');
 
-    /**
-     * @type {typeof import('../whatsapp/utils/urlFetchSafety.ts').botFetch}
-     */
     async function fakeBotFetch(_url, _init) {
       return new Response(articleHtml, {
         status: 200,
@@ -201,17 +197,13 @@ describe('summarize command (WhatsApp lock UX)', () => {
       });
     }
 
-    /**
-     * @type {typeof import('../models/models.ts').deepInfraAPI}
-     */
     async function fakeDeepInfra(_content, _model, _opts) {
       return 'Mocked summary bullets.';
     }
 
-    /** @type {unknown[]} */
-    const logPayloads = [];
+    const logPayloads: unknown[] = [];
     const logger = {
-      info(/** @type {Record<string, unknown>} */ o) {
+      info(o: Record<string, unknown>) {
         logPayloads.push(o);
       },
     };
@@ -240,17 +232,17 @@ describe('summarize command (WhatsApp lock UX)', () => {
     );
 
     assert.equal(logPayloads.length, 1);
-    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    const line = logPayloads[0] as Record<string, unknown>;
     assert.equal(line.event, 'summarize_run');
     assert.equal(line.host, 'example.com');
     assert.equal(line.httpStatus, 200);
     assert.equal(typeof line.extractedLength, 'number');
-    assert.ok((/** @type {number} */ (line.extractedLength)) >= 80);
+    assert.ok((line.extractedLength as number) >= 80);
     assert.equal(line.outcome, 'success');
     assert.equal(line.model, DEEPINFRA_DEFAULT_CHAT_MODEL);
     assert.equal(line.provider, 'deepinfra');
     assert.equal(typeof line.durationMs, 'number');
-    assert.ok((/** @type {number} */ (line.durationMs)) >= 0);
+    assert.ok((line.durationMs as number) >= 0);
     assertSummarizeLogHasNoPageTextLeak(line);
   });
 
@@ -262,10 +254,9 @@ describe('summarize command (WhatsApp lock UX)', () => {
       });
     }
 
-    /** @type {unknown[]} */
-    const logPayloads = [];
+    const logPayloads: unknown[] = [];
     const logger = {
-      info(/** @type {Record<string, unknown>} */ o) {
+      info(o: Record<string, unknown>) {
         logPayloads.push(o);
       },
     };
@@ -292,7 +283,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
     assert.match(sent[sent.length - 1].text, /HTTP 404/);
 
     assert.equal(logPayloads.length, 1);
-    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    const line = logPayloads[0] as Record<string, unknown>;
     assert.equal(line.event, 'summarize_run');
     assert.equal(line.host, 'example.com');
     assert.equal(line.httpStatus, 404);
@@ -306,10 +297,9 @@ describe('summarize command (WhatsApp lock UX)', () => {
       throw new Error('network down');
     }
 
-    /** @type {unknown[]} */
-    const logPayloads = [];
+    const logPayloads: unknown[] = [];
     const logger = {
-      info(/** @type {Record<string, unknown>} */ o) {
+      info(o: Record<string, unknown>) {
         logPayloads.push(o);
       },
     };
@@ -331,7 +321,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
     assert.match(sent[sent.length - 1].text, /Could not fetch URL/);
 
     assert.equal(logPayloads.length, 1);
-    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    const line = logPayloads[0] as Record<string, unknown>;
     assert.equal(line.event, 'summarize_run');
     assert.equal(line.host, 'example.com');
     assert.equal(line.httpStatus, null);
@@ -349,10 +339,9 @@ describe('summarize command (WhatsApp lock UX)', () => {
       });
     }
 
-    /** @type {unknown[]} */
-    const logPayloads = [];
+    const logPayloads: unknown[] = [];
     const logger = {
-      info(/** @type {Record<string, unknown>} */ o) {
+      info(o: Record<string, unknown>) {
         logPayloads.push(o);
       },
     };
@@ -374,7 +363,7 @@ describe('summarize command (WhatsApp lock UX)', () => {
     assert.equal(sent[sent.length - 1].text, HTML_ONLY_MSG);
 
     assert.equal(logPayloads.length, 1);
-    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    const line = logPayloads[0] as Record<string, unknown>;
     assert.equal(line.event, 'summarize_run');
     assert.equal(line.host, 'example.com');
     assert.equal(line.httpStatus, 200);
@@ -398,10 +387,9 @@ describe('summarize command (WhatsApp lock UX)', () => {
       throw new Error('DeepInfra refused');
     }
 
-    /** @type {unknown[]} */
-    const logPayloads = [];
+    const logPayloads: unknown[] = [];
     const logger = {
-      info(/** @type {Record<string, unknown>} */ o) {
+      info(o: Record<string, unknown>) {
         logPayloads.push(o);
       },
     };
@@ -427,12 +415,12 @@ describe('summarize command (WhatsApp lock UX)', () => {
     assert.match(sent[sent.length - 1].text, /Summary request failed/);
 
     assert.equal(logPayloads.length, 1);
-    const line = /** @type {Record<string, unknown>} */ (logPayloads[0]);
+    const line = logPayloads[0] as Record<string, unknown>;
     assert.equal(line.event, 'summarize_run');
     assert.equal(line.host, 'example.com');
     assert.equal(line.httpStatus, 200);
     assert.equal(typeof line.extractedLength, 'number');
-    assert.ok((/** @type {number} */ (line.extractedLength)) >= 80);
+    assert.ok((line.extractedLength as number) >= 80);
     assert.equal(line.outcome, 'llm_error');
     assert.equal(line.model, DEEPINFRA_DEFAULT_CHAT_MODEL);
     assertSummarizeLogHasNoPageTextLeak(line);
