@@ -7,8 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// The bot's runtime path; ChatAI/ and the standalone demos have their own env.
-const BOT_SOURCES = ['whatsapp.js', 'index.js', 'whatsapp', 'models', 'hue', 'joplin', 'scripts'];
+const BOT_SOURCES = ['whatsapp.js', 'whatsapp', 'models', 'hue', 'joplin', 'scripts'];
 
 function envVarsReadByBot() {
   const files = execFileSync('git', ['ls-files', '--', ...BOT_SOURCES], { cwd: root, encoding: 'utf8' })
