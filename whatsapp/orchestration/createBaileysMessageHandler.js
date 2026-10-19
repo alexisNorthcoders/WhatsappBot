@@ -1,9 +1,9 @@
-import { normalizeBaileysMessage } from './normalizeBaileysMessage.js';
+import { normalizeBaileysMessage } from './normalizeBaileysMessage.ts';
 import { createMessageOrchestrator } from './createMessageOrchestrator.js';
 
 /**
  * Thin adapter: Baileys upsert → owner check → read receipt → normalize → orchestrator.
- * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.js)
+ * Messages from anyone but the owner (MY_PHONE / SECOND_PHONE, see whatsAppActorAllowlist.ts)
  * are dropped silently: no read receipt, no reply, so another bot can't start a reply loop.
  * @param {object} opts
  * @param {import('../types.ts').MessageSender} opts.sock

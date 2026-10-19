@@ -28,7 +28,7 @@ export function shouldTryBookAgent(text) {
 
 /**
  * Owner-only. Non-owners never reach the service.
- * @param {import('../orchestration/normalizeBaileysMessage.js').InboundMessage} m
+ * @param {import('../orchestration/normalizeBaileysMessage.ts').InboundMessage} m
  * @param {{
  *   askBookRecs?: typeof askBookRecs,
  *   isAllowedActor?: (actorId: string | null, actorAltId?: string | null) => boolean,

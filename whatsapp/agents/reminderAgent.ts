@@ -1,4 +1,4 @@
-import { lidExtraJidsHint } from '../whatsAppActorAllowlist.js';
+import { lidExtraJidsHint } from '../whatsAppActorAllowlist.ts';
 import { createCalendarReminder } from '../calendar/createReminder.ts';
 import { cancelReminder, listReminders } from '../calendar/manageReminders.ts';
 import { classifyReminderIntent, REMINDER_HELP_TEXT } from '../calendar/reminderIntent.ts';

@@ -5,7 +5,7 @@ import {
   runBookAgent,
   BOOK_AGENT_SKIP,
   BOOK_RECS_UNAVAILABLE,
-} from '../whatsapp/agents/bookAgent.js';
+} from '../whatsapp/agents/bookAgent.ts';
 import { runAgentsChainSequential } from '../whatsapp/orchestration/agentsTryHandle.js';
 import { fakeInbound } from './helpers/fakeInbound.js';
 

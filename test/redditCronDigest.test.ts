@@ -15,7 +15,7 @@ import {
   readRedditCronDigestState,
   writeRedditCronDigestLastSentDay,
   writeRedditCronDigestState,
-} from '../whatsapp/agents/redditCronDigest.js';
+} from '../whatsapp/agents/redditCronDigest.ts';
 
 describe('isStatusFileFresh', () => {
   it('accepts mtime within max age', () => {

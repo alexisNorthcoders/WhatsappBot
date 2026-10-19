@@ -1,4 +1,4 @@
-import { secondPhoneJid } from '../whatsAppActorAllowlist.js';
+import { secondPhoneJid } from '../whatsAppActorAllowlist.ts';
 import { createGoogleCalendar } from './googleCalendar.ts';
 import { nudgedLogPath } from './nudgedLog.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime, runNudgeTick } from './nudgeTick.ts';

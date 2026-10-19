@@ -1,4 +1,4 @@
-import { actorAltJid } from '../whatsAppActorAllowlist.js';
+import { actorAltJid } from '../whatsAppActorAllowlist.ts';
 
 /**
  * @typedef {object} InboundMessage

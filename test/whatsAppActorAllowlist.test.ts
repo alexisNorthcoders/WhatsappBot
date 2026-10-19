@@ -6,8 +6,8 @@ import {
   isAllowedActor,
   resolveOwnerLids,
   secondPhoneJid,
-} from '../whatsapp/whatsAppActorAllowlist.js';
-import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBaileysMessage.js';
+} from '../whatsapp/whatsAppActorAllowlist.ts';
+import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBaileysMessage.ts';
 
 const OWNER_PN = '447700900001@s.whatsapp.net';
 const OWNER_LID = '123456789012345@lid';

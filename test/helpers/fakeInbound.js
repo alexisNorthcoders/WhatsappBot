@@ -1,4 +1,4 @@
-/** @typedef {import('../../whatsapp/orchestration/normalizeBaileysMessage.js').InboundMessage} InboundMessage */
+/** @typedef {import('../../whatsapp/orchestration/normalizeBaileysMessage.ts').InboundMessage} InboundMessage */
 
 /**
  * A complete InboundMessage from the owner's DM; override any field.

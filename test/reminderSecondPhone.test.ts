@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { runReminderAgent } from '../whatsapp/agents/reminderAgent.js';
+import { runReminderAgent } from '../whatsapp/agents/reminderAgent.ts';
 import { createLastLists } from '../whatsapp/calendar/lastLists.ts';
 import { runNudgeTick } from '../whatsapp/calendar/nudgeTick.ts';
 import {
@@ -11,7 +11,7 @@ import {
   isAllowedActor,
   resolveOwnerLids,
   secondPhoneJid,
-} from '../whatsapp/whatsAppActorAllowlist.js';
+} from '../whatsapp/whatsAppActorAllowlist.ts';
 import { createFakeCalendar } from './helpers/fakeCalendar.ts';
 
 const MIN = 60_000;

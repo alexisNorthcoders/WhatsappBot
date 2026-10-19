@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runReminderAgent, shouldTryReminderAgent } from '../whatsapp/agents/reminderAgent.js';
+import { runReminderAgent, shouldTryReminderAgent } from '../whatsapp/agents/reminderAgent.ts';
 import { createLastLists } from '../whatsapp/calendar/lastLists.ts';
 import { parseExtraction } from '../whatsapp/calendar/reminderExtraction.ts';
 import { CALENDAR_UNREACHABLE_REPLY } from '../whatsapp/calendar/createReminder.ts';
-import { ROUTE_CRITERIA } from '../whatsapp/orchestration/jevRouter.js';
+import { ROUTE_CRITERIA } from '../whatsapp/orchestration/jevRouter.ts';
 import { createFakeCalendar } from './helpers/fakeCalendar.ts';
 
 const MIN = 60_000;

@@ -7,7 +7,7 @@ import {
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.js';
-import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.js';
+import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.ts';
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.js';
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
@@ -33,8 +33,8 @@ const BAILEYS_AUTH_DIR = path.join(
 const BAILEYS_AUTH_BACKUP_DIR = path.join(path.dirname(BAILEYS_AUTH_DIR), 'baileys-pre-v7-backup');
 import { initializeLightCache } from './hue/index.ts';
 import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.js';
-import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.js';
-import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.js';
+import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.ts';
+import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.ts';
 import dotenv from 'dotenv';
 dotenv.config();
 

@@ -1,6 +1,6 @@
 /**
  * Jev fast path for simple light requests: the routing call also asks which action, which
- * light/room, and which brightness/colour (speculative fan-out, see jevRouter.js). When the
+ * light/room, and which brightness/colour (speculative fan-out, see jevRouter.ts). When the
  * route is `lights` and every answer used is confident, code drives the Hue bridge directly
  * and no GPT call is made. Anything else returns null and the GPT lights agent runs as before.
  */
