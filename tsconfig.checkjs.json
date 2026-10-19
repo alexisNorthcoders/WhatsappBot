@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "strict": false,
+    "strictNullChecks": true
+  },
+  "include": ["whatsapp.js", "whatsapp", "models", "hue", "joplin", "data", "scripts", "tools", "eval"]
+}

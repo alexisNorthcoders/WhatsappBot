@@ -1,0 +1,64 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
+const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+
+const SPECIFIER_RE = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])(\.{1,2}\/[^'"]+)\2/g;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function git(...args: string[]): string {
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+}
+
+function renameAll(files: string[]): Map<string, string> {
+  const renames = new Map<string, string>();
+  for (const file of files) {
+    const from = path.relative(root, path.resolve(file));
+    if (!from.endsWith('.js')) throw new Error(`not a .js file: ${file}`);
+    const to = from.replace(/\.js$/, '.ts');
+    if (existsSync(path.join(root, from))) {
+      git('mv', from, to);
+    } else if (!existsSync(path.join(root, to))) {
+      throw new Error(`neither ${from} nor ${to} exists`);
+    }
+    renames.set(from, to);
+  }
+  return renames;
+}
+
+function rewriteSpecifiers(file: string, text: string, renames: Map<string, string>): string {
+  return text.replace(SPECIFIER_RE, (match, lead: string, quote: string, spec: string) => {
+    const target = path.relative(root, path.resolve(root, path.dirname(file), spec));
+    if (!renames.has(target)) return match;
+    return `${lead}${quote}${spec.replace(/\.js$/, '.ts')}${quote}`;
+  });
+}
+
+function rewritePathMentions(text: string, renames: Map<string, string>): string {
+  for (const [from, to] of renames) {
+    text = text.replace(new RegExp(`(?<![\\w./-])${escapeRegExp(from)}\\b`, 'g'), to);
+  }
+  return text;
+}
+
+const renames = renameAll(process.argv.slice(2));
+
+const basenames = [...renames.keys()].flatMap((f) => ['-e', path.basename(f)]);
+const candidates = git('grep', '-lIF', ...basenames)
+  .split('\n')
+  .filter((f) => f && f !== 'package-lock.json');
+
+for (const file of candidates) {
+  const abs = path.join(root, file);
+  const before = readFileSync(abs, 'utf8');
+  let after = rewritePathMentions(before, renames);
+  if (/\.(m?js|ts)$/.test(file)) after = rewriteSpecifiers(file, after, renames);
+  if (after !== before) {
+    writeFileSync(abs, after);
+    console.log(`rewrote ${file}`);
+  }
+}
