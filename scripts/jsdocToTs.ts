@@ -181,6 +181,7 @@ function stripJsDocTypes(text: string): string {
     .replace(/(@returns?)[ \t]*\n[ \t]*\*[ \t]{2,}(?=[^\s@*\/])/g, '$1 ')
     .replace(/^[ \t]*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:\[[\w.$]+(?:=[^\]]*)?\]|[\w.$]+)?[ \t]*\n(?![ \t]*\*[ \t]{2,}[^\s@*/])/gm, '')
     .replace(/[ \t]*\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*\n?/g, '')
+    .replace(/(@param[ \t]+)\[([\w.$]+)\]/g, '$1$2')
     .replace(/^[ \t]*\*[ \t]*\n(?=[ \t]*\*\/)/gm, '')
     .replace(/^[ \t]*\/\*\*(?:[ \t]*\n[ \t]*\*)*[ \t]*\/\n/gm, '')
     .replace(/^export \{\};\n/m, '')

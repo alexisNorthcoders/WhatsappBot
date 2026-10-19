@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { lightsJevQuestions, runLightsFromJev } from '../whatsapp/agents/lightsJev.js';
+import { lightsJevQuestions, runLightsFromJev } from '../whatsapp/agents/lightsJev.ts';
+import type { JevAnswer } from '../whatsapp/agents/lightsJev.ts';
 
 const LIGHTS = [
   { id: '1', name: 'Bedside', room: 'Bedroom', state: 'ON' },
@@ -9,10 +10,10 @@ const LIGHTS = [
 ];
 
 function fakeHue() {
-  const calls = [];
+  const calls: unknown[][] = [];
   const rec =
-    (name) =>
-    async (...args) =>
+    (name: string) =>
+    async (...args: unknown[]) =>
       calls.push([name, ...args]);
   return {
     calls,
@@ -26,14 +27,16 @@ function fakeHue() {
   };
 }
 
-/** @param {Record<string, [string, number]>} picks question id → [choice, probability] */
-function answers(picks) {
+/** question id → [choice, probability] */
+type Picks = Record<string, [string, number]>;
+
+function answers(picks: Picks): Record<string, JevAnswer> {
   return Object.fromEntries(
     Object.entries(picks).map(([id, [choice, p]]) => [id, { type: 'choice', choice, probabilities: { [choice]: p } }]),
   );
 }
 
-async function run(text, picks) {
+async function run(text: string, picks: Picks) {
   const { hue, calls } = fakeHue();
   const reply = await runLightsFromJev(text, answers(picks), { lights: LIGHTS, hue, logUsage: async () => {} });
   return { reply, calls };
@@ -120,13 +123,14 @@ describe('runLightsFromJev', () => {
 
   it('lists all lights when asked which are on without a target', async () => {
     const { reply, calls } = await run('which lights are on', { lights_action: ['list', 0.9], lights_target: ['unclear', 0.4] });
+    assert.ok(reply);
     assert.match(reply, /Bedside \(Bedroom\): ON/);
     assert.match(reply, /Desk lamp \(Office\): ON/);
     assert.deepEqual(calls, []);
   });
 
   it('hands over (null) when any answer used is unsure, or the request is not simple', async () => {
-    const cases = [
+    const cases: Picks[] = [
       { lights_action: ['off', 0.5], lights_target: ['room:Bedroom', 0.9] },
       { lights_action: ['off', 0.9], lights_target: ['room:Bedroom', 0.5] },
       { lights_action: ['other', 0.9], lights_target: ['room:Bedroom', 0.9] },

@@ -2,7 +2,8 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
 import { openaiChatTokenOpts } from '../../models/models.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
 
@@ -27,7 +28,7 @@ const transporter = nodemailer.createTransport({
 const KEYWORD_PATTERN =
   /\b(email|e-mail|mail|send\s+mail|send\s+email|send\s+an?\s+email|send\s+an?\s+mail|gmail)\b|\b(email|mail)\s+(to|from|about)\b/i;
 
-export function shouldTryEmailAgent(text) {
+export function shouldTryEmailAgent(text: string): boolean {
   if (process.env.EMAIL_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -47,8 +48,7 @@ Rules:
 - After the tool succeeds, reply in a short, friendly WhatsApp style confirming the email was sent. Do not expose SKIP to the user.`;
 }
 
-/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
-const TOOLS = [
+const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
@@ -76,7 +76,7 @@ const TOOLS = [
   },
 ];
 
-async function executeEmailTool(name, args) {
+async function executeEmailTool(name: string, args: Record<string, unknown>) {
   try {
     if (name !== 'email_send') {
       return `Error: Unknown tool "${name}".`;
@@ -106,11 +106,11 @@ async function executeEmailTool(name, args) {
     const info = await transporter.sendMail(mailOptions);
     return `OK: Email sent to ${to} — messageId: ${info.messageId}`;
   } catch (e) {
-    return `Error: ${e.message || String(e)}`;
+    return `Error: ${(e as Error).message || String(e)}`;
   }
 }
 
-export async function runEmailAgent(userMessage) {
+export async function runEmailAgent(userMessage: string): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = EMAIL_AGENT_MODEL;
   let outcome = 'error';
@@ -120,8 +120,7 @@ export async function runEmailAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
-    const messages = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },
     ];

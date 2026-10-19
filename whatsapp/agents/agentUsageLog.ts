@@ -1,10 +1,22 @@
 import { promises as fs } from 'fs';
 import { dirname, resolve } from 'path';
+import type { CompletionUsage } from 'openai/resources/completions';
+
+export type UsageBucket = { prompt: number; completion: number; total: number };
+
+export type AgentInvocation = {
+  agent: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  outcome: string;
+};
 
 const CSV_HEADER =
   'timestamp_utc,agent,model,prompt_tokens,completion_tokens,total_tokens,outcome\n';
 
-function csvCell(value) {
+function csvCell(value: unknown) {
   const s = String(value ?? '');
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
@@ -18,10 +30,7 @@ function logPath() {
   return p ? resolve(p) : resolve(process.cwd(), 'logs', 'agent-usage.csv');
 }
 
-/**
- * @param {{ agent: string, model: string, promptTokens: number, completionTokens: number, totalTokens: number, outcome: string }} row
- */
-export function logAgentInvocation(row) {
+export function logAgentInvocation(row: AgentInvocation) {
   const path = logPath();
   const line =
     [
@@ -58,7 +67,7 @@ export function logAgentInvocation(row) {
   return writeQueue;
 }
 
-export function addCompletionUsage(usage, bucket) {
+export function addCompletionUsage(usage: CompletionUsage | undefined, bucket: UsageBucket) {
   if (!usage) return;
   bucket.prompt += usage.prompt_tokens ?? 0;
   bucket.completion += usage.completion_tokens ?? 0;

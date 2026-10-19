@@ -9,7 +9,8 @@ import {
   isUrlAllowedForFetch,
   readResponseBodyBuffer,
 } from '../utils/urlFetchSafety.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
 
@@ -24,7 +25,7 @@ export const JOPLIN_AGENT_SKIP = 'SKIP';
 /** Only this notebook is searched or mutated by the WhatsApp agent (saves CLI + LLM cost). */
 const AGENT_NOTEBOOK = process.env.JOPLIN_AGENT_NOTEBOOK?.trim() || WHATSAPP_BOT_NOTEBOOK;
 
-async function findNoteByTitle(titleQuery) {
+async function findNoteByTitle(titleQuery: string) {
   const results = await joplinAPI.searchNotesInNotebook(AGENT_NOTEBOOK, titleQuery);
   if (results.length === 0) {
     throw new Error(`No notes found matching "${titleQuery}"`);
@@ -37,14 +38,14 @@ async function findNoteByTitle(titleQuery) {
   return results[0];
 }
 
-function resolveNoteId(noteQuery) {
+function resolveNoteId(noteQuery: string) {
   const q = String(noteQuery || '').trim();
   if (!q) throw new Error('note_query is required');
   if (/^[a-f0-9]{6,}$/i.test(q)) return q;
   return null;
 }
 
-async function resolveNoteIdOrSearch(noteQuery) {
+async function resolveNoteIdOrSearch(noteQuery: string) {
   const direct = resolveNoteId(noteQuery);
   if (direct) {
     return joplinAPI.resolveNoteIdInNotebook(direct, AGENT_NOTEBOOK);
@@ -58,7 +59,7 @@ const KEYWORD_PATTERN =
 
 const FETCH_USER_AGENT = 'WhatsappBot-JoplinAgent/1.0';
 
-function markdownFence(lang, content) {
+function markdownFence(lang: string, content: string) {
   const inner = String(content);
   let longest = 0;
   for (const m of inner.matchAll(/`+/g)) {
@@ -68,7 +69,7 @@ function markdownFence(lang, content) {
   return `${fence}${lang}\n${inner}\n${fence}`;
 }
 
-async function fetchUrlBodyForNote(url) {
+async function fetchUrlBodyForNote(url: string) {
   const maxChars = getBotFetchMaxHtmlChars();
   const res = await botFetch(
     url,
@@ -102,7 +103,7 @@ async function fetchUrlBodyForNote(url) {
   };
 }
 
-export function shouldTryJoplinAgent(text) {
+export function shouldTryJoplinAgent(text: string): boolean {
   if (process.env.JOPLIN_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -124,8 +125,7 @@ Rules:
 - After tools succeed, reply in a short, friendly WhatsApp style (emoji ok). Do not expose raw SKIP to the user.`;
 }
 
-/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
-const TOOLS = [
+const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
@@ -230,12 +230,12 @@ const TOOLS = [
   },
 ];
 
-function truncate(s) {
+function truncate(s: string) {
   if (s.length <= MAX_TOOL_TEXT) return s;
   return `${s.slice(0, MAX_TOOL_TEXT)}\n\n… (truncated)`;
 }
 
-export async function executeJoplinTool(name, args) {
+export async function executeJoplinTool(name: string, args: Record<string, unknown>) {
   try {
     switch (name) {
       case 'joplin_create_note': {
@@ -257,7 +257,7 @@ export async function executeJoplinTool(name, args) {
         try {
           fetched = await fetchUrlBodyForNote(url);
         } catch (e) {
-          return `Error: Fetch failed: ${e.message || String(e)}`;
+          return `Error: Fetch failed: ${(e as Error).message || String(e)}`;
         }
         const titleRaw = args.note_title != null ? String(args.note_title).trim() : '';
         let title = titleRaw;
@@ -354,11 +354,11 @@ export async function executeJoplinTool(name, args) {
         return `Error: Unknown tool "${name}".`;
     }
   } catch (e) {
-    return `Error: ${e.message || String(e)}`;
+    return `Error: ${(e as Error).message || String(e)}`;
   }
 }
 
-export async function runJoplinAgent(userMessage) {
+export async function runJoplinAgent(userMessage: string): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = JOPLIN_AGENT_MODEL;
   let outcome = 'error';
@@ -368,8 +368,7 @@ export async function runJoplinAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
-    const messages = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },
     ];

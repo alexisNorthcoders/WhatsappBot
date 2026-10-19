@@ -6,15 +6,15 @@ import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assist
 import { pickRandomTopic } from '../../data/helper.js';
 import { topics } from '../../data/topics.js';
 import { getMessages, appendMessage, clearMessages } from '../chatMemory.js';
-import { shouldTryLightsAgent, runLightsAgent, LIGHTS_AGENT_SKIP } from '../agents/lightsAgent.js';
-import { lightsJevQuestions, runLightsFromJev } from '../agents/lightsJev.js';
+import { shouldTryLightsAgent, runLightsAgent, LIGHTS_AGENT_SKIP } from '../agents/lightsAgent.ts';
+import { lightsJevQuestions, runLightsFromJev } from '../agents/lightsJev.ts';
 import {
   shouldTryWeatherAgent,
   runWeatherAgent,
   WEATHER_AGENT_SKIP,
-} from '../agents/weatherAgent.js';
-import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.js';
-import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.js';
+} from '../agents/weatherAgent.ts';
+import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.ts';
+import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.ts';
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.ts';
 import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.ts';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.ts';

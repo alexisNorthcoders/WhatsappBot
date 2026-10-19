@@ -14,7 +14,8 @@ import {
   getCachedLights,
 } from '../../hue/api.ts';
 import { openaiChatTokenOpts } from '../../models/models.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
 
@@ -23,7 +24,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const LIGHTS_AGENT_MODEL = process.env.LIGHTS_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 
-const COLOR_MAP = {
+const COLOR_MAP: Record<string, [number, number, number]> = {
   red: [0, 254, 254],
   green: [25500, 254, 254],
   blue: [46920, 254, 254],
@@ -41,7 +42,7 @@ const KEYWORD_PATTERN =
 
 export const LIGHTS_AGENT_SKIP = 'SKIP';
 
-export function shouldTryLightsAgent(text) {
+export function shouldTryLightsAgent(text: string): boolean {
   if (process.env.LIGHTS_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -84,8 +85,7 @@ Rules:
 - Otherwise give a short, friendly WhatsApp-style reply after tools succeed (you may call multiple tools). Do not mention "SKIP" to the user unless they asked about it.`;
 }
 
-/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
-const TOOLS = [
+const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
@@ -222,11 +222,11 @@ const TOOLS = [
   },
 ];
 
-function miredsFromUserScale1to10(tempValue) {
+function miredsFromUserScale1to10(tempValue: number) {
   return Math.round(153 + ((10 - tempValue) / 9) * (500 - 153));
 }
 
-export async function executeLightsTool(name, args) {
+export async function executeLightsTool(name: string, args: Record<string, any>) {
   try {
     switch (name) {
       case 'lights_all_off': {
@@ -279,9 +279,9 @@ export async function executeLightsTool(name, args) {
       case 'lights_set_color': {
         const colorRaw = String(args.color || '').trim();
         const lightName = args.light_name;
-        let hue;
-        let sat;
-        let bri;
+        let hue: number;
+        let sat: number;
+        let bri: number;
         const preset = COLOR_MAP[colorRaw.toLowerCase()];
         if (preset) {
           [hue, sat, bri] = preset;
@@ -325,14 +325,14 @@ export async function executeLightsTool(name, args) {
         return `Error: Unknown tool "${name}".`;
     }
   } catch (e) {
-    return `Error: ${e.message || String(e)}`;
+    return `Error: ${(e as Error).message || String(e)}`;
   }
 }
 
 /**
- * @returns {Promise<string>} Final user-facing text, or LIGHTS_AGENT_SKIP to fall through to other handlers.
+ * @returns Final user-facing text, or LIGHTS_AGENT_SKIP to fall through to other handlers.
  */
-export async function runLightsAgent(userMessage) {
+export async function runLightsAgent(userMessage: string): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = LIGHTS_AGENT_MODEL;
   let outcome = 'error';
@@ -342,8 +342,7 @@ export async function runLightsAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
-    const messages = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },
     ];

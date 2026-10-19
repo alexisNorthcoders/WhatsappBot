@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import { getWeatherData, openaiChatTokenOpts } from '../../models/models.ts';
-import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.js';
+import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
+import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
 
@@ -17,7 +18,7 @@ export const WEATHER_AGENT_SKIP = 'SKIP';
 const KEYWORD_PATTERN =
   /\b(weather|forecast|temperature|rain|snow|sleet|hail|storm|thunder|humid|humidity|wind|windy|cloudy|sunny|overcast|celsius|fahrenheit|°c|°f|degrees)\b|\bwill\s+it\s+rain\b|\bhow\s+hot\b|\bhow\s+cold\b|\bwhat'?s\s+it\s+like\s+outside\b/i;
 
-export function shouldTryWeatherAgent(text) {
+export function shouldTryWeatherAgent(text: string): boolean {
   if (process.env.WEATHER_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
   const trimmed = text.trim();
@@ -39,8 +40,7 @@ Rules:
 - After the tool succeeds, reply in a short, friendly WhatsApp style. Do not expose SKIP to the user.`;
 }
 
-/** @type {import('openai/resources/chat/completions').ChatCompletionTool[]} */
-const TOOLS = [
+const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
@@ -61,7 +61,11 @@ const TOOLS = [
   },
 ];
 
-function formatForecastCompact(cityLabel, forecast) {
+type Forecast = {
+  list?: { weather?: { description?: string }[]; main?: { temp?: number; humidity?: number }; dt_txt?: string }[];
+};
+
+function formatForecastCompact(cityLabel: string, forecast: Forecast | null | undefined) {
   const list = forecast?.list;
   if (!Array.isArray(list) || list.length === 0) {
     return 'No forecast entries in response.';
@@ -77,7 +81,7 @@ function formatForecastCompact(cityLabel, forecast) {
   return `Location query: ${cityLabel}\n${lines.join('\n')}`;
 }
 
-async function executeWeatherTool(name, args) {
+async function executeWeatherTool(name: string, args: Record<string, unknown>) {
   try {
     if (name !== 'weather_get_forecast') {
       return `Error: Unknown tool "${name}".`;
@@ -90,11 +94,11 @@ async function executeWeatherTool(name, args) {
     const data = await getWeatherData(city);
     return formatForecastCompact(city, data);
   } catch (e) {
-    return `Error: ${e.message || String(e)}`;
+    return `Error: ${(e as Error).message || String(e)}`;
   }
 }
 
-export async function runWeatherAgent(userMessage) {
+export async function runWeatherAgent(userMessage: string): Promise<string> {
   const usage = { prompt: 0, completion: 0, total: 0 };
   const model = WEATHER_AGENT_MODEL;
   let outcome = 'error';
@@ -104,8 +108,7 @@ export async function runWeatherAgent(userMessage) {
       throw new Error('OPENAI_API_KEY is not set');
     }
 
-    /** @type {import('openai/resources/chat/completions').ChatCompletionMessageParam[]} */
-    const messages = [
+    const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSystemPrompt() },
       { role: 'user', content: userMessage },
     ];
