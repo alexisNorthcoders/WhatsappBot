@@ -7,6 +7,8 @@ import type { CalendarEvent } from './calendarPort.ts';
 
 const DEFAULT_TTL_MS = 30 * 60_000;
 
+export type LastLists = ReturnType<typeof createLastLists>;
+
 export function createLastLists({ ttlMs = DEFAULT_TTL_MS }: { ttlMs?: number } = {}) {
   const lists: Map<string, { events: CalendarEvent[]; at: number }> = new Map();
   return {

@@ -12,7 +12,7 @@ const execAsync = promisify(exec);
 /** Default notebook for WhatsApp-created notes (agent should only touch this notebook). */
 export const WHATSAPP_BOT_NOTEBOOK = 'WhatsApp Bot';
 
-function idsMatch(listId, queryId) {
+function idsMatch(listId: string, queryId: string) {
     const a = listId.toLowerCase();
     const b = queryId.toLowerCase();
     return a === b || a.startsWith(b) || b.startsWith(a);
@@ -26,7 +26,24 @@ const JOPLIN_PASSWORD = process.env.JOPLIN_PASSWORD
 /** Minimum milliseconds between automatic sync-before-read calls. */
 const SYNC_THROTTLE_MS = 30_000;
 
+export type JoplinNoteRef = { id: string; title: string; notebook: string };
+
+export type JoplinNote = {
+    id: string;
+    title: string;
+    body: string;
+    created_time: number | null;
+    updated_time: number | null;
+};
+
 class JoplinAPI {
+    serverUrl: string | undefined;
+    email: string | undefined;
+    password: string | undefined;
+    sessionId: string | null;
+    configured = false;
+    _lastSyncTime: number;
+
     constructor() {
         this.serverUrl = JOPLIN_SERVER_URL;
         this.email = JOPLIN_EMAIL;
@@ -46,7 +63,7 @@ class JoplinAPI {
             await execAsync('joplin sync');
             this._lastSyncTime = Date.now();
         } catch (err) {
-            console.warn('⚠️ Pre-read sync failed (non-fatal):', err.message);
+            console.warn('⚠️ Pre-read sync failed (non-fatal):', (err as Error).message);
         }
     }
 
@@ -91,7 +108,7 @@ class JoplinAPI {
             console.log('✅ Joplin CLI configured successfully');
             return true;
         } catch (error) {
-            console.error('❌ Failed to configure Joplin CLI:', error.message);
+            console.error('❌ Failed to configure Joplin CLI:', (error as Error).message);
             return false;
         }
     }
@@ -110,7 +127,7 @@ class JoplinAPI {
             console.log('✅ WhatsApp Bot notebook created');
             return true;
         } catch (error) {
-            console.error('❌ Failed to create WhatsApp Bot notebook:', error.message);
+            console.error('❌ Failed to create WhatsApp Bot notebook:', (error as Error).message);
             return false;
         }
     }
@@ -133,7 +150,7 @@ class JoplinAPI {
             console.log('✅ Joplin CLI connection successful');
             return true;
         } catch (error) {
-            console.error('❌ Joplin CLI connection failed:', error.message);
+            console.error('❌ Joplin CLI connection failed:', (error as Error).message);
             return false;
         }
     }
@@ -152,7 +169,7 @@ class JoplinAPI {
             // Create a temporary file with the full note content (title + body)
             const tempFile = join(tmpdir(), `joplin_note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.md`);
             const noteContent = body && body.trim() ? `${title}\n\n${body}` : title;
-            let noteId = null;
+            let noteId: string | null = null;
             
             try {
                 writeFileSync(tempFile, noteContent, 'utf8');
@@ -200,7 +217,7 @@ class JoplinAPI {
                 try {
                     unlinkSync(tempFile);
                 } catch (cleanupError) {
-                    console.warn('Could not delete temp file:', cleanupError.message);
+                    console.warn('Could not delete temp file:', (cleanupError as Error).message);
                 }
             }
             
@@ -216,7 +233,7 @@ class JoplinAPI {
                 body
             };
         } catch (error) {
-            console.error('❌ Failed to create note:', error.message);
+            console.error('❌ Failed to create note:', (error as Error).message);
             throw error;
         }
     }
@@ -235,7 +252,7 @@ class JoplinAPI {
             
             // Parse the output to extract notebook information
             const lines = stdout.split('\n').filter(line => line.trim());
-            const notebooks = [];
+            const notebooks: { id: string; title: string }[] = [];
             
             for (const line of lines) {
                 // For ls /, each line is just the notebook name
@@ -249,12 +266,12 @@ class JoplinAPI {
             
             return notebooks;
         } catch (error) {
-            console.error('❌ Failed to get notebooks:', error.message);
+            console.error('❌ Failed to get notebooks:', (error as Error).message);
             throw error;
         }
     }
 
-    async searchNotes(query) {
+    async searchNotes(query: string) {
         try {
             // Ensure CLI is configured
             await this.configureCli();
@@ -264,7 +281,7 @@ class JoplinAPI {
             const { stdout: notebooksOutput } = await execAsync('joplin ls /');
             const notebooks = notebooksOutput.split('\n').filter(line => line.trim());
             
-            const allNotes = [];
+            const allNotes: JoplinNoteRef[] = [];
             
             // Search through each notebook
             for (const notebook of notebooks) {
@@ -308,14 +325,15 @@ class JoplinAPI {
                         }
                     } catch (error) {
                         // Skip notebooks that can't be accessed
-                        console.warn(`Warning: Could not search notebook "${notebook}":`, error.message);
+                        const message = (error as Error).message;
+                        console.warn(`Warning: Could not search notebook "${notebook}":`, message);
                     }
                 }
             }
             
             return allNotes;
         } catch (error) {
-            console.error('❌ Failed to search notes:', error.message);
+            console.error('❌ Failed to search notes:', (error as Error).message);
             throw error;
         }
     }
@@ -323,7 +341,7 @@ class JoplinAPI {
     /**
      * Search only inside one notebook (one `use` + `ls -l`). Use for agents to avoid scanning every notebook.
      */
-    async searchNotesInNotebook(notebookName, query) {
+    async searchNotesInNotebook(notebookName: string, query: string) {
         try {
             await this.configureCli();
             await this.syncIfNeeded();
@@ -337,7 +355,7 @@ class JoplinAPI {
             }
             const q = query.toLowerCase();
             const lines = stdout.split('\n').filter((line) => line.trim());
-            const allNotes = [];
+            const allNotes: JoplinNoteRef[] = [];
             for (const line of lines) {
                 if (!line.toLowerCase().includes(q)) continue;
                 let match = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+(.+)$/);
@@ -360,12 +378,12 @@ class JoplinAPI {
             }
             return allNotes;
         } catch (error) {
-            console.error('❌ Failed to search notes in notebook:', error.message);
+            console.error('❌ Failed to search notes in notebook:', (error as Error).message);
             throw error;
         }
     }
 
-    async resolveNoteIdInNotebook(noteId, notebookName) {
+    async resolveNoteIdInNotebook(noteId: string, notebookName: string) {
         await this.configureCli();
         await this.syncIfNeeded();
         if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
@@ -388,7 +406,7 @@ class JoplinAPI {
     /**
      * Read a note only if it lives in the given notebook (prevents cross-notebook reads by id).
      */
-    async getNoteInNotebook(noteId, notebookName) {
+    async getNoteInNotebook(noteId: string, notebookName: string): Promise<JoplinNote> {
         try {
             const resolvedId = await this.resolveNoteIdInNotebook(noteId, notebookName);
             const { stdout, stderr } = await execAsync(`joplin cat "${resolvedId}"`);
@@ -414,13 +432,13 @@ class JoplinAPI {
                 updated_time: null,
             };
         } catch (error) {
-            console.error('❌ Failed to get note from notebook:', error.message);
+            console.error('❌ Failed to get note from notebook:', (error as Error).message);
             throw error;
         }
     }
 
     /** Title list + count for a single notebook (cheap: one use + one ls). */
-    async summarizeNotebook(notebookName) {
+    async summarizeNotebook(notebookName: string) {
         await this.configureCli();
         await this.syncIfNeeded();
         if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
@@ -432,7 +450,7 @@ class JoplinAPI {
             console.warn('Joplin CLI warning:', stderr);
         }
         const lines = stdout.split('\n').filter((line) => line.trim());
-        const notes = [];
+        const notes: { id: string; title: string }[] = [];
         for (const line of lines) {
             const m = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}\s+(.+)$/);
             const m2 = line.match(/^([a-f0-9]+)\s+\d{2}\/\d{2}\/\d{4}\s+(.+)$/);
@@ -442,7 +460,7 @@ class JoplinAPI {
         return { notebookName, noteCount: notes.length, notes };
     }
 
-    async getNote(noteId) {
+    async getNote(noteId: string): Promise<JoplinNote> {
         try {
             // Ensure CLI is configured
             await this.configureCli();
@@ -460,8 +478,8 @@ class JoplinAPI {
             const lines = listOutput.split('\n').filter(line => line.trim());
             
             let title = '';
-            let created_time = null;
-            let updated_time = null;
+            let created_time: number | null = null;
+            let updated_time: number | null = null;
             
             for (const line of lines) {
                 if (line.startsWith(noteId)) {
@@ -490,12 +508,12 @@ class JoplinAPI {
             
             return note;
         } catch (error) {
-            console.error('❌ Failed to get note:', error.message);
+            console.error('❌ Failed to get note:', (error as Error).message);
             throw error;
         }
     }
 
-    async updateNote(noteId, updates) {
+    async updateNote(noteId: string, updates: { title?: string; body?: string }) {
         try {
             // Ensure CLI is configured
             await this.configureCli();
@@ -524,7 +542,7 @@ class JoplinAPI {
                         unlinkSync(tempFile);
                         console.log('Cleaned up update temp file:', tempFile);
                     } catch (cleanupError) {
-                        console.warn('Could not delete update temp file:', cleanupError.message);
+                        console.warn('Could not delete update temp file:', (cleanupError as Error).message);
                     }
                 }
             }
@@ -536,12 +554,12 @@ class JoplinAPI {
             console.log('✅ Note updated successfully:', noteId);
             return { id: noteId, ...updates };
         } catch (error) {
-            console.error('❌ Failed to update note:', error.message);
+            console.error('❌ Failed to update note:', (error as Error).message);
             throw error;
         }
     }
 
-    async deleteNote(noteId) {
+    async deleteNote(noteId: string) {
         try {
             // Ensure CLI is configured
             await this.configureCli();
@@ -559,7 +577,7 @@ class JoplinAPI {
             console.log('✅ Note deleted successfully:', noteId);
             return true;
         } catch (error) {
-            console.error('❌ Failed to delete note:', error.message);
+            console.error('❌ Failed to delete note:', (error as Error).message);
             throw error;
         }
     }

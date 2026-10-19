@@ -6,15 +6,20 @@
  */
 
 import type { FetchLike } from './types.ts';
+import type { HomeSource } from './utils/formatHomeAnswer.ts';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
-/**
- * @param [opts.baseUrl] Defaults to process.env.HOME_MANUALS_URL
- */
-export async function askHomeManuals(question: string, opts: { baseUrl?: string; fetchImpl?: FetchLike; timeoutMs?: number } = {}): Promise<{ ok: true; answer: string; sources: Array<object | string> } |
-{ ok: false; reason: 'not_configured' } |
-{ ok: false; reason: 'error'; error: Error }> {
+export type HomeManualsResult =
+  | { ok: true; answer: string; sources: HomeSource[] }
+  | { ok: false; reason: 'not_configured' }
+  | { ok: false; reason: 'error'; error: Error };
+
+/** @param opts.baseUrl Defaults to process.env.HOME_MANUALS_URL */
+export async function askHomeManuals(
+  question: string,
+  opts: { baseUrl?: string; fetchImpl?: FetchLike; timeoutMs?: number } = {},
+): Promise<HomeManualsResult> {
   const baseUrl = opts.baseUrl ?? process.env.HOME_MANUALS_URL;
   if (!baseUrl || !baseUrl.trim()) {
     return { ok: false, reason: 'not_configured' };

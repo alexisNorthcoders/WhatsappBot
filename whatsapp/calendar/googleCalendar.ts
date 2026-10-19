@@ -4,7 +4,13 @@
  * and refresh token (see scripts/googleCalendarConsent.js) and refreshes access tokens itself.
  */
 
-import type { CalendarEvent, CalendarNotifications, CalendarPort, NewCalendarEvent, CalendarSettings } from './calendarPort.ts';
+import type {
+  CalendarEvent,
+  CalendarNotifications,
+  CalendarPort,
+  NewCalendarEvent,
+  CalendarSettings,
+} from './calendarPort.ts';
 import type { FetchLike } from '../types.ts';
 
 
@@ -121,6 +127,8 @@ function toGoogleEvent(input: NewCalendarEvent) {
 }
 
 export class GoogleCalendarError extends Error {
+  status: number;
+
   constructor(message: string, status: number) {
     super(message);
     this.name = 'GoogleCalendarError';

@@ -35,7 +35,7 @@ export function googleCalendarFromEnv(env = process.env) {
  * @param {{
  *   getSocket: () => import('../types.ts').MessageSender | null | undefined,
  *   getOwnerJid: () => string | null,
- *   logger?: { info?: Function, warn?: Function },
+ *   logger?: Pick<import('../types.ts').Logger, 'info' | 'warn'>,
  * }} opts
  */
 export function startCalendarNudges(opts) {

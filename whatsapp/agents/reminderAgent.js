@@ -60,7 +60,7 @@ export function shouldTryReminderAgent(text) {
  *   defaultDurationMin?: number,
  *   allDayNudgeMin?: number,
  *   lastLists?: ReturnType<typeof import('../calendar/lastLists.ts').createLastLists>,
- *   logger?: { warn?: Function },
+ *   logger?: Pick<import('../types.ts').Logger, 'warn'>,
  * }} deps
  *   Without `calendar` (no Google credentials) only help works. `creatorIdFor` picks the
  *   creator id recorded on a new Reminder (default: the actor id); the nudge tick reads it to

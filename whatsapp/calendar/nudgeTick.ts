@@ -6,6 +6,9 @@ import {
   writeNudgedLog,
 } from './nudgedLog.ts';
 import type { CalendarEvent, CalendarPort } from './calendarPort.ts';
+import type { Logger } from '../types.ts';
+
+type FormatOpts = { nowMs: number; timeZone: string };
 
 
 const MIN = 60_000;
@@ -95,7 +98,14 @@ export function alertOffsetsFor(event: CalendarEvent, defaultOffsetsMin: number[
  * all-day Reminder on default notifications Nudges once at `allDayNudgeMin` that day, since
  * Google doesn't expose the all-day defaults.
  */
-export function alertTimesFor(event: CalendarEvent, { defaultOffsetsMin, timeZone, allDayNudgeMin }: { defaultOffsetsMin: number[]; timeZone: string; allDayNudgeMin: number }): { offset: number | string; atMs: number }[] {
+export function alertTimesFor(
+  event: CalendarEvent,
+  { defaultOffsetsMin, timeZone, allDayNudgeMin }: {
+    defaultOffsetsMin: number[];
+    timeZone: string;
+    allDayNudgeMin: number;
+  },
+): { offset: number | string; atMs: number }[] {
   if (event.allDay && event.startDate && event.notifications?.mode === 'default') {
     return [
       { offset: ALL_DAY_NUDGE_OFFSET, atMs: zonedTimeMs(event.startDate, allDayNudgeMin, timeZone) },
@@ -153,7 +163,7 @@ function formatDate(date: string) {
 /**
  * "Mon 19 Oct (all day, today)", or a date range for multi-day Reminders.
  */
-function formatAllDayWhen(event: CalendarEvent & { startDate: string }, { nowMs, timeZone }: { nowMs: number; timeZone: string }) {
+function formatAllDayWhen(event: CalendarEvent & { startDate: string }, { nowMs, timeZone }: FormatOpts) {
   const startDay = Date.parse(`${event.startDate}T00:00:00Z`);
   const endDay = event.endDate ? Date.parse(`${event.endDate}T00:00:00Z`) : startDay + DAY;
   const lastDate = new Date(endDay - DAY).toISOString().slice(0, 10);
@@ -170,13 +180,10 @@ function formatAllDayWhen(event: CalendarEvent & { startDate: string }, { nowMs,
 /**
  * One Reminder's lines in a Nudge.
  */
-export function formatNudgeBlock(event: CalendarEvent, { nowMs, timeZone }: { nowMs: number; timeZone: string }) {
+export function formatNudgeBlock(event: CalendarEvent, { nowMs, timeZone }: FormatOpts) {
   const when =
     event.allDay && event.startDate
-      ? formatAllDayWhen((event as CalendarEvent & { startDate: string }), {
-          nowMs,
-          timeZone,
-        })
+      ? formatAllDayWhen(event as CalendarEvent & { startDate: string }, { nowMs, timeZone })
       : `${formatStart(event.startMs, timeZone)} (${formatHowFar(event.startMs - nowMs)})`;
   const lines = [String(event.title || '').trim() || '(no title)', when];
   const location = String(event.location || '').trim();
@@ -189,7 +196,7 @@ export function formatNudgeBlock(event: CalendarEvent, { nowMs, timeZone }: { no
   return lines.join('\n');
 }
 
-export function formatNudgeMessage(events: CalendarEvent[], opts: { nowMs: number; timeZone: string }) {
+export function formatNudgeMessage(events: CalendarEvent[], opts: FormatOpts) {
   if (events.length === 1) return `⏰ Reminder: ${formatNudgeBlock(events[0], opts)}`;
   return [
     `⏰ ${events.length} reminders:`,
@@ -201,11 +208,25 @@ function errMsg(e: unknown) {
   return e instanceof Error ? e.message : String(e);
 }
 
+type NudgeTickDeps = {
+  calendar: CalendarPort;
+  ownerChatId: string;
+  creatorChatId?: (creatorActorId: string) => string | null;
+  sendText: (chatId: string, text: string) => Promise<unknown>;
+  nowMs?: number;
+  allDayNudgeMin?: number;
+  logPath?: string;
+  logger?: Pick<Logger, 'info' | 'warn'>;
+};
+
 /**
  * Who gets which due Reminders: the owner gets all of them; a Reminder the bot created for
  * someone else (`creatorChatId` maps its recorded creator to a chat) goes to that chat too.
  */
-function nudgesByRecipient(due: CalendarEvent[], { ownerChatId, creatorChatId }: { ownerChatId: string; creatorChatId?: (creatorActorId: string) => string | null }): Map<string, CalendarEvent[]> {
+function nudgesByRecipient(
+  due: CalendarEvent[],
+  { ownerChatId, creatorChatId }: Pick<NudgeTickDeps, 'ownerChatId' | 'creatorChatId'>,
+): Map<string, CalendarEvent[]> {
   const byChat = new Map([[ownerChatId, [...due]]]);
   for (const event of due) {
     if (!event.createdByBot || !event.creatorActorId || !creatorChatId) continue;
@@ -229,18 +250,10 @@ function nudgesByRecipient(due: CalendarEvent[], { ownerChatId, creatorChatId }:
  * `creatorChatId`).
  * Nudged-log entries are written before sending (at-most-once), and entries for ended
  * occurrences are pruned.
- *
  */
-export async function runNudgeTick(deps: {
-    calendar: CalendarPort;
-    ownerChatId: string;
-    creatorChatId?: (creatorActorId: string) => string | null;
-    sendText: (chatId: string, text: string) => Promise<unknown>;
-    nowMs?: number;
-    allDayNudgeMin?: number;
-    logPath?: string;
-    logger?: { info?: Function; warn?: Function };
-  }): Promise<{ nudged: number; messages: number; pruned: number; dropped: number }> {
+export async function runNudgeTick(
+  deps: NudgeTickDeps,
+): Promise<{ nudged: number; messages: number; pruned: number; dropped: number }> {
   const nowMs = deps.nowMs ?? Date.now();
   const logPath = deps.logPath ?? nudgedLogPath();
   const allDayNudgeMin = deps.allDayNudgeMin ?? DEFAULT_ALL_DAY_NUDGE_MIN;
@@ -295,7 +308,7 @@ export async function runNudgeTick(deps: {
 
   const pruned = pruneEndedNudges(log, nowMs);
   if (due.length > 0 || dropped > 0 || pruned > 0 || changed) await writeNudgedLog(logPath, log);
-  if (dropped > 0) deps.logger?.info?.({ dropped }, 'calendar nudges: dropped, Reminder already ended');
+  if (dropped > 0) deps.logger?.info({ dropped }, 'calendar nudges: dropped, Reminder already ended');
   if (due.length === 0) return { nudged: 0, messages: 0, pruned, dropped };
 
   let messages = 0;
@@ -303,10 +316,10 @@ export async function runNudgeTick(deps: {
     try {
       await deps.sendText(chatId, formatNudgeMessage(events, { nowMs, timeZone }));
       messages += 1;
-      deps.logger?.info?.({ nudged: events.length }, 'calendar nudges: sent');
+      deps.logger?.info({ nudged: events.length }, 'calendar nudges: sent');
     } catch (e) {
       // Already logged as nudged: at-most-once, no retry.
-      deps.logger?.warn?.(
+      deps.logger?.warn(
         { err: errMsg(e), nudged: events.length },
         'calendar nudges: send failed (not retried)'
       );

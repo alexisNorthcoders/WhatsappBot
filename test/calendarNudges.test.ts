@@ -18,7 +18,7 @@ describe('calendar nudge tick', () => {
   let calendar: ReturnType<typeof createFakeCalendar>;
   let now = T0;
 
-  const tick = (overrides = {}) =>
+  const tick = (overrides: Partial<Parameters<typeof runNudgeTick>[0]> = {}) =>
     runNudgeTick({
       calendar,
       ownerChatId: OWNER,

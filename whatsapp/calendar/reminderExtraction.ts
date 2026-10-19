@@ -20,7 +20,9 @@ export type ReminderExtraction = ReminderFields |
 { ok: false; question: string } |
 { ok: false; notReminder: true };
 
-export type ExtractReminder = (input: { text: string; nowMs: number; timeZone: string }) => Promise<ReminderExtraction>;
+type ExtractionInput = { text: string; nowMs: number; timeZone: string };
+
+export type ExtractReminder = (input: ExtractionInput) => Promise<ReminderExtraction>;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
@@ -46,7 +48,7 @@ export function localNow(nowMs: number, timeZone: string) {
   return `${p.weekday} ${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`;
 }
 
-export function buildExtractionPrompt({ text, nowMs, timeZone }: { text: string; nowMs: number; timeZone: string }) {
+export function buildExtractionPrompt({ text, nowMs, timeZone }: ExtractionInput) {
   return `You turn a WhatsApp message into a calendar Reminder. Reply with one JSON object only, no prose.
 
 Now: ${localNow(nowMs, timeZone)} (timezone ${timeZone}). Give every time as wall-clock time in that timezone.
@@ -105,7 +107,7 @@ export function parseExtraction(raw: string): ReminderExtraction {
   };
   if (j.end) fields.end = j.end;
   if (Array.isArray(j.alertOffsetsMin)) {
-    const offsets = j.alertOffsetsMin.map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+    const offsets = j.alertOffsetsMin.map(Number).filter((n: number) => Number.isFinite(n) && n >= 0);
     if (offsets.length) fields.alertOffsetsMin = offsets;
   }
   return fields;
@@ -114,6 +116,10 @@ export function parseExtraction(raw: string): ReminderExtraction {
 /**
  * LLM-backed {@link ExtractReminder}.
  */
-export function createLlmReminderExtractor({ complete }: { complete: (prompt: string) => Promise<string> }): ExtractReminder {
+export function createLlmReminderExtractor({
+  complete,
+}: {
+  complete: (prompt: string) => Promise<string>;
+}): ExtractReminder {
   return async (input) => parseExtraction(await complete(buildExtractionPrompt(input)));
 }

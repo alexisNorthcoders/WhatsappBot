@@ -9,6 +9,8 @@ import type { CalendarEvent, NewCalendarEvent } from '../../whatsapp/calendar/ca
 
 const MIN = 60_000;
 
+type SeedEvent = Partial<CalendarEvent> & ({ startMs: number } | { startDate: string });
+
 export function createFakeCalendar(settings: { timeZone?: string; defaultOffsetsMin?: number[] } = {}) {
   const events: Map<string, CalendarEvent> = new Map();
   let nextId = 1;
@@ -21,7 +23,7 @@ export function createFakeCalendar(settings: { timeZone?: string; defaultOffsets
    * All-day events may be seeded by `startDate` (and optional exclusive `endDate`, default the
    * next day); `startMs`/`endMs` become those dates' UTC midnights, like the Google adapter.
    */
-  function build(partial: Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })): CalendarEvent {
+  function build(partial: SeedEvent): CalendarEvent {
     if (partial.startMs === undefined && partial.startDate) {
       const startMs = Date.parse(`${partial.startDate}T00:00:00Z`);
       const endDate =
@@ -34,7 +36,7 @@ export function createFakeCalendar(settings: { timeZone?: string; defaultOffsets
         endMs: Date.parse(`${endDate}T00:00:00Z`),
       };
     }
-    const startMs = (partial.startMs as number);
+    const startMs = partial.startMs as number;
     const id = partial.id ?? `evt${nextId++}`;
     return {
       id,
@@ -54,13 +56,12 @@ export function createFakeCalendar(settings: { timeZone?: string; defaultOffsets
   }
 
   return {
-    seed(partial: Partial<CalendarEvent> & ({ startMs: number } | { startDate: string })) {
+    seed(partial: SeedEvent) {
       const evt = build(partial);
       events.set(evt.id, evt);
       return evt;
     },
-    /** @param id @param startMs @param [endMs] */
-    move(id: string, startMs: number, endMs: number) {
+    move(id: string, startMs: number, endMs?: number) {
       const evt = events.get(id);
       if (!evt) throw new Error(`no event ${id}`);
       const length = evt.endMs - evt.startMs;

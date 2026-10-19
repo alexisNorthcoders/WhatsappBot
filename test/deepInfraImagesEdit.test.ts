@@ -11,7 +11,7 @@ const TINY_PNG_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 describe('deepInfraImagesEdit', () => {
-  let prevKey;
+  let prevKey: string | undefined;
 
   beforeEach(() => {
     prevKey = process.env.DEEPINFRA_API_KEY;
@@ -42,16 +42,16 @@ describe('deepInfraImagesEdit', () => {
       return new Response('{}');
     };
     await assert.rejects(
-      () => deepInfraImagesEdit({ image: 'not-binary' }, { fetchFn }),
+      () => deepInfraImagesEdit({ image: 'not-binary' as unknown as Buffer }, { fetchFn }),
       /Image must be a Buffer or Uint8Array/i,
     );
     assert.equal(invoked, false);
   });
 
   it('POSTs multipart to the edits URL with Bearer auth and expected form fields', async () => {
-    const captures = [];
+    const captures: { url: Parameters<typeof fetch>[0]; init?: RequestInit }[] = [];
 
-    const fetchFn = async (url, init) => {
+    const fetchFn: typeof fetch = async (url, init) => {
       captures.push({ url, init });
       return new Response(
         JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }),
@@ -77,14 +77,15 @@ describe('deepInfraImagesEdit', () => {
 
     assert.equal(captures.length, 1);
     assert.equal(captures[0].url, DEEPINFRA_IMAGE_EDITS_URL);
-    assert.equal(captures[0].init.method ?? 'GET', 'POST');
-    assert.equal(captures[0].init.headers.Authorization, 'Bearer test-deepinfra-key');
+    const init = captures[0].init!;
+    assert.equal(init.method ?? 'GET', 'POST');
+    assert.deepEqual(init.headers, { Authorization: 'Bearer test-deepinfra-key' });
 
-    assert.ok(captures[0].init.body instanceof FormData);
-    const form = captures[0].init.body;
+    const form = init.body;
+    assert.ok(form instanceof FormData);
     const fields = [...form.entries()];
 
-    const get = (k) =>
+    const get = (k: string) =>
       fields
         .filter(([name]) => name === k)
         .map(([, v]) => v);
@@ -97,9 +98,7 @@ describe('deepInfraImagesEdit', () => {
     const imageParts = get('image');
     assert.equal(imageParts.length, 1);
     const fileOrBlob = imageParts[0];
-    assert.ok(
-      fileOrBlob instanceof Blob || (typeof File !== 'undefined' && fileOrBlob instanceof File),
-    );
+    assert.ok(fileOrBlob instanceof Blob);
 
     assert.ok(image.equals(Buffer.from(await fileOrBlob.arrayBuffer())));
   });
@@ -127,7 +126,7 @@ describe('deepInfraImagesEdit', () => {
   });
 
   it('works with Uint8Array image input for multipart Blob', async () => {
-    const fetchFn = async (_, init) =>
+    const fetchFn = async () =>
       new Response(JSON.stringify({ data: [{ b64_json: TINY_PNG_B64 }] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -147,7 +146,7 @@ describe('bufferFromOpenAIImageDataEntry', () => {
   it('downloads when only url is present', async () => {
     const expected = Buffer.from([0xaa, 0xbb]);
 
-    const fetchFn = async (url) => {
+    const fetchFn: typeof fetch = async (url) => {
       assert.equal(url, 'https://cdn.example/out.bin');
       return new Response(expected, { status: 200 });
     };

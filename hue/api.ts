@@ -2,8 +2,20 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+export type HueLight = {
+  id: string;
+  name: string;
+  room: string;
+  state: string;
+  type: string;
+  modelid: string;
+};
+
+type BridgeLight = { name: string; type: string; modelid: string; state: { on: boolean } };
+type BridgeGroup = { name: string; type: string; lights?: string[] };
+
 // Light cache to store lights in memory
-let lightCache: { lights: { id: string; name: string; room: string; state: string; type: string; modelid: string }[]; lastUpdated: Date | null; isUpdating: boolean } = {
+let lightCache: { lights: HueLight[]; lastUpdated: Date | null; isUpdating: boolean } = {
   lights: [],
   lastUpdated: null,
   isUpdating: false
@@ -44,11 +56,11 @@ export async function refreshLightCache() {
       fetch(groupsURL)
     ]);
     
-    const lights = await lightsResponse.json();
-    const groups = await groupsResponse.json();
+    const lights: Record<string, BridgeLight> = await lightsResponse.json();
+    const groups: Record<string, BridgeGroup> = await groupsResponse.json();
     
     // Create a mapping of light ID to room name
-    const lightToRoomMap = {};
+    const lightToRoomMap: Record<string, string> = {};
     Object.entries(groups).forEach(([groupId, groupInfo]) => {
       if (groupInfo.type === 'Room' && groupInfo.lights) {
         groupInfo.lights.forEach(lightId => {
@@ -106,7 +118,7 @@ export async function switchOffAllLights() {
   }
 }
 
-export async function switchLight(lightID, state) {
+export async function switchLight(lightID: string, state: boolean) {
   const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
   
   try {
@@ -129,21 +141,21 @@ export async function listAllLights() {
   return lightCache.lights;
 }
 
-export async function getLightsByRoom(roomName) {
+export async function getLightsByRoom(roomName: string) {
   const allLights = await listAllLights();
   return allLights.filter(light => 
     light.room.toLowerCase().includes(roomName.toLowerCase())
   );
 }
 
-export async function findLightByName(lightName) {
+export async function findLightByName(lightName: string) {
   const allLights = await listAllLights();
   return allLights.find(light => 
     light.name.toLowerCase().includes(lightName.toLowerCase())
   );
 }
 
-export async function switchLightByName(lightName, state) {
+export async function switchLightByName(lightName: string, state: boolean) {
   try {
     const light = await findLightByName(lightName);
     
@@ -159,7 +171,7 @@ export async function switchLightByName(lightName, state) {
 }
 
 // Set light brightness (0-254)
-export async function setLightBrightness(lightID, brightness) {
+export async function setLightBrightness(lightID: string, brightness: number) {
   const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
   
   try {
@@ -181,7 +193,7 @@ export async function setLightBrightness(lightID, brightness) {
 }
 
 // Set light brightness by name
-export async function setLightBrightnessByName(lightName, brightness) {
+export async function setLightBrightnessByName(lightName: string, brightness: number) {
   try {
     const light = await findLightByName(lightName);
     
@@ -197,7 +209,7 @@ export async function setLightBrightnessByName(lightName, brightness) {
 }
 
 // Set color temperature (153-500 mireds, lower = warmer, higher = cooler)
-export async function setLightColorTemperature(lightID, colorTemp) {
+export async function setLightColorTemperature(lightID: string, colorTemp: number) {
   const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
   
   try {
@@ -219,7 +231,7 @@ export async function setLightColorTemperature(lightID, colorTemp) {
 }
 
 // Set color temperature by name
-export async function setLightColorTemperatureByName(lightName, colorTemp) {
+export async function setLightColorTemperatureByName(lightName: string, colorTemp: number) {
   try {
     const light = await findLightByName(lightName);
     
@@ -235,7 +247,7 @@ export async function setLightColorTemperatureByName(lightName, colorTemp) {
 }
 
 // Set light color using HSB values
-export async function setLightColor(lightID, hue, saturation, brightness) {
+export async function setLightColor(lightID: string, hue: number, saturation: number, brightness: number) {
   const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}/state`;
   
   try {
@@ -261,7 +273,12 @@ export async function setLightColor(lightID, hue, saturation, brightness) {
 }
 
 // Set light color by name
-export async function setLightColorByName(lightName, hue, saturation, brightness) {
+export async function setLightColorByName(
+  lightName: string,
+  hue: number,
+  saturation: number,
+  brightness: number,
+) {
   try {
     const light = await findLightByName(lightName);
     
@@ -277,7 +294,7 @@ export async function setLightColorByName(lightName, hue, saturation, brightness
 }
 
 // Get light capabilities and current state
-export async function getLightInfo(lightID) {
+export async function getLightInfo(lightID: string) {
   const URL = `http://${process.env.HUE_IP}/api/${process.env.HUE_USERNAME}/lights/${lightID}`;
   
   try {
@@ -311,7 +328,7 @@ export async function getLightInfo(lightID) {
 }
 
 // Get light info by name
-export async function getLightInfoByName(lightName) {
+export async function getLightInfoByName(lightName: string) {
   try {
     const light = await findLightByName(lightName);
     

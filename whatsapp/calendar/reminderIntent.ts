@@ -55,7 +55,13 @@ export function classifyReminderIntent(text: string): ReminderIntent | null {
   const win = t.match(WINDOW_RE);
   if (win) {
     const w = win[1].toLowerCase().replace(/\s+/g, ' ');
-    const map: Record<string, ListWindow> = { today: 'today', tonight: 'today', tomorrow: 'tomorrow', 'this week': 'thisWeek', 'next week': 'nextWeek' };
+    const map: Record<string, ListWindow> = {
+      today: 'today',
+      tonight: 'today',
+      tomorrow: 'tomorrow',
+      'this week': 'thisWeek',
+      'next week': 'nextWeek',
+    };
     return { kind: 'list', window: map[w] };
   }
   if (LIST_RE.test(t)) return { kind: 'list', window: 'upcoming' };

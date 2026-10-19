@@ -8,8 +8,10 @@ import {
 /**
  * Scripted fetch: each route returns a canned JSON response; requests are recorded.
  */
-function fakeFetch(routes: Record<string, (req: { url: URL; init: RequestInit }) => { status?: number; body?: unknown }>) {
-  const calls: { url: URL; init: RequestInit }[] = [];
+type FakeRequest = { url: URL; init: RequestInit };
+
+function fakeFetch(routes: Record<string, (req: FakeRequest) => { status?: number; body?: unknown }>) {
+  const calls: FakeRequest[] = [];
   const f: typeof fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     calls.push({ url, init });
