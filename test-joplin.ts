@@ -58,8 +58,8 @@ async function testJoplinConnection() {
         console.log('🎉 All tests passed! Joplin integration is working correctly.');
         
     } catch (error) {
-        console.error('❌ Test failed:', error.message);
-        console.error('Stack trace:', error.stack);
+        console.error('❌ Test failed:', (error as Error).message);
+        console.error('Stack trace:', (error as Error).stack);
     }
 }
 

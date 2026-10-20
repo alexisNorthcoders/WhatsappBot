@@ -21,29 +21,19 @@ Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `p
 
 ```bash
 npm start              # node --no-deprecation whatsapp.ts — main bot process
-npm test               # type check, then node --test on test/**/*.test.{js,ts} (node:test, no framework)
-npm run typecheck      # both tsc passes below — type check only (~7s on the Pi)
-node scripts/renameToTs.ts <file.js>…  # rename to .ts and rewrite every import and path mention
-node scripts/jsdocToTs.ts <file.ts>…   # then move the renamed files' JSDoc types into TS syntax
-node --test test/foo.test.js          # run a single test file
-node --test --test-name-pattern="…" test/foo.test.js   # run a single test by name
-npm run eval:summarize -- --all       # offline eval for the `summarize` command against fixtures/gold
-npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Joplin integration check
+npm test               # type check, then node --test on test/**/*.test.ts (node:test, no framework)
+npm run typecheck      # tsc -p . with strict, no emit — type check only
+node --test test/foo.test.ts          # run a single test file
+node --test --test-name-pattern="…" test/foo.test.ts   # run a single test by name
+npm run start:joplin    # node --no-deprecation test-joplin.ts — standalone Joplin integration check
 ```
 
-The repo is moving from JS to TypeScript, leaf modules first. Node 24 runs `.ts` directly (type
-stripping), so there is no build step: imports name the real `.ts` extension, and only erasable
-syntax is allowed (no enums, namespaces or parameter properties; `import type` for types).
-Typechecking runs two passes, both with no emit. `tsc -p .` checks every `.ts` file with
-`strict` (`tsconfig.json`). `scripts/typecheckJs.ts` checks the remaining JS through its JSDoc
-types with `strictNullChecks` only (`tsconfig.checkjs.json`), and reports nothing in `.ts` files,
-which the strict pass owns. Delete both once no `.js` is left. A `.ts` file can't import a `.js`
-module, so convert a module's dependencies first. Convert files with `scripts/renameToTs.ts`, then
-`scripts/jsdocToTs.ts` (TypeScript's own JSDoc-to-TS code fixes), commit each script's output on
-its own, then fix the remaining strict errors by hand. Move the module's tests to `.ts` in the
-same PR. JS tests in `test/` are
-not type-checked. Shared types
-(`Logger`, `MessageSender`, `TextSender`, `FetchLike`) live in `whatsapp/types.ts`: take the narrowest one a
+The repo is TypeScript throughout. Node 24 runs `.ts` directly (type stripping), so there is no
+build step: imports name the real `.ts` extension, and only erasable syntax is allowed (no enums,
+namespaces or parameter properties; `import type` for types). `tsc -p .` checks every `.ts` file
+with `strict` and no emit (`tsconfig.json`); `test/noJavaScript.test.ts` fails if a `.js`, `.mjs`
+or `.cjs` file is added, since tsc wouldn't check it. Shared types (`Logger`, `MessageSender`,
+`TextSender`, `FetchLike`, `Command`) live in `whatsapp/types.ts`: take the narrowest one a
 function needs so tests can pass small fakes.
 
 Tests are plain `node:test` + `node:assert/strict`, no mocking library — dependencies are
@@ -164,14 +154,10 @@ there before assuming a default interval/threshold.
 
 ## Testing
 
-- `test/*.test.js` uses `node:test` + `node:assert/strict` directly — no Jest/Mocha/Sinon.
+- `test/*.test.ts` uses `node:test` + `node:assert/strict` directly — no Jest/Mocha/Sinon.
 - Because the orchestration layer is ports-based, most tests build a fake `ports` object (see
   `basePorts()` in `test/messageOrchestrator.test.ts`) rather than mocking Baileys or `fetch`.
   Prefer that pattern for new orchestration/agent tests over module-level mocking.
-- `eval/summarize/` is a separate, non-`node:test` eval harness (`run.mjs`) for scoring the
-  `summarize` command's LLM output against hand-authored gold facts; it's exercised inside the
-  test suite via `test/summarizeEval.test.js` but can also be run standalone with
-  `npm run eval:summarize`.
 
 ## Environment configuration
 

@@ -41,8 +41,7 @@ authUrl.search = new URLSearchParams({
   prompt: 'consent',
 }).toString();
 
-/** @param {string} code */
-async function exchange(code) {
+async function exchange(code: string) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -61,16 +60,15 @@ async function exchange(code) {
   return String(body.refresh_token);
 }
 
-/** @param {string} input a code, or a URL / query string containing `code=` */
-function codeFrom(input) {
+/** @param input a code, or a URL / query string containing `code=` */
+function codeFrom(input: string) {
   const s = input.trim();
   if (!s.includes('code=')) return s;
   return new URLSearchParams(s.slice(s.indexOf('?') + 1)).get('code') ?? '';
 }
 
 let done = false;
-/** @param {string} code */
-async function finish(code) {
+async function finish(code: string) {
   if (done || !code) return;
   done = true;
   try {

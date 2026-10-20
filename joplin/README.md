@@ -28,7 +28,7 @@ JOPLIN_PASSWORD=your_actual_password_here
 Run the test script to verify everything is working:
 
 ```bash
-node test-joplin.js
+node test-joplin.ts
 ```
 
 The integration will automatically configure the Joplin CLI to sync with your Joplin Server and use CLI commands for all operations.

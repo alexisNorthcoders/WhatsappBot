@@ -17,12 +17,11 @@
   "main": "whatsapp.ts",
   "type": "module",
   "scripts": {
-    "test": "npm run typecheck && node --test \"./test/**/*.test.js\" \"./test/**/*.test.ts\"",
-    "typecheck": "tsc -p . && node scripts/typecheckJs.ts",
-    "eval:summarize": "node eval/summarize/run.mjs",
+    "test": "npm run typecheck && node --test \"./test/**/*.test.ts\"",
+    "typecheck": "tsc -p .",
     "start": "node --no-deprecation whatsapp.ts",
-    "start:joplin": "node --no-deprecation test-joplin.js",
-    "calendar:consent": "node scripts/googleCalendarConsent.js"
+    "start:joplin": "node --no-deprecation test-joplin.ts",
+    "calendar:consent": "node scripts/googleCalendarConsent.ts"
   },
   "keywords": [],
   "author": "",
