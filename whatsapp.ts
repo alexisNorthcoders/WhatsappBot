@@ -36,13 +36,13 @@ import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.ts';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.ts';
 import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.ts';
 import dotenv from 'dotenv';
+import type { Boom } from '@hapi/boom';
 dotenv.config();
 
 const myPhone = process.env.MY_PHONE;
 const secondPhone = process.env.SECOND_PHONE;
 
-/** @returns {string | null} */
-function ownerJidFromMyPhone() {
+function ownerJidFromMyPhone(): string | null {
   const raw = String(myPhone || '').trim();
   if (!raw) return null;
   if (raw.includes('@')) return raw;
@@ -165,7 +165,7 @@ async function startSock() {
     } else if (connection === 'close') {
       stopCalendarNudges();
       agentRunner.outbox.stop();
-      const statusCode = /** @type {import('@hapi/boom').Boom | undefined} */ (lastDisconnect?.error)?.output?.statusCode;
+      const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
       /*
        * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:
        * WhatsApp has invalidated this linked device (logout, device_removed conflict, ToS, etc.).

@@ -24,26 +24,18 @@ import { createLlmReminderExtractor } from '../calendar/reminderExtraction.ts';
 import { createLastLists } from '../calendar/lastLists.ts';
 import { runAgentsChainSequential } from './agentsTryHandle.ts';
 import { createJevRouter } from './jevRouter.ts';
-
-/**
- * @typedef {import('./normalizeBaileysMessage.ts').InboundMessage} InboundMessage
- */
+import type { InboundMessage } from './normalizeBaileysMessage.ts';
+import type { WASocket, downloadMediaMessage, WAMessage } from '@whiskeysockets/baileys';
+import type { Logger } from '../types.ts';
 
 // One store per process, keyed by chat id: ports are rebuilt on every socket reconnect, and a
 // list shown just before a reconnect must still answer "cancel N".
 const reminderLastLists = createLastLists();
 
 /**
- * @param {object} deps
- * @param {import('@whiskeysockets/baileys').WASocket} deps.sock
- * @param {typeof import('@whiskeysockets/baileys').downloadMediaMessage} deps.downloadMediaMessage
- * @param {import('../types.ts').Logger} deps.logger
- * @param {Record<string, (sock: import('@whiskeysockets/baileys').WASocket, chatId: string, text?: string, raw?: import('@whiskeysockets/baileys').WAMessage) => Promise<unknown>>} deps.commands
- * @param {string | undefined} deps.secondPhone
- * @param {(actorId: string | null, actorAltId?: string | null) => boolean} deps.isAllowedActor
- * @param {object} deps.agentRunner the orchestrator's `agentRunner` port
+ * @param deps.agentRunner the orchestrator's `agentRunner` port
  */
-export function createProductionPorts(deps) {
+export function createProductionPorts(deps: { sock: WASocket; downloadMediaMessage: typeof downloadMediaMessage; logger: Logger; commands: Record<string, (sock: WASocket, chatId: string, text?: string, raw?: WAMessage) => Promise<unknown>>; secondPhone: string | undefined; isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean; agentRunner: object }) {
   const { sock, downloadMediaMessage, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
   if (typeof isAllowedActor !== 'function') {
     throw new TypeError('createProductionPorts: isAllowedActor is required');
@@ -129,7 +121,7 @@ export function createProductionPorts(deps) {
   return {
     receipts: {
       async markRead(m) {
-        const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
+        const raw = m.raw as WAMessage;
         await sock.readMessages([raw.key]);
       },
     },
@@ -146,10 +138,8 @@ export function createProductionPorts(deps) {
     },
     media: {
       async downloadImageBuffer(m) {
-        const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
-        return /** @type {Buffer} */ (
-          await downloadMediaMessage(raw, 'buffer', {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage })
-        );
+        const raw = m.raw as WAMessage;
+        return await downloadMediaMessage(raw, 'buffer', {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage }) as Buffer;
       },
     },
     chatMemory: {
@@ -174,7 +164,7 @@ export function createProductionPorts(deps) {
       },
       async runCommandByFirstToken(m) {
         const command = m.text.split(' ')[0].toLowerCase();
-        const raw = /** @type {import('@whiskeysockets/baileys').WAMessage} */ (m.raw);
+        const raw = m.raw as WAMessage;
         if (!commands[command]) {
           return { handled: false };
         }
