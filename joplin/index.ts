@@ -9,6 +9,12 @@ dotenv.config();
 
 const execAsync = promisify(exec);
 
+const JOPLIN_BIN = process.env.JOPLIN_BIN || 'joplin';
+
+function runJoplin(args: string) {
+    return execAsync(`"${JOPLIN_BIN}" ${args}`);
+}
+
 /** Default notebook for WhatsApp-created notes (agent should only touch this notebook). */
 export const WHATSAPP_BOT_NOTEBOOK = 'WhatsApp Bot';
 
@@ -60,7 +66,7 @@ class JoplinAPI {
         const now = Date.now();
         if (now - this._lastSyncTime < SYNC_THROTTLE_MS) return;
         try {
-            await execAsync('joplin sync');
+            await runJoplin('sync');
             this._lastSyncTime = Date.now();
         } catch (err) {
             console.warn('⚠️ Pre-read sync failed (non-fatal):', (err as Error).message);
@@ -80,7 +86,7 @@ class JoplinAPI {
 
             // Check if already configured by testing sync
             try {
-                const { stdout } = await execAsync('joplin config sync.target');
+                const { stdout } = await runJoplin('config sync.target');
                 if (stdout.includes('9')) {
                     console.log('✅ Joplin CLI already configured');
                     this.configured = true;
@@ -93,16 +99,16 @@ class JoplinAPI {
             console.log('🔧 Configuring Joplin CLI...');
             
             // Configure sync target
-            await execAsync('joplin config sync.target 9');
+            await runJoplin('config sync.target 9');
             
             // Configure server path
-            await execAsync(`joplin config sync.9.path "${this.serverUrl}"`);
+            await runJoplin(`config sync.9.path "${this.serverUrl}"`);
             
             // Configure username
-            await execAsync(`joplin config sync.9.username "${this.email}"`);
+            await runJoplin(`config sync.9.username "${this.email}"`);
             
             // Configure password
-            await execAsync(`joplin config sync.9.password "${this.password}"`);
+            await runJoplin(`config sync.9.password "${this.password}"`);
             
             this.configured = true;
             console.log('✅ Joplin CLI configured successfully');
@@ -116,14 +122,14 @@ class JoplinAPI {
     async ensureWhatsAppNotebook() {
         try {
             // Check if WhatsApp Bot notebook exists
-            const { stdout } = await execAsync('joplin ls /');
+            const { stdout } = await runJoplin('ls /');
             if (stdout.includes('WhatsApp Bot')) {
                 return true; // Notebook already exists
             }
 
             // Create WhatsApp Bot notebook
             console.log('📁 Creating WhatsApp Bot notebook...');
-            await execAsync('joplin mkbook "WhatsApp Bot"');
+            await runJoplin('mkbook "WhatsApp Bot"');
             console.log('✅ WhatsApp Bot notebook created');
             return true;
         } catch (error) {
@@ -141,7 +147,7 @@ class JoplinAPI {
             }
             
             // Test Joplin CLI connection
-            const { stdout, stderr } = await execAsync('joplin version');
+            const { stdout, stderr } = await runJoplin('version');
             
             if (stderr) {
                 console.warn('Joplin CLI warning:', stderr);
@@ -175,7 +181,7 @@ class JoplinAPI {
                 writeFileSync(tempFile, noteContent, 'utf8');
                 
                 // Use the file to create the note
-                let command = `joplin mknote "$(cat "${tempFile}")"`;
+                let command = `mknote "$(cat "${tempFile}")"`;
                 
                 // Use WhatsApp Bot notebook if no parent specified
                 if (parentId) {
@@ -185,14 +191,14 @@ class JoplinAPI {
                 }
             
                 console.log('Creating note with Joplin CLI...');
-                const { stdout, stderr } = await execAsync(command);
+                const { stdout, stderr } = await runJoplin(command);
                 
                 if (stderr) {
                     console.warn('Joplin CLI warning:', stderr);
                 }
                 
                 // Find the note ID by searching for the title
-                const { stdout: listOutput } = await execAsync('joplin ls -l');
+                const { stdout: listOutput } = await runJoplin('ls -l');
                 const lines = listOutput.split('\n').filter(line => line.trim());
                 
                 for (const line of lines) {
@@ -210,7 +216,7 @@ class JoplinAPI {
                 }
                 
                 // Set markup language to markdown
-                await execAsync(`joplin set "${noteId}" markup_language 1`);
+                await runJoplin(`set "${noteId}" markup_language 1`);
                 
             } finally {
                 // Clean up the temporary file
@@ -222,7 +228,7 @@ class JoplinAPI {
             }
             
             // Sync to ensure the note is uploaded to the server
-            await execAsync('joplin sync');
+            await runJoplin('sync');
             this._markSynced();
             
             console.log('✅ Note created successfully:', noteId);
@@ -244,7 +250,7 @@ class JoplinAPI {
             await this.configureCli();
             await this.syncIfNeeded();
             
-            const { stdout, stderr } = await execAsync('joplin ls /');
+            const { stdout, stderr } = await runJoplin('ls /');
             
             if (stderr) {
                 console.warn('Joplin CLI warning:', stderr);
@@ -278,7 +284,7 @@ class JoplinAPI {
             await this.syncIfNeeded();
             
             // Get all notebooks first
-            const { stdout: notebooksOutput } = await execAsync('joplin ls /');
+            const { stdout: notebooksOutput } = await runJoplin('ls /');
             const notebooks = notebooksOutput.split('\n').filter(line => line.trim());
             
             const allNotes: JoplinNoteRef[] = [];
@@ -288,10 +294,10 @@ class JoplinAPI {
                 if (notebook.trim()) {
                     try {
                         // Switch to the notebook
-                        await execAsync(`joplin use "${notebook.trim()}"`);
+                        await runJoplin(`use "${notebook.trim()}"`);
                         
                         // Get notes in this notebook
-                        const { stdout, stderr } = await execAsync('joplin ls -l');
+                        const { stdout, stderr } = await runJoplin('ls -l');
                         
                         if (stderr) {
                             console.warn('Joplin CLI warning:', stderr);
@@ -348,8 +354,8 @@ class JoplinAPI {
             if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
                 await this.ensureWhatsAppNotebook();
             }
-            await execAsync(`joplin use "${notebookName}"`);
-            const { stdout, stderr } = await execAsync('joplin ls -l');
+            await runJoplin(`use "${notebookName}"`);
+            const { stdout, stderr } = await runJoplin('ls -l');
             if (stderr) {
                 console.warn('Joplin CLI warning:', stderr);
             }
@@ -389,8 +395,8 @@ class JoplinAPI {
         if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
             await this.ensureWhatsAppNotebook();
         }
-        await execAsync(`joplin use "${notebookName}"`);
-        const { stdout: listOutput } = await execAsync('joplin ls -l');
+        await runJoplin(`use "${notebookName}"`);
+        const { stdout: listOutput } = await runJoplin('ls -l');
         const lines = listOutput.split('\n').filter((line) => line.trim());
         for (const line of lines) {
             const idMatch = line.match(/^([a-f0-9]+)/);
@@ -409,11 +415,11 @@ class JoplinAPI {
     async getNoteInNotebook(noteId: string, notebookName: string): Promise<JoplinNote> {
         try {
             const resolvedId = await this.resolveNoteIdInNotebook(noteId, notebookName);
-            const { stdout, stderr } = await execAsync(`joplin cat "${resolvedId}"`);
+            const { stdout, stderr } = await runJoplin(`cat "${resolvedId}"`);
             if (stderr) {
                 console.warn('Joplin CLI warning:', stderr);
             }
-            const { stdout: listOutput } = await execAsync('joplin ls -l');
+            const { stdout: listOutput } = await runJoplin('ls -l');
             const lines = listOutput.split('\n').filter((line) => line.trim());
             let title = '';
             for (const line of lines) {
@@ -444,8 +450,8 @@ class JoplinAPI {
         if (notebookName === WHATSAPP_BOT_NOTEBOOK) {
             await this.ensureWhatsAppNotebook();
         }
-        await execAsync(`joplin use "${notebookName}"`);
-        const { stdout, stderr } = await execAsync('joplin ls -l');
+        await runJoplin(`use "${notebookName}"`);
+        const { stdout, stderr } = await runJoplin('ls -l');
         if (stderr) {
             console.warn('Joplin CLI warning:', stderr);
         }
@@ -466,7 +472,7 @@ class JoplinAPI {
             await this.configureCli();
             await this.syncIfNeeded();
             
-            const { stdout, stderr } = await execAsync(`joplin cat "${noteId}"`);
+            const { stdout, stderr } = await runJoplin(`cat "${noteId}"`);
             
             if (stderr) {
                 console.warn('Joplin CLI warning:', stderr);
@@ -474,7 +480,7 @@ class JoplinAPI {
             
             // The joplin cat command returns the note content directly
             // We need to get the title separately using ls -l
-            const { stdout: listOutput } = await execAsync('joplin ls -l');
+            const { stdout: listOutput } = await runJoplin('ls -l');
             const lines = listOutput.split('\n').filter(line => line.trim());
             
             let title = '';
@@ -520,8 +526,8 @@ class JoplinAPI {
             
             // Update title if provided
             if (updates.title) {
-                const titleCommand = `joplin set "${noteId}" title "${updates.title.replace(/'/g, "'\"'\"'")}"`;
-                await execAsync(titleCommand);
+                const titleCommand = `set "${noteId}" title "${updates.title.replace(/'/g, "'\"'\"'")}"`;
+                await runJoplin(titleCommand);
             }
             
             // Update body if provided
@@ -533,9 +539,9 @@ class JoplinAPI {
                     writeFileSync(tempFile, updates.body, 'utf8');
                     
                     // Use the file to update the body content
-                    const bodyCommand = `joplin set "${noteId}" body "$(cat "${tempFile}")"`;
+                    const bodyCommand = `set "${noteId}" body "$(cat "${tempFile}")"`;
                     console.log('Updating body content:', updates.body);
-                    await execAsync(bodyCommand);
+                    await runJoplin(bodyCommand);
                 } finally {
                     // Clean up the temporary file
                     try {
@@ -548,7 +554,7 @@ class JoplinAPI {
             }
             
             // Sync to ensure changes are uploaded to the server
-            await execAsync('joplin sync');
+            await runJoplin('sync');
             this._markSynced();
             
             console.log('✅ Note updated successfully:', noteId);
@@ -564,14 +570,14 @@ class JoplinAPI {
             // Ensure CLI is configured
             await this.configureCli();
             
-            const { stdout, stderr } = await execAsync(`joplin rmnote "${noteId}"`);
+            const { stdout, stderr } = await runJoplin(`rmnote "${noteId}"`);
             
             if (stderr) {
                 console.warn('Joplin CLI warning:', stderr);
             }
             
             // Sync to ensure deletion is uploaded to the server
-            await execAsync('joplin sync');
+            await runJoplin('sync');
             this._markSynced();
             
             console.log('✅ Note deleted successfully:', noteId);
