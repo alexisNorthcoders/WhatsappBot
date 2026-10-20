@@ -57,7 +57,7 @@ const helpCommand: Command<TextSender> = async (sock, sender) => {
 ━━━━━━━━━━━━━━━━━━━━━━
 • *!help* — This message
 • *!clear* — Clear chat memory (resets AI conversation context)
-• *!restart* — Restart the bot (pm2 restart 0; same identities as *claude*: MY_PHONE, SECOND_PHONE, CLAUDE_AGENT_EXTRA_JIDS; refused while a runner run is active)
+• *!restart* — Restart the bot (pm2 restart whatsapp; same identities as *claude*: MY_PHONE, SECOND_PHONE, CLAUDE_AGENT_EXTRA_JIDS; refused while a runner run is active)
 • *!sendpoll* — Send a sample poll
 • *daniel* — Photo do Daniel
 • *Send* — Random fact to both phones

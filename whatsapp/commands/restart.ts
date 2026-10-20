@@ -1,11 +1,12 @@
 import { spawn } from 'child_process';
 import type { TextSender } from '../types.ts';
 
-const PM2_ID = process.env.PM2_RESTART_APP_ID || '0';
+const PM2_ID = process.env.PM2_RESTART_APP_ID || 'whatsapp';
 const DELAY_MS = parseInt(process.env.PM2_RESTART_DELAY_MS || '800', 10);
 
 /**
- * Notify on WhatsApp, then ask PM2 to restart this app (default id 0).
+ * Notify on WhatsApp, then ask PM2 to restart this app. The default is the app name, since a
+ * `pm2 delete` and `pm2 start` keeps the name but gives the app a new id.
  * Spawn is detached so the CLI can outlive this Node process as it shuts down.
  */
 export default async function restartCommand(sock: TextSender, sender: string) {
