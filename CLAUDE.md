@@ -27,7 +27,6 @@ node scripts/renameToTs.ts <file.js>…  # rename to .ts and rewrite every impor
 node scripts/jsdocToTs.ts <file.ts>…   # then move the renamed files' JSDoc types into TS syntax
 node --test test/foo.test.js          # run a single test file
 node --test --test-name-pattern="…" test/foo.test.js   # run a single test by name
-npm run eval:summarize -- --all       # offline eval for the `summarize` command against fixtures/gold
 npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Joplin integration check
 ```
 
@@ -168,10 +167,6 @@ there before assuming a default interval/threshold.
 - Because the orchestration layer is ports-based, most tests build a fake `ports` object (see
   `basePorts()` in `test/messageOrchestrator.test.ts`) rather than mocking Baileys or `fetch`.
   Prefer that pattern for new orchestration/agent tests over module-level mocking.
-- `eval/summarize/` is a separate, non-`node:test` eval harness (`run.mjs`) for scoring the
-  `summarize` command's LLM output against hand-authored gold facts; it's exercised inside the
-  test suite via `test/summarizeEval.test.js` but can also be run standalone with
-  `npm run eval:summarize`.
 
 ## Environment configuration
 

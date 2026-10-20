@@ -19,7 +19,6 @@
   "scripts": {
     "test": "npm run typecheck && node --test \"./test/**/*.test.js\" \"./test/**/*.test.ts\"",
     "typecheck": "tsc -p . && node scripts/typecheckJs.ts",
-    "eval:summarize": "node eval/summarize/run.mjs",
     "start": "node --no-deprecation whatsapp.ts",
     "start:joplin": "node --no-deprecation test-joplin.js",
     "calendar:consent": "node scripts/googleCalendarConsent.js"
