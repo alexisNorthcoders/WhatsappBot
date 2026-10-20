@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProductionPorts } from '../whatsapp/orchestration/createProductionPorts.js';
+import { createProductionPorts } from '../whatsapp/orchestration/createProductionPorts.ts';
 import { createMessageOrchestrator } from '../whatsapp/orchestration/createMessageOrchestrator.ts';
 import { normalizeBaileysMessage } from '../whatsapp/orchestration/normalizeBaileysMessage.ts';
 import { isAllowedActor } from '../whatsapp/whatsAppActorAllowlist.ts';

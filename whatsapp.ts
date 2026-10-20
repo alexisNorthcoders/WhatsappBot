@@ -9,7 +9,7 @@ import {
 import * as commands from './whatsapp/commands/index.ts';
 import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.ts';
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.ts';
-import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
+import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.ts';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.ts';
 import { createSentMessageStore } from './whatsapp/sentMessageStore.ts';
 import { backupAuthDirOnce } from './whatsapp/baileysAuthBackup.ts';

@@ -48,7 +48,7 @@ type ChainAgent = {
 /**
  * Agent chain. With `routeIntent` (Jev), one call picks the agent and only that agent runs;
  * otherwise (or when Jev is unreachable) agents are tried in order behind their keyword gates,
- * with SKIP fallthrough (same semantics as legacy whatsapp.js).
+ * with SKIP fallthrough (same semantics as legacy whatsapp.ts).
  */
 export async function runAgentsChainSequential(m: InboundMessage, deps: AgentChainDeps): Promise<{ handled: boolean }> {
   const { logger, messaging, chatMemory, routeIntent } = deps;

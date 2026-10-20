@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const BOT_SOURCES = ['whatsapp.js', 'whatsapp', 'models', 'hue', 'joplin', 'scripts'];
+const BOT_SOURCES = ['whatsapp.ts', 'whatsapp', 'models', 'hue', 'joplin', 'scripts'];
 
 function envVarsReadByBot() {
   const files = execFileSync('git', ['ls-files', '--', ...BOT_SOURCES], { cwd: root, encoding: 'utf8' })

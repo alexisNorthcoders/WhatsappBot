@@ -20,7 +20,7 @@ Deployment target is a Raspberry Pi under PM2 (see references to "the Pi" and `p
 ## Commands
 
 ```bash
-npm start              # node --no-deprecation whatsapp.js — main bot process
+npm start              # node --no-deprecation whatsapp.ts — main bot process
 npm test               # type check, then node --test on test/**/*.test.{js,ts} (node:test, no framework)
 npm run typecheck      # both tsc passes below — type check only (~7s on the Pi)
 node scripts/renameToTs.ts <file.js>…  # rename to .ts and rewrite every import and path mention
@@ -60,7 +60,7 @@ unattended.
 
 ### Message flow (ports-and-adapters)
 
-`whatsapp.js` owns the Baileys socket lifecycle (auth, QR pairing, reconnect/backoff, logout
+`whatsapp.ts` owns the Baileys socket lifecycle (auth, QR pairing, reconnect/backoff, logout
 handling) and wires up cron-style background jobs on `connection === 'open'`. Baileys is pinned
 to 7.x (currently `7.0.0-rc14`). Before the first socket opens, `whatsapp/baileysAuthBackup.ts`
 copies `.auth/baileys` once to `.auth/baileys-pre-v7-backup` (never overwritten; 7.x migrates
@@ -72,7 +72,7 @@ hexagonal/ports architecture:
   receipts, normalizes the raw message, catches/reports errors back to the sender.
 - `normalizeBaileysMessage.ts` — maps a raw Baileys `WAMessage` into a plain
   `InboundMessage` (`{ id, chatId, actorId, actorAltId, text, raw, features }`).
-- `createProductionPorts.js` — builds the concrete ports object (real Baileys `sock`, real
+- `createProductionPorts.ts` — builds the concrete ports object (real Baileys `sock`, real
   filesystem, real command registry, real agents) that the orchestrator runs against. Swap this
   factory out (see `test/messageOrchestrator.test.ts`) to test orchestration logic without a
   socket.
@@ -90,8 +90,8 @@ hexagonal/ports architecture:
   of committing to a reply.
 
 When adding a new command or agent, wire it through `commands/index.ts` or the agent chain in
-`createProductionPorts.js`/`agentsTryHandle.ts` — don't special-case it directly in
-`whatsapp.js`.
+`createProductionPorts.ts`/`agentsTryHandle.ts` — don't special-case it directly in
+`whatsapp.ts`.
 
 **LIDs:** on Baileys 7.x the sender (`actorId`) and chat id (`chatId`) may be a `@lid`
 (WhatsApp's privacy id) instead of a phone-number JID. The other form, when WhatsApp sends it,
@@ -130,7 +130,7 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   recipient per poll; backlog from while the bot was down is summarised as "you missed N" instead
   of replayed, and `claude:missed` (answered in the bot) lists it.
 
-### Other background jobs started from `whatsapp.js`
+### Other background jobs started from `whatsapp.ts`
 
 - `whatsapp/calendar/` — calendar Nudges (ADR 0002): the `calendar` port (`calendarPort.ts`),
   its Google Calendar v3 adapter (`googleCalendar.ts`, plain `fetch` + OAuth refresh token), and
@@ -178,7 +178,7 @@ there before assuming a default interval/threshold.
 `.env.example` is the source of truth for optional/tunable env vars (cron intervals, disable
 flags, file paths for reminders/reddit-digest state, storage limits). When adding a new
 env-gated feature, add a commented example there rather than only documenting it in code
-comments. `test/envExample.test.js` fails when the bot's code reads an env var that
+comments. `test/envExample.test.ts` fails when the bot's code reads an env var that
 `.env.example` doesn't list.
 
 ## Agent skills
