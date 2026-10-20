@@ -63,8 +63,11 @@ function convertCasts(text: string): string {
     if (exprClose < 0) continue;
     const type = text.slice(typeOpen + 1, typeClose).trim();
     const expr = text.slice(exprOpen + 1, exprClose).trim();
-    const whole = /(?:=|\breturn)\s*$/.test(text.slice(from, m.index)) && /^\s*;/.test(text.slice(exprClose + 1));
-    out += `${text.slice(from, m.index)}${whole ? `${expr} as ${type}` : `(${expr} as ${type})`}`;
+    const before = text.slice(from, m.index);
+    const after = text.slice(exprClose + 1);
+    const whole =
+      (/(?:=|\breturn)\s*$/.test(before) && /^\s*;/.test(after)) || (/[(,]\s*$/.test(before) && /^\s*[),]/.test(after));
+    out += `${before}${whole ? `${expr} as ${type}` : `(${expr} as ${type})`}`;
     from = exprClose + 1;
     cast.lastIndex = from;
   }
@@ -181,13 +184,13 @@ function stripJsDocTypes(text: string): string {
   return hoistTypeImports(stripTypeBraces(text))
     .replace(/(@returns?)[ \t]*\n[ \t]*\*[ \t]{2,}(?=[^\s@*\/])/g, '$1 ')
     .replace(/^[ \t]*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:\[[\w.$]+(?:=[^\]]*)?\]|[\w.$]+)?[ \t]*\n(?![ \t]*\*[ \t]{2,}[^\s@*/])/gm, '')
-    .replace(/[ \t]*\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*\n?/g, '')
+    .replace(/[ \t]*\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*\n/g, '')
+    .replace(/\/\*\*[ \t]*@(?:param|returns?|type)[ \t]*(?:[\w.$]+)?[ \t]*\*\/[ \t]*/g, '')
     .replace(/(@param[ \t]+)\[([\w.$]+)\]/g, '$1$2')
     .replace(/^[ \t]*\*[ \t]*\n(?=[ \t]*\*\/)/gm, '')
     .replace(/^[ \t]*\/\*\*(?:[ \t]*\n[ \t]*\*)*[ \t]*\/\n/gm, '')
     .replace(/^export \{\};\n/m, '')
-    .replace(/^type (?=\w+ =)/gm, 'export type ')
-    .replace(/;\s*\}/g, (m) => (m.includes('\n') ? m : ' }'));
+    .replace(/^type (?=\w+ =)/gm, 'export type ');
 }
 
 for (const file of files) texts.set(file, convertCasts(texts.get(file)!));
@@ -202,7 +205,10 @@ for (const fixId of FIX_IDS) {
       { ...ts.getDefaultFormatCodeSettings('\n'), indentSize: 2, tabSize: 2 },
       { quotePreference: 'single' },
     );
-    const edits = changes.filter((c) => c.fileName === file).flatMap((c) => c.textChanges);
+    const edits = changes
+      .filter((c) => c.fileName === file)
+      .flatMap((c) => c.textChanges)
+      .map((e) => ({ ...e, newText: e.newText.replace(/;\s*\}/g, (m) => (m.includes('\n') ? m : ' }')) }));
     if (edits.length === 0) continue;
     texts.set(file, applyEdits(texts.get(file)!, edits));
     versions.set(file, versions.get(file)! + 1);

@@ -1,4 +1,4 @@
-/** Usage line sent when parsing fails (0 or multiple URLs, missing args). Align with `help.js` bullet. */
+/** Usage line sent when parsing fails (0 or multiple URLs, missing args). Align with `help.ts` bullet. */
 export const SUMMARIZE_USAGE =
   'Usage: *summarize*|*summarise* <url> [extra]';
 

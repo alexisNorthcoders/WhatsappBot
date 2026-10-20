@@ -45,13 +45,27 @@ function rewriteMentions(text: string, mentions: [RegExp, string][]): string {
 
 const renames = renameAll(process.argv.slice(2));
 
-const trackedBasenames = git('ls-files').split('\n').map((f) => path.basename(f));
-const mentions: [RegExp, string][] = [...renames].map(([from, to]) => {
+const trackedFiles = git('ls-files').split('\n');
+const trackedBasenames = trackedFiles.map((f) => path.basename(f));
+const jsFiles = [...trackedFiles, ...renames.keys()];
+
+/** Shortest `dir/name.js` tail of `from` that no other file ends with, if shorter than `from`. */
+function uniqueTail(from: string): string | undefined {
+  const parts = from.split('/');
+  for (let i = parts.length - 2; i > 0; i--) {
+    const tail = parts.slice(i).join('/');
+    if (jsFiles.filter((f) => f === tail || f.endsWith(`/${tail}`)).length === 1) return tail;
+  }
+}
+
+const mentions: [RegExp, string][] = [...renames].flatMap(([from, to]): [RegExp, string][] => {
   const name = path.basename(from);
   const unique = !trackedBasenames.includes(name) && [...renames.keys()].filter((f) => path.basename(f) === name).length === 1;
-  return unique
-    ? [new RegExp(`(?<![\\w.-])${escapeRegExp(name)}\\b`, 'g'), path.basename(to)]
-    : [new RegExp(`(?<![\\w.-]|[\\w-]/|\\.\\./)${escapeRegExp(from)}\\b`, 'g'), to];
+  if (unique) return [[new RegExp(`(?<![\\w.-])${escapeRegExp(name)}\\b`, 'g'), path.basename(to)]];
+  const full: [RegExp, string] = [new RegExp(`(?<![\\w.-]|[\\w-]/|\\.\\./)${escapeRegExp(from)}\\b`, 'g'), to];
+  const tail = uniqueTail(from);
+  if (!tail) return [full];
+  return [full, [new RegExp(`(?<![\\w./-])${escapeRegExp(tail)}\\b`, 'g'), tail.replace(/\.js$/, '.ts')]];
 });
 
 const basenames = [...renames.keys()].flatMap((f) => ['-e', path.basename(f)]);

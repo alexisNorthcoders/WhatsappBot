@@ -6,13 +6,13 @@ import {
   DisconnectReason,
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
-import * as commands from './whatsapp/commands/index.js';
+import * as commands from './whatsapp/commands/index.ts';
 import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.ts';
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.ts';
 import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
-import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.js';
-import { createSentMessageStore } from './whatsapp/sentMessageStore.js';
-import { backupAuthDirOnce } from './whatsapp/baileysAuthBackup.js';
+import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.ts';
+import { createSentMessageStore } from './whatsapp/sentMessageStore.ts';
+import { backupAuthDirOnce } from './whatsapp/baileysAuthBackup.ts';
 import pino from 'pino';
 const logger = pino();
 /** Shared across reconnects so decryption retry counts (and maxMsgRetryCount) persist. */
@@ -32,7 +32,7 @@ const BAILEYS_AUTH_DIR = path.join(
 /** One-time copy of the auth folder from before Baileys 7.x's one-way LID session migration. */
 const BAILEYS_AUTH_BACKUP_DIR = path.join(path.dirname(BAILEYS_AUTH_DIR), 'baileys-pre-v7-backup');
 import { initializeLightCache } from './hue/index.ts';
-import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.js';
+import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.ts';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.ts';
 import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.ts';
 import dotenv from 'dotenv';

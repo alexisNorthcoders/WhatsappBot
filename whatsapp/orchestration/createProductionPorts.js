@@ -1,11 +1,11 @@
-import restartCommand from '../commands/restart.js';
-import { spriteIterateCommand } from '../commands/sprite.js';
-import { sdxlIterateCommand } from '../commands/sdxl.js';
+import restartCommand from '../commands/restart.ts';
+import { spriteIterateCommand } from '../commands/sprite.ts';
+import { sdxlIterateCommand } from '../commands/sdxl.ts';
 import { lidExtraJidsHint, secondPhoneJid } from '../whatsAppActorAllowlist.ts';
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.ts';
-import { pickRandomTopic } from '../../data/helper.js';
-import { topics } from '../../data/topics.js';
-import { getMessages, appendMessage, clearMessages } from '../chatMemory.js';
+import { pickRandomTopic } from '../../data/helper.ts';
+import { topics } from '../../data/topics.ts';
+import { getMessages, appendMessage, clearMessages } from '../chatMemory.ts';
 import { shouldTryLightsAgent, runLightsAgent, LIGHTS_AGENT_SKIP } from '../agents/lightsAgent.ts';
 import { lightsJevQuestions, runLightsFromJev } from '../agents/lightsJev.ts';
 import {
