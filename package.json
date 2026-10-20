@@ -14,13 +14,13 @@
   },
   "name": "whatsappbot",
   "version": "1.0.0",
-  "main": "whatsapp.js",
+  "main": "whatsapp.ts",
   "type": "module",
   "scripts": {
     "test": "npm run typecheck && node --test \"./test/**/*.test.js\" \"./test/**/*.test.ts\"",
     "typecheck": "tsc -p . && node scripts/typecheckJs.ts",
     "eval:summarize": "node eval/summarize/run.mjs",
-    "start": "node --no-deprecation whatsapp.js",
+    "start": "node --no-deprecation whatsapp.ts",
     "start:joplin": "node --no-deprecation test-joplin.js",
     "calendar:consent": "node scripts/googleCalendarConsent.js"
   },
@@ -31,6 +31,7 @@
   "devDependencies": {
     "@types/node": "^24.19.2",
     "@types/nodemailer": "^8.0.2",
+    "@types/qrcode-terminal": "^0.12.2",
     "typescript": "~5.9.3"
   }
 }

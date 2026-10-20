@@ -6,10 +6,11 @@ import {
   DisconnectReason,
   makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
+import type { WASocket } from '@whiskeysockets/baileys';
 import * as commands from './whatsapp/commands/index.ts';
 import { isAllowedActor, resolveOwnerLids } from './whatsapp/whatsAppActorAllowlist.ts';
 import { createBaileysMessageHandler } from './whatsapp/orchestration/createBaileysMessageHandler.ts';
-import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.js';
+import { createProductionPorts } from './whatsapp/orchestration/createProductionPorts.ts';
 import { createMsgRetryCounterCache, socketCacheOptions } from './whatsapp/socketCacheOptions.ts';
 import { createSentMessageStore } from './whatsapp/sentMessageStore.ts';
 import { backupAuthDirOnce } from './whatsapp/baileysAuthBackup.ts';
@@ -36,13 +37,13 @@ import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.ts';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.ts';
 import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.ts';
 import dotenv from 'dotenv';
+import type { Boom } from '@hapi/boom';
 dotenv.config();
 
 const myPhone = process.env.MY_PHONE;
 const secondPhone = process.env.SECOND_PHONE;
 
-/** @returns {string | null} */
-function ownerJidFromMyPhone() {
+function ownerJidFromMyPhone(): string | null {
   const raw = String(myPhone || '').trim();
   if (!raw) return null;
   if (raw.includes('@')) return raw;
@@ -60,10 +61,10 @@ const agentRunner = createAgentRunnerIntegration({
   sendText: async (chatId, text) => {
     if (!waSocket) throw new Error('WhatsApp socket not ready');
     // bounded: a send that never settles would wedge the outbox poll for good
-    let timer;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
       waSocket.sendMessage(chatId, { text }),
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('WhatsApp send timed out')), 60_000);
       }),
     ]).finally(() => clearTimeout(timer));
@@ -75,9 +76,9 @@ const agentRunnerOutboxPollMs =
   parseInt(process.env.AGENT_RUNNER_OUTBOX_POLL_MS || '', 10) || 5000;
 
 /** Avoid overlapping reconnect timers when the connection flaps (prevents duplicate sockets → 440 connectionReplaced). */
-let reconnectTimer = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 /** Latest socket — used to tear down before starting another (avoids duplicate live connections). */
-let waSocket = null;
+let waSocket: WASocket | null = null;
 /** Resets on successful `connection === 'open'`; used for exponential backoff on transient closes. */
 let reconnectAttempt = 0;
 
@@ -165,7 +166,7 @@ async function startSock() {
     } else if (connection === 'close') {
       stopCalendarNudges();
       agentRunner.outbox.stop();
-      const statusCode = /** @type {import('@hapi/boom').Boom | undefined} */ (lastDisconnect?.error)?.output?.statusCode;
+      const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
       /*
        * Reconnect only helps *transient* errors (408/428/440/503/515…). It does **not** fix 401:
        * WhatsApp has invalidated this linked device (logout, device_removed conflict, ToS, etc.).
@@ -254,7 +255,7 @@ async function startSock() {
         }, 'Receipt update');
       } catch (err) {
         logger.warn({
-          error: err.message,
+          error: (err as Error).message,
           update: JSON.stringify(update)
         }, 'Failed to process receipt update');
       }
@@ -271,7 +272,7 @@ async function startSock() {
         }, 'Message update');
       } catch (err) {
         logger.warn({
-          error: err.message,
+          error: (err as Error).message,
           update: JSON.stringify(update)
         }, 'Failed to process message update');
       }

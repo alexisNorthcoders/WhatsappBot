@@ -7,7 +7,7 @@ const REDIS_CONNECT_TIMEOUT_MS = 3000;
 
 /**
  * Bot side of agent-runner (docs/adr/0001-agent-runner-out-of-process.md): the orchestrator's
- * `agentRunner` port, plus the outbox drain that `whatsapp.js` starts on connect.
+ * `agentRunner` port, plus the outbox drain that `whatsapp.ts` starts on connect.
  */
 export function createAgentRunnerIntegration({ url, redisUrl, sendText, getOwnerJid, logger }: {
     url: string;

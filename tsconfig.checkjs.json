@@ -6,5 +6,5 @@
     "strict": false,
     "strictNullChecks": true
   },
-  "include": ["whatsapp.js", "whatsapp", "models", "hue", "joplin", "data", "scripts", "tools", "eval"]
+  "include": ["whatsapp.ts", "whatsapp", "models", "hue", "joplin", "data", "scripts", "tools", "eval"]
 }
