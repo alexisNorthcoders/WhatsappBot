@@ -1,7 +1,7 @@
 /**
  * Google adapter for the `calendar` port (calendarPort.ts): plain `fetch` against the
  * Calendar v3 REST API on the primary calendar. Authenticates with an OAuth client ID, secret
- * and refresh token (see scripts/googleCalendarConsent.js) and refreshes access tokens itself.
+ * and refresh token (see scripts/googleCalendarConsent.ts) and refreshes access tokens itself.
  */
 
 import type {

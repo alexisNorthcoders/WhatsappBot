@@ -27,7 +27,7 @@ node scripts/renameToTs.ts <file.js>…  # rename to .ts and rewrite every impor
 node scripts/jsdocToTs.ts <file.ts>…   # then move the renamed files' JSDoc types into TS syntax
 node --test test/foo.test.js          # run a single test file
 node --test --test-name-pattern="…" test/foo.test.js   # run a single test by name
-npm run start:joplin    # node --no-deprecation test-joplin.js — standalone Joplin integration check
+npm run start:joplin    # node --no-deprecation test-joplin.ts — standalone Joplin integration check
 ```
 
 The repo is moving from JS to TypeScript, leaf modules first. Node 24 runs `.ts` directly (type
