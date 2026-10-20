@@ -24,30 +24,38 @@ import { createLlmReminderExtractor } from '../calendar/reminderExtraction.ts';
 import { createLastLists } from '../calendar/lastLists.ts';
 import { runAgentsChainSequential } from './agentsTryHandle.ts';
 import { createJevRouter } from './jevRouter.ts';
-import type { InboundMessage } from './normalizeBaileysMessage.ts';
+import type { AgentChainDeps } from './agentsTryHandle.ts';
+import type { OrchestratorPorts } from './createMessageOrchestrator.ts';
 import type { WASocket, downloadMediaMessage, WAMessage } from '@whiskeysockets/baileys';
-import type { Logger } from '../types.ts';
+import type { Command, Logger } from '../types.ts';
 
 // One store per process, keyed by chat id: ports are rebuilt on every socket reconnect, and a
 // list shown just before a reconnect must still answer "cancel N".
 const reminderLastLists = createLastLists();
 
-/**
- * @param deps.agentRunner the orchestrator's `agentRunner` port
- */
-export function createProductionPorts(deps: { sock: WASocket; downloadMediaMessage: typeof downloadMediaMessage; logger: Logger; commands: Record<string, (sock: WASocket, chatId: string, text?: string, raw?: WAMessage) => Promise<unknown>>; secondPhone: string | undefined; isAllowedActor: (actorId: string | null, actorAltId?: string | null) => boolean; agentRunner: object }) {
+export type ProductionPortsDeps = {
+  sock: Pick<WASocket, 'sendMessage' | 'readMessages' | 'logger' | 'updateMediaMessage'>;
+  downloadMediaMessage: typeof downloadMediaMessage<'buffer'>;
+  logger: Logger;
+  commands: Record<string, Command>;
+  secondPhone: string | undefined;
+  isAllowedActor: (actorId: string | null | undefined, actorAltId?: string | null) => boolean;
+  agentRunner: OrchestratorPorts['agentRunner'];
+};
+
+export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPorts {
   const { sock, downloadMediaMessage, logger, commands, secondPhone, isAllowedActor, agentRunner } = deps;
   if (typeof isAllowedActor !== 'function') {
     throw new TypeError('createProductionPorts: isAllowedActor is required');
   }
 
-  async function sendRandomMessage(recipient) {
+  async function sendRandomMessage(recipient: string) {
     const topic = pickRandomTopic(topics);
     const response = await deepInfraAPI(`Give me a random fact about ${topic}`);
     await sock.sendMessage(recipient, { text: response });
   }
 
-  async function sendWeatherMessage(recipient, city = 'Manchester') {
+  async function sendWeatherMessage(recipient: string, city = 'Manchester') {
     const weatherData = await getWeatherData(city);
     const summary = await deepInfraAPI(`Summarize this weather: ${JSON.stringify(weatherData)}`);
     await sock.sendMessage(recipient, { text: summary });
@@ -68,7 +76,7 @@ export function createProductionPorts(deps: { sock: WASocket; downloadMediaMessa
       }
     : {};
 
-  const agentChainDeps = {
+  const agentChainDeps: AgentChainDeps = {
     logger,
     messaging: {
       sendText: async (chatId, text) => {
@@ -139,7 +147,7 @@ export function createProductionPorts(deps: { sock: WASocket; downloadMediaMessa
     media: {
       async downloadImageBuffer(m) {
         const raw = m.raw as WAMessage;
-        return await downloadMediaMessage(raw, 'buffer', {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage }) as Buffer;
+        return await downloadMediaMessage(raw, 'buffer', {}, { logger: sock.logger, reuploadRequest: sock.updateMediaMessage });
       },
     },
     chatMemory: {
@@ -174,7 +182,7 @@ export function createProductionPorts(deps: { sock: WASocket; downloadMediaMessa
           await commands[command](sock, m.chatId, m.text, raw);
           logger.info(`Command completed: ${command}`);
         } catch (cmdErr) {
-          throw new Error(`Command '${command}' failed: ${cmdErr.message}`);
+          throw new Error(`Command '${command}' failed: ${(cmdErr as Error).message}`);
         }
         return { handled: true };
       },
@@ -186,7 +194,7 @@ export function createProductionPorts(deps: { sock: WASocket; downloadMediaMessa
           return { handled: true };
         }
         if (command === '!help') {
-          await commands.help(sock, m.chatId);
+          await commands.help(sock, m.chatId, m.text);
           return { handled: true };
         }
         if (command === '!restart') {
