@@ -142,6 +142,11 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   SECOND_PHONE manages Reminders like the owner; the bot records it as the creator (as its
   phone JID, even from a LID, via `secondPhoneJid`), and the nudge tick then Nudges both the
   owner and SECOND_PHONE, one merged message per recipient.
+- `whatsapp/briefing/briefingScheduler.ts` — the daily Briefing: a tick every minute
+  (`runBriefingTick` in `briefingTick.ts`) sends the owner the Briefing once a day from
+  `BRIEFING_TIME` until 12:00 (calendar's timezone, or the Pi's), recording the day in
+  `BRIEFING_SENT_LOG_FILE`. If every section fails it sends nothing and retries next tick. The
+  on-demand `briefing` command never touches the sent log.
 - `whatsapp/agents/redditCronDigest.ts` — polls a status file written by a *different* project
   (`reddit-bot`) and forwards a daily digest once it's fresh for the current UTC day.
 
