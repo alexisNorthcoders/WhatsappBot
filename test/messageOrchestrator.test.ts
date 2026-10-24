@@ -77,6 +77,7 @@ function basePorts(
       tryHandle: async () => ({ handled: false }),
     },
     access: { isAllowedActor: () => true },
+    briefing: { reply: async () => assert.fail('briefing should not be built') },
     agentRunner: {
       sendCommand: async () => assert.fail('agent-runner should not be called'),
       status: async () => ({ busy: false, activeRun: null }),
@@ -471,5 +472,44 @@ describe('createMessageOrchestrator agent-runner delegation', () => {
     await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: '!restart' }));
     assert.deepEqual(calls, []);
     assert.deepEqual(log, [{ op: 'legacy' }]);
+  });
+});
+
+describe('briefing command (#157)', () => {
+  it('replies with the Briefing for an allowlisted sender, once', async () => {
+    const log: LogEntry[] = [];
+    const built: string[] = [];
+    const ports = basePorts({
+      __log: log,
+      briefing: {
+        reply: async (chatId) => {
+          built.push(chatId);
+          return 'the briefing';
+        },
+      },
+      routes: {
+        runSpritePlus: async () => ({ handled: false }),
+        runSdxlPlus: async () => ({ handled: false }),
+        runCommandByFirstToken: async () => assert.fail('registry should not see briefing'),
+        runLegacyRoutes: async () => assert.fail('legacy routes should not see briefing'),
+      },
+    });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'Briefing' }));
+    assert.deepEqual(built, ['111@s.whatsapp.net']);
+    assert.deepEqual(log.filter(isOp), [{ op: 'sendText', chatId: '111@s.whatsapp.net', text: 'the briefing' }]);
+  });
+
+  it('gives a non-allowlisted sender the normal fallback, never the Briefing', async () => {
+    const log: LogEntry[] = [];
+    const ports = basePorts({ __log: log, access: { isAllowedActor: () => false } });
+    await createMessageOrchestrator(ports).handleInbound(fakeInbound({ text: 'briefing' }));
+    assert.deepEqual(log.filter(isOp).map((e) => e.op), ['assistant', 'sendText', 'append', 'append']);
+    assert.equal(log.filter(isOp).find((e) => e.op === 'sendText')?.text, 'ai-reply');
+  });
+
+  it('leaves "good morning" to the assistant fallback', async () => {
+    const log: LogEntry[] = [];
+    await createMessageOrchestrator(basePorts({ __log: log })).handleInbound(fakeInbound({ text: 'good morning' }));
+    assert.equal(log.filter(isOp).find((e) => e.op === 'sendText')?.text, 'ai-reply');
   });
 });

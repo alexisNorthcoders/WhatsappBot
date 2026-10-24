@@ -36,6 +36,7 @@ function recordingPorts(log: Recorded[]): OrchestratorPorts {
     },
     agents: { tryHandle: async () => ({ handled: false }) },
     access: { isAllowedActor },
+    briefing: { reply: async () => assert.fail('briefing should not be built') },
     agentRunner: {
       sendCommand: async () => assert.fail('agent-runner should not be called'),
       status: async () => ({ busy: false, activeRun: null }),

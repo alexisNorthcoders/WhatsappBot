@@ -25,6 +25,8 @@ export const UPCOMING_DAYS = 60;
 /** Most items in one list reply. */
 export const LIST_LIMIT = 15;
 
+export const CANCEL_HINT = 'Say "cancel <number>" to remove one.';
+
 export const CALENDAR_UNREACHABLE_LIST_REPLY = "Couldn't reach Google Calendar. Please try again in a minute.";
 
 /**
@@ -102,31 +104,40 @@ export function formatListItem(event: CalendarEvent, timeZone: string) {
   return `${when}: ${event.title}${event.isOrganizer ? '' : ' (invite)'}`;
 }
 
+/**
+ * A window's Reminders as a numbered list: the label line, at most {@link LIST_LIMIT} items and
+ * an "…and N more" line. `shown` are the numbered events, item N being `shown[N - 1]`. Throws
+ * when the calendar can't be reached.
+ */
+export async function reminderList(calendar: CalendarPort, window: ListWindow, nowMs: number) {
+  const { timeZone } = await calendar.getSettings();
+  const win = listWindow(window, nowMs, timeZone);
+  const events = await remindersIn(calendar, win, timeZone);
+  const shown = events.slice(0, LIST_LIMIT);
+  const lines = [`${win.label}:`, ...shown.map((e, i) => `${i + 1}. ${formatListItem(e, timeZone)}`)];
+  if (events.length > shown.length) lines.push(`…and ${events.length - shown.length} more.`);
+  return { timeZone, win, shown, lines };
+}
+
 export async function listReminders(
   m: { chatId: string },
   window: ListWindow,
   deps: ReminderListDeps,
 ): Promise<string> {
   const { calendar, lastLists, nowMs, logger } = deps;
-  let timeZone;
-  let events;
-  let win;
+  let list;
   try {
-    ({ timeZone } = await calendar.getSettings());
-    win = listWindow(window, nowMs, timeZone);
-    events = await remindersIn(calendar, win, timeZone);
+    list = await reminderList(calendar, window, nowMs);
   } catch (err) {
     logger?.warn({ err: err instanceof Error ? err.message : String(err) }, 'calendar: list events failed');
     return CALENDAR_UNREACHABLE_LIST_REPLY;
   }
-  const shown = events.slice(0, LIST_LIMIT);
   // The list just shown replaces the chat's last list, even when empty, so "cancel N" never
   // resolves against an older list the user can no longer see.
-  lastLists?.set(m.chatId, shown, nowMs);
-  if (!shown.length) return win.empty;
-  const lines = [`${win.label}:`, ...shown.map((e, i) => `${i + 1}. ${formatListItem(e, timeZone)}`)];
-  if (events.length > shown.length) lines.push(`…and ${events.length - shown.length} more.`);
-  if (lastLists) lines.push('', 'Say "cancel <number>" to remove one.');
+  lastLists?.set(m.chatId, list.shown, nowMs);
+  if (!list.shown.length) return list.win.empty;
+  const lines = [...list.lines];
+  if (lastLists) lines.push('', CANCEL_HINT);
   return lines.join('\n');
 }
 

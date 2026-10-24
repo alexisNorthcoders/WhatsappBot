@@ -11,8 +11,11 @@ import { lightsJevQuestions, runLightsFromJev } from '../agents/lightsJev.ts';
 import {
   shouldTryWeatherAgent,
   runWeatherAgent,
+  summarizeForecast,
   WEATHER_AGENT_SKIP,
+  DEFAULT_CITY as WEATHER_DEFAULT_CITY,
 } from '../agents/weatherAgent.ts';
+import { buildBriefing } from '../briefing/buildBriefing.ts';
 import { shouldTryJoplinAgent, runJoplinAgent, JOPLIN_AGENT_SKIP } from '../agents/joplinAgent.ts';
 import { shouldTryEmailAgent, runEmailAgent, EMAIL_AGENT_SKIP } from '../agents/emailAgent.ts';
 import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/homeAgent.ts';
@@ -246,6 +249,21 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
       },
     },
     access: { isAllowedActor },
+    briefing: {
+      reply: async (chatId) =>
+        (
+          await buildBriefing({
+            calendar,
+            getForecast: getWeatherData,
+            summarizeWeather: (text) => summarizeForecast(text, 'briefing'),
+            lastLists: reminderLastLists,
+            nowMs: Date.now(),
+            city: process.env.BRIEFING_CITY?.trim() || WEATHER_DEFAULT_CITY,
+            chatId,
+            logger,
+          })
+        ).text,
+    },
     agentRunner,
     logger,
   };
