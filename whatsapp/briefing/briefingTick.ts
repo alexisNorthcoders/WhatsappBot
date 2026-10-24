@@ -72,7 +72,8 @@ export type BriefingTickResult =
  * without a calendar), send the owner the Briefing unless the sent log already has today.
  * When every section fails, or the send itself fails, the day stays open so a later tick
  * retries; the day is marked only after a successful send. When one section fails, ticks keep
- * retrying for `BRIEFING_GRACE_MS` from the day's first failing attempt before sending it partial.
+ * retrying for `BRIEFING_GRACE_MS` from the first attempt with only that section failing before sending
+ * it partial; a fully successful attempt ends the grace.
  */
 export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingTickResult> {
   const nowMs = deps.nowMs ?? Date.now();
@@ -87,6 +88,11 @@ export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingT
   if (log.lastSentDate === today) return { sent: false, reason: 'already sent' };
 
   const { text, failed } = await buildBriefing({ ...deps, nowMs, chatId: deps.ownerChatId });
+  // `failed.reminders` is the calendar section; without a calendar the weather is the only one.
+  if (failed.weather && (failed.reminders || !deps.calendar)) {
+    deps.logger?.warn({ today }, 'briefing: every section failed, retrying next tick');
+    return { sent: false, reason: 'all sections failed' };
+  }
   if (failed.weather || failed.reminders) {
     let graceStartMs = log.graceStartMs;
     if (graceStartMs === null || zonedDate(graceStartMs, timeZone) !== today) {
@@ -94,12 +100,10 @@ export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingT
       await writeSentLog(logPath, { ...log, graceStartMs });
       deps.logger?.info({ today, failed }, 'briefing: a section failed, retrying each tick');
     }
-    // `failed.reminders` is the calendar section; without a calendar the weather is the only one.
-    if (failed.weather && (failed.reminders || !deps.calendar)) {
-      deps.logger?.warn({ today }, 'briefing: every section failed, retrying next tick');
-      return { sent: false, reason: 'all sections failed' };
-    }
     if (nowMs < graceStartMs + BRIEFING_GRACE_MS) return { sent: false, reason: 'grace period' };
+  } else if (log.graceStartMs !== null) {
+    // The failing section recovered: a later failure (e.g. after a failed send) starts a new grace.
+    await writeSentLog(logPath, { ...log, graceStartMs: null });
   }
   try {
     await deps.sendText(deps.ownerChatId, text);

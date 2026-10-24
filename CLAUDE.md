@@ -146,8 +146,8 @@ telemetry and the `agent:*` status CLI) lives in agent-runner, not here. The bot
   (`runBriefingTick` in `briefingTick.ts`) sends the owner the Briefing once a day from
   `BRIEFING_TIME` until 12:00 (calendar's timezone, or the Pi's), recording the day in
   `BRIEFING_SENT_LOG_FILE`. If every section fails it sends nothing and retries next tick; if
-  one fails it retries for a 30-minute grace from the day's first failing attempt (also kept in the sent
-  log) before sending it partial. The on-demand `briefing` command never touches the sent log.
+  only one fails it retries for a 30-minute grace from the first such attempt (kept in the sent log;
+  a fully successful attempt clears it) before sending it partial. The on-demand `briefing` command never touches the sent log.
 - `whatsapp/agents/redditCronDigest.ts` — polls a status file written by a *different* project
   (`reddit-bot`) and forwards a daily digest once it's fresh for the current UTC day.
 

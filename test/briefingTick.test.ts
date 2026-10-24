@@ -214,18 +214,40 @@ describe('daily Briefing tick (#158)', () => {
       assert.match(sent[1].text, /Briefing for Tue 20 Oct/);
     });
 
-    it('counts the grace from the first attempt when both sections failed first', async () => {
+    it('starts the grace when only one section is failing, not while both are', async () => {
       weatherDown = true;
       failCalendar();
       now = Date.parse('2026-10-19T07:30:00+01:00');
-      await tick();
+      assert.deepEqual(await tick(), { sent: false, reason: 'all sections failed' });
       await advance(10 * MIN);
       weatherDown = false;
-      await advance(19 * MIN);
-      assert.equal(sent.length, 0, 'grace started at 07:30');
+      await advance(1 * MIN);
+      await advance(29 * MIN);
+      assert.equal(sent.length, 0, 'grace started at 07:41');
       await advance(1 * MIN);
       assert.equal(sent.length, 1);
       assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
+    });
+
+    it('ends the grace when the failing section recovers, even if that send fails', async () => {
+      const listEvents = calendar!.listEvents;
+      failCalendar();
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      await tick();
+      calendar!.listEvents = listEvents;
+      now += 10 * MIN;
+      const failed = await tick({
+        sendText: async () => {
+          throw new Error('socket closed');
+        },
+      });
+      assert.deepEqual(failed, { sent: false, reason: 'send failed' });
+      failCalendar();
+      // after a restart: only the sent log carries state
+      await advance(30 * MIN, { lastLists: createLastLists() });
+      assert.equal(sent.length, 0, 'a new grace started at 07:41');
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
     });
   });
 
@@ -237,9 +259,10 @@ describe('daily Briefing tick (#158)', () => {
     await advance(60 * MIN);
     assert.equal(sent.length, 0);
     weatherDown = false;
+    calendar = createFakeCalendar();
     await advance(1 * MIN);
     assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
+    assert.doesNotMatch(sent[0].text, /Couldn't reach/);
   });
 
   it("doesn't mark the day when the send fails, so the next tick retries", async () => {
