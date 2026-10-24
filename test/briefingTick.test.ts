@@ -137,25 +137,118 @@ describe('daily Briefing tick (#158)', () => {
     assert.equal(sent.length, 1);
   });
 
-  it('sends the working section with the "couldn\'t reach" line when one fails, and marks the day', async () => {
-    weatherDown = true;
-    now = Date.parse('2026-10-19T07:30:00+01:00');
-    await tick();
-    assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /Couldn't reach the weather service for Manchester\./);
-    assert.match(sent[0].text, /Nothing on today\./);
-    weatherDown = false;
-    await advance(30 * MIN);
-    assert.equal(sent.length, 1);
-  });
+  describe('30-minute grace before a partial Briefing (#159)', () => {
+    it('sends nothing for 30 minutes while one section fails, then the partial Briefing', async () => {
+      weatherDown = true;
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      assert.deepEqual(await tick(), { sent: false, reason: 'grace period' });
+      await advance(29 * MIN);
+      assert.equal(sent.length, 0, 'still in the grace period');
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /Couldn't reach the weather service for Manchester\./);
+      assert.match(sent[0].text, /Nothing on today\./);
+      weatherDown = false;
+      await advance(30 * MIN);
+      assert.equal(sent.length, 1, 'the day is marked');
+    });
 
-  it('sends the weather when only the calendar fails', async () => {
-    failCalendar();
-    now = Date.parse('2026-10-19T07:30:00+01:00');
-    await tick();
-    assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
-    assert.match(sent[0].text, /Light rain/);
+    it('sends the weather with the calendar line once the grace ends when only the calendar fails', async () => {
+      failCalendar();
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      await tick();
+      await advance(29 * MIN);
+      assert.equal(sent.length, 0);
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
+      assert.match(sent[0].text, /Light rain/);
+    });
+
+    it('sends the full Briefing when the failing section recovers during the grace', async () => {
+      const listEvents = calendar!.listEvents;
+      failCalendar();
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      await tick();
+      await advance(10 * MIN);
+      assert.equal(sent.length, 0);
+      calendar!.listEvents = listEvents;
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
+      assert.doesNotMatch(sent[0].text, /Couldn't reach/);
+      assert.match(sent[0].text, /Nothing on today\./);
+      await advance(60 * MIN);
+      assert.equal(sent.length, 1, 'the day is marked');
+    });
+
+    it('starts the grace at the first attempt when the bot came up after the send time', async () => {
+      weatherDown = true;
+      now = Date.parse('2026-10-19T09:00:00+01:00');
+      await tick();
+      await advance(29 * MIN);
+      assert.equal(sent.length, 0);
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /Couldn't reach the weather service/);
+    });
+
+    it("doesn't restart the grace after a restart (the grace start is in the sent log)", async () => {
+      weatherDown = true;
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      await tick();
+      now = Date.parse('2026-10-19T08:00:00+01:00');
+      await tick({ lastLists: createLastLists() });
+      assert.equal(sent.length, 1);
+    });
+
+    it("doesn't carry the grace over from the previous day", async () => {
+      weatherDown = true;
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      await tick();
+      await advance(30 * MIN);
+      assert.equal(sent.length, 1);
+      now = Date.parse('2026-10-20T07:30:00+01:00');
+      assert.deepEqual(await tick(), { sent: false, reason: 'grace period' });
+      await advance(30 * MIN);
+      assert.equal(sent.length, 2);
+      assert.match(sent[1].text, /Briefing for Tue 20 Oct/);
+    });
+
+    it('starts the grace when only one section is failing, not while both are', async () => {
+      weatherDown = true;
+      failCalendar();
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      assert.deepEqual(await tick(), { sent: false, reason: 'all sections failed' });
+      await advance(10 * MIN);
+      weatherDown = false;
+      await advance(1 * MIN);
+      await advance(29 * MIN);
+      assert.equal(sent.length, 0, 'grace started at 07:41');
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
+    });
+
+    it('ends the grace when the failing section recovers, even if that send fails', async () => {
+      const listEvents = calendar!.listEvents;
+      failCalendar();
+      now = Date.parse('2026-10-19T07:30:00+01:00');
+      await tick();
+      calendar!.listEvents = listEvents;
+      now += 10 * MIN;
+      const failed = await tick({
+        sendText: async () => {
+          throw new Error('socket closed');
+        },
+      });
+      assert.deepEqual(failed, { sent: false, reason: 'send failed' });
+      failCalendar();
+      // after a restart: only the sent log carries state
+      await advance(30 * MIN, { lastLists: createLastLists() });
+      assert.equal(sent.length, 0, 'a new grace started at 07:41');
+      await advance(1 * MIN);
+      assert.equal(sent.length, 1);
+    });
   });
 
   it('sends nothing when both sections fail, and retries until 12:00', async () => {
@@ -166,9 +259,10 @@ describe('daily Briefing tick (#158)', () => {
     await advance(60 * MIN);
     assert.equal(sent.length, 0);
     weatherDown = false;
+    calendar = createFakeCalendar();
     await advance(1 * MIN);
     assert.equal(sent.length, 1);
-    assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
+    assert.doesNotMatch(sent[0].text, /Couldn't reach/);
   });
 
   it("doesn't mark the day when the send fails, so the next tick retries", async () => {
@@ -201,8 +295,9 @@ describe('daily Briefing tick (#158)', () => {
     assert.equal(sent.length, 0);
     weatherDown = false;
     await advance(1 * MIN);
-    assert.equal(sent.length, 1);
+    assert.equal(sent.length, 1, 'no grace: a missing calendar is not a failed section');
     assert.match(sent[0].text, /Light rain/);
+    assert.doesNotMatch(sent[0].text, /Couldn't reach/);
   });
 
   describe("day boundaries in the calendar's timezone (Pacific/Auckland, UTC+13)", () => {

@@ -10,10 +10,14 @@ import type { Logger } from '../types.ts';
 export const DEFAULT_BRIEFING_MIN = 7 * 60 + 30;
 /** No daily Briefing from this local time on: it's no longer a morning message. */
 export const BRIEFING_CUTOFF_MIN = 12 * 60;
+/** While one section fails, the daily tick waits this long after its first attempt before a partial Briefing. */
+export const BRIEFING_GRACE_MS = 30 * 60_000;
 
 /**
  * The sent log: the last day (`YYYY-MM-DD`, in the Briefing's timezone) the daily Briefing went
- * out. Only the daily tick reads or writes it; an on-demand `briefing` never does.
+ * out, and when the daily tick first held one back today for a failing section (the grace start), so a
+ * restart doesn't restart the grace. Only the daily tick reads or writes it; an on-demand
+ * `briefing` never does.
  */
 export function briefingSentLogPath(): string {
   const fromEnv = process.env.BRIEFING_SENT_LOG_FILE?.trim();
@@ -21,23 +25,28 @@ export function briefingSentLogPath(): string {
   return join(getRepoRoot(), 'logs', 'briefing', 'sent.json');
 }
 
-async function readLastSentDate(filePath: string): Promise<string | null> {
+type SentLog = { lastSentDate: string | null; graceStartMs: number | null };
+
+async function readSentLog(filePath: string): Promise<SentLog> {
   let raw;
   try {
     raw = await fs.readFile(filePath, 'utf8');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { lastSentDate: null, graceStartMs: null };
     throw e;
   }
-  const date = JSON.parse(raw)?.lastSentDate;
-  return typeof date === 'string' ? date : null;
+  const { lastSentDate, graceStartMs } = JSON.parse(raw) ?? {};
+  return {
+    lastSentDate: typeof lastSentDate === 'string' ? lastSentDate : null,
+    graceStartMs: typeof graceStartMs === 'number' ? graceStartMs : null,
+  };
 }
 
 /** Atomic write (tmp + rename) so a crash never leaves a half-written log. */
-async function writeLastSentDate(filePath: string, date: string) {
+async function writeSentLog(filePath: string, log: SentLog) {
   await fs.mkdir(dirname(filePath), { recursive: true });
   const tmp = `${filePath}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify({ version: 1, lastSentDate: date }, null, 2), 'utf8');
+  await fs.writeFile(tmp, JSON.stringify({ version: 1, ...log }, null, 2), 'utf8');
   await fs.rename(tmp, filePath);
 }
 
@@ -53,13 +62,18 @@ type BriefingTickDeps = Omit<BriefingDeps, 'nowMs' | 'chatId' | 'logger'> & {
 
 export type BriefingTickResult =
   | { sent: true }
-  | { sent: false; reason: 'outside window' | 'already sent' | 'all sections failed' | 'send failed' };
+  | {
+      sent: false;
+      reason: 'outside window' | 'already sent' | 'all sections failed' | 'grace period' | 'send failed';
+    };
 
 /**
  * One daily Briefing tick: from `sendAtMin` until 12:00 in the calendar's timezone (the Pi's
  * without a calendar), send the owner the Briefing unless the sent log already has today.
  * When every section fails, or the send itself fails, the day stays open so a later tick
- * retries; the day is marked only after a successful send.
+ * retries; the day is marked only after a successful send. When one section fails, ticks keep
+ * retrying for `BRIEFING_GRACE_MS` from the first attempt with only that section failing before sending
+ * it partial; a fully successful attempt ends the grace.
  */
 export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingTickResult> {
   const nowMs = deps.nowMs ?? Date.now();
@@ -70,13 +84,26 @@ export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingT
   if (nowMs < zonedTimeMs(today, sendAtMin, timeZone) || nowMs >= zonedTimeMs(today, BRIEFING_CUTOFF_MIN, timeZone)) {
     return { sent: false, reason: 'outside window' };
   }
-  if ((await readLastSentDate(logPath)) === today) return { sent: false, reason: 'already sent' };
+  const log = await readSentLog(logPath);
+  if (log.lastSentDate === today) return { sent: false, reason: 'already sent' };
 
   const { text, failed } = await buildBriefing({ ...deps, nowMs, chatId: deps.ownerChatId });
   // `failed.reminders` is the calendar section; without a calendar the weather is the only one.
   if (failed.weather && (failed.reminders || !deps.calendar)) {
     deps.logger?.warn({ today }, 'briefing: every section failed, retrying next tick');
     return { sent: false, reason: 'all sections failed' };
+  }
+  if (failed.weather || failed.reminders) {
+    let graceStartMs = log.graceStartMs;
+    if (graceStartMs === null || zonedDate(graceStartMs, timeZone) !== today) {
+      graceStartMs = nowMs;
+      await writeSentLog(logPath, { ...log, graceStartMs });
+      deps.logger?.info({ today, failed }, 'briefing: a section failed, retrying each tick');
+    }
+    if (nowMs < graceStartMs + BRIEFING_GRACE_MS) return { sent: false, reason: 'grace period' };
+  } else if (log.graceStartMs !== null) {
+    // The failing section recovered: a later failure (e.g. after a failed send) starts a new grace.
+    await writeSentLog(logPath, { ...log, graceStartMs: null });
   }
   try {
     await deps.sendText(deps.ownerChatId, text);
@@ -87,7 +114,7 @@ export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingT
     );
     return { sent: false, reason: 'send failed' };
   }
-  await writeLastSentDate(logPath, today);
+  await writeSentLog(logPath, { lastSentDate: today, graceStartMs: null });
   deps.logger?.info({ today, failed }, 'briefing: daily Briefing sent');
   return { sent: true };
 }
