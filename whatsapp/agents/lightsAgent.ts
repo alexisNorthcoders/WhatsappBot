@@ -13,7 +13,7 @@ import {
   getCacheStatus,
   getCachedLights,
 } from '../../hue/api.ts';
-import { openaiChatTokenOpts } from '../../models/models.ts';
+import { openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
@@ -353,7 +353,7 @@ export async function runLightsAgent(userMessage: string): Promise<string> {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        ...openaiChatTokenOpts(LIGHTS_AGENT_MODEL, 800),
+        ...openaiAgentChatOpts(LIGHTS_AGENT_MODEL, 800),
       });
 
       addCompletionUsage(completion.usage, usage);

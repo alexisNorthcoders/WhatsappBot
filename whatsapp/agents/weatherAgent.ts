@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
-import { getWeatherData, openaiChatTokenOpts } from '../../models/models.ts';
+import { getWeatherData, openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
@@ -119,7 +119,7 @@ export async function runWeatherAgent(userMessage: string): Promise<string> {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        ...openaiChatTokenOpts(WEATHER_AGENT_MODEL, 1200),
+        ...openaiAgentChatOpts(WEATHER_AGENT_MODEL, 1200),
       });
 
       addCompletionUsage(completion.usage, usage);

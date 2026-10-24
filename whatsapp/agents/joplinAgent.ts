@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.ts';
-import { openaiChatTokenOpts } from '../../models/models.ts';
+import { openaiAgentChatOpts } from '../../models/models.ts';
 import {
   botFetch,
   buildBotFetchRequestInit,
@@ -379,7 +379,7 @@ export async function runJoplinAgent(userMessage: string): Promise<string> {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        ...openaiChatTokenOpts(JOPLIN_AGENT_MODEL, 1200),
+        ...openaiAgentChatOpts(JOPLIN_AGENT_MODEL, 1200),
       });
 
       addCompletionUsage(completion.usage, usage);
