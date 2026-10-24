@@ -58,8 +58,8 @@ export type BriefingTickResult =
 /**
  * One daily Briefing tick: from `sendAtMin` until 12:00 in the calendar's timezone (the Pi's
  * without a calendar), send the owner the Briefing unless the sent log already has today.
- * When every section fails nothing is sent and the day stays open, so a later tick retries;
- * otherwise the day is marked before sending (at-most-once, like Nudges).
+ * When every section fails, or the send itself fails, the day stays open so a later tick
+ * retries; the day is marked only after a successful send.
  */
 export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingTickResult> {
   const nowMs = deps.nowMs ?? Date.now();
@@ -73,21 +73,21 @@ export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingT
   if ((await readLastSentDate(logPath)) === today) return { sent: false, reason: 'already sent' };
 
   const { text, failed } = await buildBriefing({ ...deps, nowMs, chatId: deps.ownerChatId });
-  // Without a calendar the weather is the only section.
+  // `failed.reminders` is the calendar section; without a calendar the weather is the only one.
   if (failed.weather && (failed.reminders || !deps.calendar)) {
     deps.logger?.warn({ today }, 'briefing: every section failed, retrying next tick');
     return { sent: false, reason: 'all sections failed' };
   }
-  await writeLastSentDate(logPath, today);
   try {
     await deps.sendText(deps.ownerChatId, text);
   } catch (e) {
     deps.logger?.warn(
       { err: e instanceof Error ? e.message : String(e), today },
-      'briefing: send failed (not retried)',
+      'briefing: send failed, retrying next tick',
     );
     return { sent: false, reason: 'send failed' };
   }
+  await writeLastSentDate(logPath, today);
   deps.logger?.info({ today, failed }, 'briefing: daily Briefing sent');
   return { sent: true };
 }

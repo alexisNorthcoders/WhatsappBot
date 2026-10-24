@@ -171,6 +171,20 @@ describe('daily Briefing tick (#158)', () => {
     assert.match(sent[0].text, /Couldn't reach Google Calendar\./);
   });
 
+  it("doesn't mark the day when the send fails, so the next tick retries", async () => {
+    now = Date.parse('2026-10-19T07:30:00+01:00');
+    const failed = await tick({
+      sendText: async () => {
+        throw new Error('socket closed');
+      },
+    });
+    assert.deepEqual(failed, { sent: false, reason: 'send failed' });
+    await advance(1 * MIN);
+    assert.equal(sent.length, 1);
+    await advance(10 * MIN);
+    assert.equal(sent.length, 1);
+  });
+
   it('gives up at 12:00 when both sections keep failing', async () => {
     weatherDown = true;
     failCalendar();
