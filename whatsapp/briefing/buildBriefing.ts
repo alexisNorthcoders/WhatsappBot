@@ -76,8 +76,11 @@ async function remindersSection(
     // Replaces the chat's last list even when empty, as "what's on today" does.
     lastLists.set(chatId, today.shown, nowMs);
     if (today.shown.length) return { text: [...today.lines, '', CANCEL_HINT].join('\n'), timeZone: today.timeZone };
-    const upcoming = await reminderList(calendar, 'upcoming', nowMs);
-    const next = upcoming.shown[0];
+    // Today's list worked, so a failed look-ahead only drops the "Next:" line.
+    const next = await reminderList(calendar, 'upcoming', nowMs).then(
+      (upcoming) => upcoming.shown[0],
+      (err) => logger?.warn({ err: errMessage(err) }, 'briefing: upcoming list failed'),
+    );
     const text = next ? `Nothing on today.\nNext: ${formatListItem(next, today.timeZone)}` : 'Nothing on today.';
     return { text, timeZone: today.timeZone };
   } catch (err) {

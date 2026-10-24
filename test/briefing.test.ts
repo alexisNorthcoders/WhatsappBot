@@ -100,6 +100,19 @@ describe('Briefing builder (#157)', () => {
     assert.deepEqual(t.lastLists.get(CHAT, NOW), []);
   });
 
+  it('still says "nothing on today" when only the look-ahead fails', async () => {
+    const calendar = createFakeCalendar();
+    const list = calendar.listEvents;
+    let calls = 0;
+    calendar.listEvents = async (q) => {
+      if (calls++) throw new Error('503');
+      return list(q);
+    };
+    const result = await buildBriefing(deps({ calendar }).deps);
+    assert.deepEqual(result.failed, { weather: false, reminders: false });
+    assert.match(result.text, /\n\nNothing on today\.$/);
+  });
+
   it('says just "nothing on today" with nothing in the next 60 days', async () => {
     const calendar = createFakeCalendar();
     calendar.seed({ title: 'Far off', startMs: at('2027-01-30T15:00:00') });
