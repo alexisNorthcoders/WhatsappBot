@@ -14,4 +14,19 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 Edit the right-hand column to match whatever vocabulary you actually use.
 
+## `ready-for-agent` is for tickets, not specs
+
+Only tickets (one agent-sized unit of work, e.g. from `/to-tickets`) get `ready-for-agent`. A spec
+is input for `/to-tickets`, not work for an AFK agent: publish it without `ready-for-agent`. Write
+specs with the user-level `/to-spec`, not `/mattpocock-skills:to-spec`, which applies the label.
+The cron issue tracer picks up every `ready-for-agent` issue, so a labelled spec would run as one
+oversized issue.
+
+## Every `ready-for-agent` ticket gets a model label
+
+When you apply `ready-for-agent`, also apply exactly one of `model:haiku`, `model:sonnet` or
+`model:opus`, sized to the ticket (`model:sonnet` unless it is trivial or unusually hard).
+agent-runner runs the issue on that model. Without a label, it falls back to the workspace's
+`.claude` settings, which on this machine is Opus, so an unlabelled ticket runs on Opus.
+
 Note: `ready-for-agent` already matches the label agent-runner's cron issue tracer polls for when picking up issues automatically — no change needed there.
