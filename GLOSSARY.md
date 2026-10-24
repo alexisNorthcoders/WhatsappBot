@@ -26,3 +26,9 @@ A moment, relative to a Reminder's start, at which a Nudge is due; taken from th
 Google Calendar notification settings. An all-day Reminder on default notifications has one
 Alert time instead: a fixed local time on its first day.
 _Avoid_: due time, lead time
+
+**Briefing**:
+One message to the owner with the weather for their city and what's left of today's Reminders.
+The bot sends it once each morning (the daily Briefing), and the owner can ask for one at any
+time.
+_Avoid_: digest, morning summary, daily report
