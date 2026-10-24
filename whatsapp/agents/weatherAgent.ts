@@ -11,7 +11,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const WEATHER_AGENT_MODEL = process.env.WEATHER_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
 
-const DEFAULT_CITY = process.env.WEATHER_AGENT_DEFAULT_CITY?.trim() || 'Manchester';
+export const DEFAULT_CITY = process.env.WEATHER_AGENT_DEFAULT_CITY?.trim() || 'Manchester';
 
 export const WEATHER_AGENT_SKIP = 'SKIP';
 
@@ -61,11 +61,11 @@ const TOOLS: ChatCompletionTool[] = [
   },
 ];
 
-type Forecast = {
+export type Forecast = {
   list?: { weather?: { description?: string }[]; main?: { temp?: number; humidity?: number }; dt_txt?: string }[];
 };
 
-function formatForecastCompact(cityLabel: string, forecast: Forecast | null | undefined) {
+export function formatForecastCompact(cityLabel: string, forecast: Forecast | null | undefined) {
   const list = forecast?.list;
   if (!Array.isArray(list) || list.length === 0) {
     return 'No forecast entries in response.';
@@ -176,6 +176,44 @@ export async function runWeatherAgent(userMessage: string): Promise<string> {
     await logAgentInvocation({
       agent: 'weather',
       model,
+      promptTokens: usage.prompt,
+      completionTokens: usage.completion,
+      totalTokens: usage.total,
+      outcome,
+    });
+  }
+}
+
+/**
+ * One friendly sentence about the coming hours from a {@link formatForecastCompact} text: a
+ * single cheap call on the weather agent's model, logged under `agent`. Throws on failure.
+ */
+export async function summarizeForecast(forecastText: string, agent = 'briefing'): Promise<string> {
+  const usage = { prompt: 0, completion: 0, total: 0 };
+  let outcome = 'error';
+  try {
+    if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set');
+    const completion = await openai.chat.completions.create({
+      model: WEATHER_AGENT_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Summarise this forecast for the coming hours in one short, friendly WhatsApp sentence: the temperature now, any rain and when, and a tip if useful (e.g. take a jacket). Reply with the sentence only.',
+        },
+        { role: 'user', content: forecastText },
+      ],
+      ...openaiAgentChatOpts(WEATHER_AGENT_MODEL, 600),
+    });
+    addCompletionUsage(completion.usage, usage);
+    const text = (completion.choices[0]?.message?.content || '').trim();
+    if (!text) throw new Error('empty weather summary');
+    outcome = 'answered';
+    return text;
+  } finally {
+    await logAgentInvocation({
+      agent,
+      model: WEATHER_AGENT_MODEL,
       promptTokens: usage.prompt,
       completionTokens: usage.completion,
       totalTokens: usage.total,

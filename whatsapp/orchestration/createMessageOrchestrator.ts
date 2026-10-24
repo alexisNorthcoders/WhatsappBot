@@ -35,6 +35,8 @@ export type OrchestratorPorts = {
   agents: { tryHandle(m: InboundMessage): Promise<Handled & { replyText?: string }> };
   logger: Logger;
   access: { isAllowedActor(actorId: string | null, actorAltId?: string | null): boolean };
+  /** The on-demand Briefing (#157): weather plus what's left of today's Reminders. */
+  briefing: { reply(chatId: string): Promise<string> };
   /** `claude…` commands go to agent-runner, never the command registry. */
   agentRunner: {
     sendCommand(req: { text: string; replyTo: string }): Promise<string>;
@@ -144,6 +146,12 @@ export function createMessageOrchestrator(ports: OrchestratorPorts) {
 
     // before the command registry, so no registered `!restart` can bypass the runner guard
     if (command === '!restart' && (await refuseRestartWhileRunActive(m))) {
+      return;
+    }
+
+    // Shows the owner's calendar, so only allowlisted senders; anyone else gets the fallback.
+    if (command === 'briefing' && ports.access.isAllowedActor(m.actorId, m.actorAltId)) {
+      await ports.messaging.sendText(m.chatId, await ports.briefing.reply(m.chatId));
       return;
     }
 

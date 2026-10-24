@@ -17,6 +17,7 @@ const helpCommand: Command<TextSender> = async (sock, sender) => {
 • *sdxl+* [changes] — Iterate on the latest SDXL output for this chat (each *sdxl+* becomes the new base — chain refinements). Examples: sdxl+ add sunset lighting · sdxl+ more contrast. Or *sdxl+* filename.png [changes] (assets/generated)
 • *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
 • *sprite+* [changes] — Refine the last sprite using the file saved on the server (no re-upload). Or *sprite+* filename.png [changes] (assets/generated)
+• *briefing* — Weather for your city plus what's left of today's Reminders, numbered so "cancel N" works (same identities as *claude*)
 • *home* <question> — Ask the home-manuals service about appliances/manuals (e.g. home what model is the oven?); replies with the answer plus Sources
 
 ━━━━━━━━━━━━━━━━━━━━━━

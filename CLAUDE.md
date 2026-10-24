@@ -69,10 +69,13 @@ hexagonal/ports architecture:
 - `createMessageOrchestrator.ts` — the actual routing decision tree, in priority order:
   1. inbound image + caption (`Text`/`Text high`/`Help` → vision commands)
   2. `sprite+` / `sdxl+` prefix → iterate-on-last-image commands
-  3. first whitespace token matches a registered command (`whatsapp/commands/index.ts`)
-  4. legacy inline routes (`!help`, `!restart`, `!clear`, `!sendpoll`, `Send`, `Altweather`)
-  5. the sequential **agent chain** (see below)
-  6. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.ts`)
+  3. `briefing` from an allowlisted sender → the Briefing (`whatsapp/briefing/buildBriefing.ts`:
+     weather plus the "what's on today" list, via `reminderList` in `manageReminders.ts`);
+     anyone else falls through
+  4. first whitespace token matches a registered command (`whatsapp/commands/index.ts`)
+  5. legacy inline routes (`!help`, `!restart`, `!clear`, `!sendpoll`, `Send`, `Altweather`)
+  6. the sequential **agent chain** (see below)
+  7. fallback: OpenAI assistant chat with per-chat memory (`whatsapp/chatMemory.ts`)
 - `agentsTryHandle.ts` (`runAgentsChainSequential`) — runs NL-intent agents in a fixed order
   (reminder → lights → weather → joplin → email → home → books), each with a `shouldTryX(text)` gate and a
   `SKIP` sentinel string convention: an agent's LLM call can return exactly `LIGHTS_AGENT_SKIP`
