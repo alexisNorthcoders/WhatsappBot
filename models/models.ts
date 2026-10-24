@@ -60,6 +60,19 @@ export function openaiChatTokenOpts(model: string, max: number) {
   return { max_tokens: max };
 }
 
+/**
+ * Token options for the tool-calling agents (weather, lights, email, Joplin). Reasoning models
+ * get `reasoning_effort: 'low'`: at the default effort gpt-5-nano often spends the whole budget
+ * on reasoning after a tool call and returns empty content, which the agents read as SKIP (#145).
+ */
+export function openaiAgentChatOpts(model: string, max: number) {
+  const tokenOpts = openaiChatTokenOpts(model, max);
+  if ('max_completion_tokens' in tokenOpts) {
+    return { ...tokenOpts, reasoning_effort: 'low' as const };
+  }
+  return tokenOpts;
+}
+
 /** OpenAI-compatible client for DeepInfra (used by WhatsApp commands and claude post-close email). */
 export const deepInfra = new OpenAI({
   baseURL: 'https://api.deepinfra.com/v1/openai',

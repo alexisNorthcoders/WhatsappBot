@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import OpenAI from 'openai';
 import nodemailer from 'nodemailer';
-import { openaiChatTokenOpts } from '../../models/models.ts';
+import { openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
@@ -131,7 +131,7 @@ export async function runEmailAgent(userMessage: string): Promise<string> {
         messages,
         tools: TOOLS,
         tool_choice: 'auto',
-        ...openaiChatTokenOpts(EMAIL_AGENT_MODEL, 1200),
+        ...openaiAgentChatOpts(EMAIL_AGENT_MODEL, 1200),
       });
 
       addCompletionUsage(completion.usage, usage);
