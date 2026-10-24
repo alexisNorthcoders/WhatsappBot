@@ -3,7 +3,7 @@ import { DEFAULT_CITY as WEATHER_DEFAULT_CITY, summarizeForecast } from '../agen
 import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.ts';
 import { parseAllDayNudgeTime } from '../calendar/nudgeTick.ts';
 import { reminderLastLists } from '../orchestration/createProductionPorts.ts';
-import { briefingSentLogPath, DEFAULT_BRIEFING_MIN, runBriefingTick } from './briefingTick.ts';
+import { BRIEFING_CUTOFF_MIN, briefingSentLogPath, DEFAULT_BRIEFING_MIN, runBriefingTick } from './briefingTick.ts';
 import type { Logger, TextSender } from '../types.ts';
 
 const POLL_MS = 60_000;
@@ -21,10 +21,10 @@ function truthyEnv(raw: string | undefined) {
  * decides whether it's due. Starts on socket open, stops on close.
  */
 export function startDailyBriefing(opts: {
-    getSocket: () => TextSender | null | undefined;
-    getOwnerJid: () => string | null;
-    logger?: Pick<Logger, 'info' | 'warn'>;
-  }) {
+  getSocket: () => TextSender | null | undefined;
+  getOwnerJid: () => string | null;
+  logger?: Pick<Logger, 'info' | 'warn'>;
+}) {
   const { getSocket, getOwnerJid, logger } = opts;
   stopDailyBriefing();
   if (truthyEnv(process.env.BRIEFING_DISABLE)) {
@@ -37,12 +37,14 @@ export function startDailyBriefing(opts: {
     return;
   }
   const rawTime = process.env.BRIEFING_TIME;
-  const parsedTime = parseAllDayNudgeTime(rawTime);
+  const parsed = parseAllDayNudgeTime(rawTime);
+  // From 12:00 on the window is empty, so that's as unusable as a malformed value.
+  const parsedTime = parsed !== null && parsed < BRIEFING_CUTOFF_MIN ? parsed : null;
   const sendAtMin = parsedTime ?? DEFAULT_BRIEFING_MIN;
   if (rawTime?.trim() && parsedTime === null) {
     logger?.warn?.(
       { value: rawTime, sendAtMin },
-      'daily briefing: bad BRIEFING_TIME (want HH:MM), using the default'
+      'daily briefing: bad BRIEFING_TIME (want HH:MM before 12:00), using the default'
     );
   }
   const calendar = googleCalendarFromEnv();

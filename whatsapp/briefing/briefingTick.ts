@@ -9,7 +9,7 @@ import type { Logger } from '../types.ts';
 /** The daily Briefing goes out at this local time (minutes after midnight) by default. */
 export const DEFAULT_BRIEFING_MIN = 7 * 60 + 30;
 /** No daily Briefing from this local time on: it's no longer a morning message. */
-const CUTOFF_MIN = 12 * 60;
+export const BRIEFING_CUTOFF_MIN = 12 * 60;
 
 /**
  * The sent log: the last day (`YYYY-MM-DD`, in the Briefing's timezone) the daily Briefing went
@@ -67,7 +67,7 @@ export async function runBriefingTick(deps: BriefingTickDeps): Promise<BriefingT
   const sendAtMin = deps.sendAtMin ?? DEFAULT_BRIEFING_MIN;
   const timeZone = await briefingTimeZone(deps);
   const today = zonedDate(nowMs, timeZone);
-  if (nowMs < zonedTimeMs(today, sendAtMin, timeZone) || nowMs >= zonedTimeMs(today, CUTOFF_MIN, timeZone)) {
+  if (nowMs < zonedTimeMs(today, sendAtMin, timeZone) || nowMs >= zonedTimeMs(today, BRIEFING_CUTOFF_MIN, timeZone)) {
     return { sent: false, reason: 'outside window' };
   }
   if ((await readLastSentDate(logPath)) === today) return { sent: false, reason: 'already sent' };

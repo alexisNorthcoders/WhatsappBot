@@ -221,4 +221,3 @@ describe('daily Briefing tick (#158)', () => {
     });
   });
 });
-
