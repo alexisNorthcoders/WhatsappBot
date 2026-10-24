@@ -36,6 +36,7 @@ import { initializeLightCache } from './hue/index.ts';
 import { createAgentRunnerIntegration } from './whatsapp/agentRunner/index.ts';
 import { startRedditCronDigest } from './whatsapp/agents/redditCronDigest.ts';
 import { startCalendarNudges, stopCalendarNudges } from './whatsapp/calendar/nudgeScheduler.ts';
+import { startDailyBriefing, stopDailyBriefing } from './whatsapp/briefing/briefingScheduler.ts';
 import dotenv from 'dotenv';
 import type { Boom } from '@hapi/boom';
 dotenv.config();
@@ -154,6 +155,11 @@ async function startSock() {
         getOwnerJid: ownerJidFromMyPhone,
         logger,
       });
+      startDailyBriefing({
+        getSocket: () => waSocket,
+        getOwnerJid: ownerJidFromMyPhone,
+        logger,
+      });
       // the first poll of the process reports what arrived while the bot was down
       agentRunner.outbox.start(agentRunnerOutboxPollMs);
       if (myPhone) {
@@ -165,6 +171,7 @@ async function startSock() {
       }
     } else if (connection === 'close') {
       stopCalendarNudges();
+      stopDailyBriefing();
       agentRunner.outbox.stop();
       const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
       /*

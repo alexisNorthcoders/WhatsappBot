@@ -34,7 +34,7 @@ import type { Command, Logger } from '../types.ts';
 
 // One store per process, keyed by chat id: ports are rebuilt on every socket reconnect, and a
 // list shown just before a reconnect must still answer "cancel N".
-const reminderLastLists = createLastLists();
+export const reminderLastLists = createLastLists();
 
 export type ProductionPortsDeps = {
   sock: Pick<WASocket, 'sendMessage' | 'readMessages' | 'logger' | 'updateMediaMessage'>;

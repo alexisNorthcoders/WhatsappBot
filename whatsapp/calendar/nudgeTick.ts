@@ -67,7 +67,7 @@ export function zonedTimeMs(date: string, minutes: number, timeZone: string) {
 /**
  * `YYYY-MM-DD` in `timeZone` at `ms`.
  */
-function zonedDate(ms: number, timeZone: string) {
+export function zonedDate(ms: number, timeZone: string) {
   return new Date(ms + zoneOffsetMs(ms, timeZone)).toISOString().slice(0, 10);
 }
 
