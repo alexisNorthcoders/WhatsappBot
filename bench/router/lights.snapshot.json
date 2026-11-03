@@ -1,0 +1,57 @@
+[
+  {
+    "id": "2",
+    "name": "Stairs",
+    "room": "Staircase"
+  },
+  {
+    "id": "3",
+    "name": "Baby",
+    "room": "Living room"
+  },
+  {
+    "id": "4",
+    "name": "Living Room Right",
+    "room": "Living room"
+  },
+  {
+    "id": "5",
+    "name": "Office",
+    "room": "Office"
+  },
+  {
+    "id": "6",
+    "name": "Living Room Left",
+    "room": "Living room"
+  },
+  {
+    "id": "8",
+    "name": "Hall",
+    "room": "Living room"
+  },
+  {
+    "id": "9",
+    "name": "Bedroom",
+    "room": "Bedroom"
+  },
+  {
+    "id": "10",
+    "name": "Garden",
+    "room": "Garden"
+  },
+  {
+    "id": "12",
+    "name": "Desk",
+    "room": "Office"
+  },
+  {
+    "id": "14",
+    "name": "Bathroom",
+    "room": "Bathroom"
+  },
+  {
+    "id": "15",
+    "name": "Children ",
+    "room": "Kids bedroom"
+  }
+]

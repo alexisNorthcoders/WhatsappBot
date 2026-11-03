@@ -1,0 +1,118 @@
+{"id": "m001", "text": "switch the garden light on", "route": "lights", "kind": "core", "lights": {"action": "on", "target": "room:Garden"}}
+{"id": "m002", "text": "kill all the lights", "route": "lights", "kind": "core", "lights": {"action": "off", "target": "all"}}
+{"id": "m003", "text": "hall light off please", "route": "lights", "kind": "core", "lights": {"action": "off", "target": "light:8"}}
+{"id": "m004", "text": "make the office lights 30%", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "room:Office"}}
+{"id": "m005", "text": "turn the desk lamp up to full", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "light:12", "brightness": "100"}}
+{"id": "m006", "text": "bedroom light to a dim glow", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "room:Bedroom", "brightness": "25"}}
+{"id": "m007", "text": "set the baby light to night light level", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "light:3", "brightness": "1"}}
+{"id": "m008", "text": "stairs light at half", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "room:Staircase", "brightness": "50"}}
+{"id": "m009", "text": "make the living room red", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Living room", "colour": "red"}}
+{"id": "m010", "text": "kids room light blue please", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Kids bedroom", "colour": "blue"}}
+{"id": "m011", "text": "bathroom light cool white", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Bathroom", "colour": "cool"}}
+{"id": "m012", "text": "can the living room be a cosy warm white", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Living room", "colour": "warm"}}
+{"id": "m013", "text": "make the office purple", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Office", "colour": "purple"}}
+{"id": "m014", "text": "which lights are on right now", "route": "lights", "kind": "core", "lights": {"action": "list", "target": "all"}}
+{"id": "m015", "text": "is the staircase light still on", "route": "lights", "kind": "core", "lights": {"action": "list", "target": "room:Staircase"}}
+{"id": "m016", "text": "turn on the lights", "route": "lights", "kind": "core", "lights": {"action": "on", "target": "all"}}
+{"id": "m017", "text": "Living Room Left off", "route": "lights", "kind": "core", "lights": {"action": "off", "target": "light:6"}}
+{"id": "m018", "text": "lights on in the bedroom and the office", "route": "lights", "kind": "core", "lights": {"action": "on", "target": "unclear"}}
+{"id": "m019", "text": "switch off the garden in 15 minutes", "route": "lights", "kind": "core", "lights": {"action": "other"}}
+{"id": "m020", "text": "everything off except the hall", "route": "lights", "kind": "core", "lights": {"action": "other"}}
+{"id": "m021", "text": "remind me to take the bins out at 8pm", "route": "reminder", "kind": "core"}
+{"id": "m022", "text": "set a reminder for the car insurance renewal on 14 March", "route": "reminder", "kind": "core"}
+{"id": "m023", "text": "nudge me about the parcel in an hour", "route": "reminder", "kind": "core"}
+{"id": "m024", "text": "haircut Saturday 10am", "route": "reminder", "kind": "core"}
+{"id": "m025", "text": "dinner with Sam next Thursday 7-9pm", "route": "reminder", "kind": "core"}
+{"id": "m026", "text": "add the school play to my calendar on the 12th", "route": "reminder", "kind": "core"}
+{"id": "m027", "text": "what's in my calendar next week", "route": "reminder", "kind": "core"}
+{"id": "m028", "text": "anything on today?", "route": "reminder", "kind": "core"}
+{"id": "m029", "text": "list my reminders", "route": "reminder", "kind": "core"}
+{"id": "m030", "text": "cancel number 2", "route": "reminder", "kind": "core"}
+{"id": "m031", "text": "how do reminders work", "route": "reminder", "kind": "core"}
+{"id": "m032", "text": "remind me every Monday to water the plants", "route": "reminder", "kind": "core"}
+{"id": "m033", "text": "is it going to be sunny this weekend", "route": "weather", "kind": "core"}
+{"id": "m034", "text": "what's the temperature outside", "route": "weather", "kind": "core"}
+{"id": "m035", "text": "forecast for London tomorrow", "route": "weather", "kind": "core"}
+{"id": "m036", "text": "will it snow on Friday", "route": "weather", "kind": "core"}
+{"id": "m037", "text": "how windy is it today", "route": "weather", "kind": "core"}
+{"id": "m038", "text": "should I take an umbrella", "route": "weather", "kind": "core"}
+{"id": "m039", "text": "weather in Lisbon next week", "route": "weather", "kind": "core"}
+{"id": "m040", "text": "is it warm enough for shorts", "route": "weather", "kind": "core"}
+{"id": "m041", "text": "chance of rain this afternoon?", "route": "weather", "kind": "core"}
+{"id": "m042", "text": "what's the weather like", "route": "weather", "kind": "core"}
+{"id": "m043", "text": "how hot will it get in Madrid on Sunday", "route": "weather", "kind": "core"}
+{"id": "m044", "text": "frost tonight?", "route": "weather", "kind": "core"}
+{"id": "m045", "text": "make a note: call the plumber about the leak", "route": "joplin", "kind": "core"}
+{"id": "m046", "text": "search my notes for the wifi password", "route": "joplin", "kind": "core"}
+{"id": "m047", "text": "add eggs to my shopping list note", "route": "joplin", "kind": "core"}
+{"id": "m048", "text": "what does my holiday packing list note say", "route": "joplin", "kind": "core"}
+{"id": "m049", "text": "delete the note called old ideas", "route": "joplin", "kind": "core"}
+{"id": "m050", "text": "save this article to Joplin https://news.ycombinator.com/item?id=1", "route": "joplin", "kind": "core"}
+{"id": "m051", "text": "new note titled Garden plans: plant tulips in October", "route": "joplin", "kind": "core"}
+{"id": "m052", "text": "show my latest notes", "route": "joplin", "kind": "core"}
+{"id": "m053", "text": "edit my todo note and add renew passport", "route": "joplin", "kind": "core"}
+{"id": "m054", "text": "do I have a note about the car service", "route": "joplin", "kind": "core"}
+{"id": "m055", "text": "clip https://www.bbc.co.uk/news to my notebook", "route": "joplin", "kind": "core"}
+{"id": "m056", "text": "list my notebooks", "route": "joplin", "kind": "core"}
+{"id": "m057", "text": "email sarah@work.com that the meeting moved to 3", "route": "email", "kind": "core"}
+{"id": "m058", "text": "send an email to the landlord about the broken heater", "route": "email", "kind": "core"}
+{"id": "m059", "text": "write an email to mum telling her we land at 6", "route": "email", "kind": "core"}
+{"id": "m060", "text": "email my accountant that the invoice is paid", "route": "email", "kind": "core"}
+{"id": "m061", "text": "shoot an email to dave@example.org: running late", "route": "email", "kind": "core"}
+{"id": "m062", "text": "send mail to support@shop.com asking about my refund", "route": "email", "kind": "core"}
+{"id": "m063", "text": "email the school saying Tom is ill today", "route": "email", "kind": "core"}
+{"id": "m064", "text": "drop an email to Priya to say thanks for dinner", "route": "email", "kind": "core"}
+{"id": "m065", "text": "can you email jo@example.com our new address", "route": "email", "kind": "core"}
+{"id": "m066", "text": "email the team that the release is postponed", "route": "email", "kind": "core"}
+{"id": "m067", "text": "compose an email to Alex about the weekend plans", "route": "email", "kind": "core"}
+{"id": "m068", "text": "mail ben@example.net the photos link", "route": "email", "kind": "core"}
+{"id": "m069", "text": "how do I reset the boiler", "route": "home", "kind": "core"}
+{"id": "m070", "text": "what does the F28 error on the boiler mean", "route": "home", "kind": "core"}
+{"id": "m071", "text": "how long does the eco programme on the dishwasher take", "route": "home", "kind": "core"}
+{"id": "m072", "text": "how do I clean the oven filter", "route": "home", "kind": "core"}
+{"id": "m073", "text": "the washing machine won't drain", "route": "home", "kind": "core"}
+{"id": "m074", "text": "what model is our fridge", "route": "home", "kind": "core"}
+{"id": "m075", "text": "how do I set the oven clock", "route": "home", "kind": "core"}
+{"id": "m076", "text": "can the dishwasher take pans", "route": "home", "kind": "core"}
+{"id": "m077", "text": "how do I bleed the radiators", "route": "home", "kind": "core"}
+{"id": "m078", "text": "what temperature is the pyrolytic clean", "route": "home", "kind": "core"}
+{"id": "m079", "text": "the tumble dryer light is flashing", "route": "home", "kind": "core"}
+{"id": "m080", "text": "where's the filter on the extractor hood", "route": "home", "kind": "core"}
+{"id": "m081", "text": "any good fantasy novels like The Name of the Wind", "route": "books", "kind": "core"}
+{"id": "m082", "text": "recommend me a thriller", "route": "books", "kind": "core"}
+{"id": "m083", "text": "books about the history of Rome", "route": "books", "kind": "core"}
+{"id": "m084", "text": "what should I read after Project Hail Mary", "route": "books", "kind": "core"}
+{"id": "m085", "text": "I liked Sally Rooney, who should I read next", "route": "books", "kind": "core"}
+{"id": "m086", "text": "suggest a short novel for a flight", "route": "books", "kind": "core"}
+{"id": "m087", "text": "best books on stoicism", "route": "books", "kind": "core"}
+{"id": "m088", "text": "a cosy mystery recommendation please", "route": "books", "kind": "core"}
+{"id": "m089", "text": "which Terry Pratchett book should I start with", "route": "books", "kind": "core"}
+{"id": "m090", "text": "non-fiction about space exploration", "route": "books", "kind": "core"}
+{"id": "m091", "text": "books similar to Dune", "route": "books", "kind": "core"}
+{"id": "m092", "text": "I need a new audiobook to listen to", "route": "books", "kind": "core"}
+{"id": "m093", "text": "how are you today", "route": "chat", "kind": "core"}
+{"id": "m094", "text": "what's 15% of 240", "route": "chat", "kind": "core"}
+{"id": "m095", "text": "translate good morning into Spanish", "route": "chat", "kind": "core"}
+{"id": "m096", "text": "write a haiku about Mondays", "route": "chat", "kind": "core"}
+{"id": "m097", "text": "who won the World Cup in 2014", "route": "chat", "kind": "core"}
+{"id": "m098", "text": "give me an idea for dinner tonight", "route": "chat", "kind": "core"}
+{"id": "m099", "text": "explain how vaccines work", "route": "chat", "kind": "core"}
+{"id": "m100", "text": "lol", "route": "chat", "kind": "core"}
+{"id": "m101", "text": "good night", "route": "chat", "kind": "core"}
+{"id": "m102", "text": "what's the difference between a crocodile and an alligator", "route": "chat", "kind": "core"}
+{"id": "m103", "text": "help me word a text to my boss asking for Friday off", "route": "chat", "kind": "core"}
+{"id": "m104", "text": "ok cool", "route": "chat", "kind": "core"}
+{"id": "m105", "text": "the light in the oven isn't working", "route": "home", "kind": "near-miss"}
+{"id": "m106", "text": "remind me what the boiler model is", "route": "home", "kind": "near-miss"}
+{"id": "m107", "text": "email me the weather", "route": "email", "kind": "near-miss"}
+{"id": "m108", "text": "note to self: the garden lights need new batteries", "route": "joplin", "kind": "near-miss"}
+{"id": "m109", "text": "remind me to turn off the garden lights at 11pm", "route": "reminder", "kind": "near-miss"}
+{"id": "m110", "text": "what's the weather like in the book Dune", "route": "chat", "kind": "near-miss"}
+{"id": "m111", "text": "book a table for Friday", "route": "chat", "kind": "near-miss"}
+{"id": "m112", "text": "save a note of tomorrow's forecast", "route": "joplin", "kind": "near-miss"}
+{"id": "m113", "text": "put read Dune in my notes", "route": "joplin", "kind": "near-miss"}
+{"id": "m114", "text": "thanks, the lights are perfect now", "route": "chat", "kind": "near-miss"}
+{"id": "m115", "text": "what's the support number for the boiler", "route": "home", "kind": "near-miss"}
+{"id": "m116", "text": "how do I connect the Hue bridge to the wifi", "route": "lights", "kind": "near-miss", "lights": {"action": "other"}}
+{"id": "m117", "text": "recommend a lamp for reading", "route": "chat", "kind": "near-miss"}
+{"id": "m118", "text": "remind me tomorrow to recommend Dune to Sam", "route": "reminder", "kind": "near-miss"}
