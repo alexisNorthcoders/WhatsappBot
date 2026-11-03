@@ -169,7 +169,7 @@ async function runOne(row: Row, phase: Phase, rep: number, backendOpts = chatOpt
       backend === 'jev'
         ? timedFetch(rec)
         : structured
-          ? structuredFetch(backendOpts, rec)
+          ? structuredFetch(backendOpts, rec, lights)
           : chatChoiceFetch(backendOpts, rec),
     extraQuestions: () => questions,
     logger: {

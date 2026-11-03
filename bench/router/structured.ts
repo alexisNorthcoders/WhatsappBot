@@ -81,6 +81,53 @@ export function renderLightsPrompt(questions: Record<string, JevChoiceQuestion>)
 }
 
 /**
+ * Renames the bot's target options (`room:<room>`, `light:<id>`) to the bare names a message
+ * uses, because the model wants to write "Garden", not a `room:` prefix the grammar forces on it.
+ * A room with one light is one option, under the room's name in title case (the model writes
+ * "Living Room" when the lights are called "Living Room Left"). A light named like its room is
+ * "<name> light". Names that would still clash keep the bot's keys. `toBotKey` maps an answer back.
+ */
+export function nameLightTargets(
+  questions: Record<string, JevChoiceQuestion>,
+  lights: { id: string; name: string; room: string }[],
+) {
+  const target = questions.lights_target;
+  if (!target) return { questions, toBotKey: (key: string) => key };
+  const inRoom = (room: string) => lights.filter((L) => L.room === room);
+  // bot key → the name to offer, or null to drop the option (a one-light room's light)
+  const wanted = new Map<string, string | null>();
+  for (const L of lights) {
+    const name = L.name.trim();
+    if (inRoom(L.room).length === 1) wanted.set(`light:${L.id}`, null);
+    else wanted.set(`light:${L.id}`, name.toLowerCase() === L.room.toLowerCase() ? `${name} light` : name);
+  }
+  const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+  for (const room of new Set(lights.map((L) => L.room))) wanted.set(`room:${room}`, titleCase(room));
+
+  const uses = new Map<string, number>();
+  const bump = (k: string) => uses.set(k.toLowerCase(), (uses.get(k.toLowerCase()) ?? 0) + 1);
+  for (const key of Object.keys(target.criteria)) bump(wanted.get(key) ?? key);
+  const promptKey = (key: string) => {
+    const name = wanted.get(key) ?? key;
+    return uses.get(name.toLowerCase()) === 1 ? name : key;
+  };
+
+  const criteria: Record<string, unknown> = {};
+  const toBot = new Map<string, string>();
+  for (const [key, c] of Object.entries(target.criteria)) {
+    if (wanted.get(key) === null) continue;
+    const only = key.startsWith('room:') ? inRoom(key.slice(5)) : [];
+    criteria[promptKey(key)] =
+      only.length === 1 ? `The light named "${only[0].name.trim()}", the only light in the ${key.slice(5)} room.` : c;
+    toBot.set(promptKey(key), key);
+  }
+  return {
+    questions: { ...questions, lights_target: { ...target, criteria } as JevChoiceQuestion },
+    toBotKey: (key: string) => toBot.get(key) ?? key,
+  };
+}
+
+/**
  * The probability the model gives `content[start, end)` among the allowed `keys`. llama-server
  * reports logprobs from before the grammar, so a forced token can read as near-impossible. Each
  * step that writes the value is renormalised over the top alternatives that still lead to a key;
@@ -119,8 +166,12 @@ export function choiceProbability(
     const ok = (alt: string) => alt.startsWith(before) && allowed(sofar + alt.slice(before.length), alt === '');
     const alts = (t.top_logprobs ?? []).filter((x) => ok(x.token));
     if (!alts.some((x) => x.token === t.token)) alts.push(t);
+    // a token that runs past the value's close: what follows the close ('",' or '"\n') is
+    // the schema's business, so alternatives that close the same value are the same answer
+    const cut = end + after - a;
+    const same = cut < t.token.length ? alts.filter((x) => x.token.slice(0, cut) === t.token.slice(0, cut)) : [t];
     const total = alts.reduce((s, x) => s + Math.exp(x.logprob), 0);
-    probability *= total ? Math.exp(t.logprob) / total : 0;
+    probability *= total ? same.reduce((s, x) => s + Math.exp(x.logprob), 0) / total : 0;
   }
   return probability;
 }
@@ -139,7 +190,11 @@ export function valueSpan(content: string, field: string): [number, number] | nu
  * The replies are mapped back to the answers the bot reads, so createJevRouter and
  * runLightsFromJev decide the outcome as they do for Jev.
  */
-export function structuredFetch(opts: ChatBackendOptions, rec: Recorder): FetchLike {
+export function structuredFetch(
+  opts: ChatBackendOptions,
+  rec: Recorder,
+  lights: { id: string; name: string; room: string }[],
+): FetchLike {
   return async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     const questions = body.questions as Record<string, JevChoiceQuestion>;
@@ -155,7 +210,8 @@ export function structuredFetch(opts: ChatBackendOptions, rec: Recorder): FetchL
     };
 
     if (route === 'lights' && questions.lights_action) {
-      const lightsPrompt = renderLightsPrompt(questions);
+      const { questions: named, toBotKey } = nameLightTargets(questions, lights);
+      const lightsPrompt = renderLightsPrompt(named);
       try {
         const reply = await complete(opts, rec, 'lights', lightsPrompt, message, opts.maxTokens, signal);
         const parsed = JSON.parse(reply.content) as Partial<Record<LightsField, string>>;
@@ -164,7 +220,7 @@ export function structuredFetch(opts: ChatBackendOptions, rec: Recorder): FetchL
           const value = parsed[f];
           if (typeof value === 'string' && span)
             answers[id] = pick(
-              value,
+              f === 'target' ? toBotKey(value) : value,
               choiceProbability(reply.tokens, reply.content, span, lightsPrompt.keysOf(f), '"'),
             );
         }
