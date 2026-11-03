@@ -6,7 +6,7 @@ The owner types a command word and gets a fixed reply or a single-purpose tool, 
 
 - `help` lists every command, agent and the fallback.
 - `clear` empties the chat's assistant memory.
-- `registry` runs a registered first-word command (`help`, `recipe`, `summarize`, `image`, `sdxl`, `sprite`, `wizard`, `gpt4`, `deepinfra`, `daniel`, `home`).
+- `registry` runs a registered first-word command (`help`, `recipe`, `summarize`, `image`, `sprite`, `wizard`, `gpt4`, `deepinfra`, `daniel`, `home`).
 
 ## How to get to it (user POV)
 
@@ -28,4 +28,4 @@ Preconditions:
 ## Gotchas
 
 - Chat memory lives in the process when `CHAT_MEMORY_BACKEND` is unset (the Pi's setting), so a turn and its `!clear` must be in the same `drive` call.
-- `image`, `sdxl` and `sprite` reply with images. The evidence shows them as `<N bytes>`.
+- `image` and `sprite` reply with images. The evidence shows them as `<N bytes>`.

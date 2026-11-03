@@ -32,26 +32,6 @@ describe('help command text', () => {
     );
     assert.match(
       helpText,
-      /\*sdxl\* \[size\] \[prompt\]/,
-      'help should include the SDXL generate command',
-    );
-    assert.match(
-      helpText,
-      /\*sdxl\+\* \[changes\]/,
-      'help should include the SDXL refine command',
-    );
-    assert.match(
-      helpText,
-      /sdxl\+ add sunset lighting/,
-      'help should include an sdxl+ usage example',
-    );
-    assert.match(
-      helpText,
-      /each \*sdxl\+\* becomes the new base|chain refinements/i,
-      'help should clarify that sdxl+ iterates/chains on the latest output',
-    );
-    assert.match(
-      helpText,
       /\*Reminders\*/,
       'help should include reminders under Smart Agents',
     );

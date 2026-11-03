@@ -68,7 +68,7 @@ hexagonal/ports architecture:
   socket.
 - `createMessageOrchestrator.ts` — the actual routing decision tree, in priority order:
   1. inbound image + caption (`Text`/`Text high`/`Help` → vision commands)
-  2. `sprite+` / `sdxl+` prefix → iterate-on-last-image commands
+  2. `sprite+` prefix → iterate-on-last-image command
   3. `briefing` from an allowlisted sender → the Briefing (`whatsapp/briefing/buildBriefing.ts`:
      weather plus the "what's on today" list, via `reminderList` in `manageReminders.ts`);
      anyone else falls through

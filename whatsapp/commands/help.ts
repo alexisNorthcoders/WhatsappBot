@@ -13,8 +13,6 @@ const helpCommand: Command<TextSender> = async (sock, sender) => {
 • *wizard* [prompt] — Wizard model
 • *recipe* [prompt] — Generate a recipe
 • *image* [prompt] — Generate an image (DALL·E)
-• *sdxl* [size] [prompt] — Generate an image (SDXL Turbo via DeepInfra; sizes: 256x256, 512x512, 768x768, 1024x1024; default 1024x1024)
-• *sdxl+* [changes] — Iterate on the latest SDXL output for this chat (each *sdxl+* becomes the new base — chain refinements). Examples: sdxl+ add sunset lighting · sdxl+ more contrast. Or *sdxl+* filename.png [changes] (assets/generated)
 • *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
 • *sprite+* [changes] — Refine the last sprite using the file saved on the server (no re-upload). Or *sprite+* filename.png [changes] (assets/generated)
 • *briefing* — Weather for your city plus what's left of today's Reminders, numbered so "cancel N" works (same identities as *claude*)

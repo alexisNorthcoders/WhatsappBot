@@ -28,7 +28,6 @@ export type OrchestratorPorts = {
   };
   routes: {
     runSpritePlus: RouteHandler;
-    runSdxlPlus: RouteHandler;
     runCommandByFirstToken: RouteHandler;
     runLegacyRoutes: RouteHandler;
   };
@@ -131,11 +130,6 @@ export function createMessageOrchestrator(ports: OrchestratorPorts) {
 
     if (/^\s*sprite\+/i.test(m.text)) {
       const r = await ports.routes.runSpritePlus(m);
-      if (r.handled) return;
-    }
-
-    if (/^\s*sdxl\+/i.test(m.text)) {
-      const r = await ports.routes.runSdxlPlus(m);
       if (r.handled) return;
     }
 

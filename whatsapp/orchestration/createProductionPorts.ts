@@ -1,6 +1,5 @@
 import restartCommand from '../commands/restart.ts';
 import { spriteIterateCommand } from '../commands/sprite.ts';
-import { sdxlIterateCommand } from '../commands/sdxl.ts';
 import { lidExtraJidsHint, secondPhoneJid } from '../whatsAppActorAllowlist.ts';
 import { getWeatherData, deepInfraAPI, vision, visionQuality, visionHelp, assistantgenerateResponse } from '../../models/models.ts';
 import { pickRandomTopic } from '../../data/helper.ts';
@@ -167,10 +166,6 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
     routes: {
       async runSpritePlus(m) {
         await spriteIterateCommand(sock, m.chatId, m.text);
-        return { handled: true };
-      },
-      async runSdxlPlus(m) {
-        await sdxlIterateCommand(sock, m.chatId, m.text);
         return { handled: true };
       },
       async runCommandByFirstToken(m) {
