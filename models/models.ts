@@ -78,11 +78,19 @@ type Env = Record<string, string | undefined>;
 /** Base URL and key for an OpenAI-compatible client. */
 export type LlmEndpoint = { baseURL?: string; apiKey: string };
 
-/** `DEEPINFRA_BASE_URL` can point the DeepInfra client at another OpenAI-compatible server. */
+/**
+ * Key for the DeepInfra chat client: `DEEPINFRA_CHAT_API_KEY` when it talks to another server,
+ * since the image calls keep sending `DEEPINFRA_API_KEY` to DeepInfra itself.
+ */
+function deepInfraChatKey(env: Env): string | undefined {
+  return env.DEEPINFRA_CHAT_API_KEY?.trim() || env.DEEPINFRA_API_KEY?.trim() || undefined;
+}
+
+/** `DEEPINFRA_BASE_URL` can point the DeepInfra chat client at another OpenAI-compatible server. */
 export function deepInfraEndpoint(env: Env = process.env): LlmEndpoint {
   return {
     baseURL: env.DEEPINFRA_BASE_URL?.trim() || 'https://api.deepinfra.com/v1/openai',
-    apiKey: env.DEEPINFRA_API_KEY?.trim() || 'missing',
+    apiKey: deepInfraChatKey(env) || 'missing',
   };
 }
 
@@ -134,7 +142,7 @@ export async function deepInfraAPI(
   model: string = DEEPINFRA_DEFAULT_CHAT_MODEL,
   options: DeepInfraChatOptions = {},
 ) {
-  if (!process.env.DEEPINFRA_API_KEY?.trim()) {
+  if (!deepInfraChatKey(process.env)) {
     throw new Error('DEEPINFRA_API_KEY is not set; cannot call the DeepInfra chat model.');
   }
   // The SDK reads `signal` from its request options; inside the body it's ignored.

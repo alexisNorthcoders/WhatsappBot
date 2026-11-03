@@ -10,6 +10,13 @@ describe('deepInfraEndpoint', () => {
     });
   });
 
+  it('prefers DEEPINFRA_CHAT_API_KEY, leaving DEEPINFRA_API_KEY for the image calls', () => {
+    assert.deepEqual(
+      deepInfraEndpoint({ DEEPINFRA_BASE_URL: 'http://minipc.local:8080/v1', DEEPINFRA_CHAT_API_KEY: 'local', DEEPINFRA_API_KEY: 'di' }),
+      { baseURL: 'http://minipc.local:8080/v1', apiKey: 'local' },
+    );
+  });
+
   it('uses DEEPINFRA_BASE_URL when set', () => {
     assert.deepEqual(deepInfraEndpoint({ DEEPINFRA_BASE_URL: ' http://minipc.local:8080/v1 ', DEEPINFRA_API_KEY: 'k' }), {
       baseURL: 'http://minipc.local:8080/v1',
