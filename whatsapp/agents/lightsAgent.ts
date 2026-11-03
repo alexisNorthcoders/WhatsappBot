@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import OpenAI from 'openai';
 import {
   switchOffAllLights,
   listAllLights,
@@ -13,13 +12,11 @@ import {
   getCacheStatus,
   getCachedLights,
 } from '../../hue/api.ts';
-import { openaiAgentChatOpts } from '../../models/models.ts';
+import { agentLlm, openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const LIGHTS_AGENT_MODEL = process.env.LIGHTS_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
@@ -348,7 +345,7 @@ export async function runLightsAgent(userMessage: string): Promise<string> {
     ];
 
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
-      const completion = await openai.chat.completions.create({
+      const completion = await agentLlm.chat.completions.create({
         model: LIGHTS_AGENT_MODEL,
         messages,
         tools: TOOLS,

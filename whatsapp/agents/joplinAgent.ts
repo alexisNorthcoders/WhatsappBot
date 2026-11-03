@@ -1,7 +1,6 @@
 import dotenv from 'dotenv';
-import OpenAI from 'openai';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.ts';
-import { openaiAgentChatOpts } from '../../models/models.ts';
+import { agentLlm, openaiAgentChatOpts } from '../../models/models.ts';
 import {
   botFetch,
   buildBotFetchRequestInit,
@@ -13,8 +12,6 @@ import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const JOPLIN_AGENT_MODEL = process.env.JOPLIN_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
@@ -374,7 +371,7 @@ export async function runJoplinAgent(userMessage: string): Promise<string> {
     ];
 
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
-      const completion = await openai.chat.completions.create({
+      const completion = await agentLlm.chat.completions.create({
         model: JOPLIN_AGENT_MODEL,
         messages,
         tools: TOOLS,
