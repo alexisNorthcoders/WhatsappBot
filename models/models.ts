@@ -73,14 +73,37 @@ export function openaiAgentChatOpts(model: string, max: number) {
   return tokenOpts;
 }
 
-/** OpenAI-compatible client for DeepInfra (used by WhatsApp commands and claude post-close email). */
-export const deepInfra = new OpenAI({
-  baseURL: 'https://api.deepinfra.com/v1/openai',
-  apiKey: process.env.DEEPINFRA_API_KEY?.trim() || 'missing',
-});
+type Env = Record<string, string | undefined>;
+
+/** Base URL and key for an OpenAI-compatible client. */
+export type LlmEndpoint = { baseURL?: string; apiKey: string };
+
+/** `DEEPINFRA_BASE_URL` can point the DeepInfra client at another OpenAI-compatible server. */
+export function deepInfraEndpoint(env: Env = process.env): LlmEndpoint {
+  return {
+    baseURL: env.DEEPINFRA_BASE_URL?.trim() || 'https://api.deepinfra.com/v1/openai',
+    apiKey: env.DEEPINFRA_API_KEY?.trim() || 'missing',
+  };
+}
+
+/**
+ * The tool-calling agents' endpoint (weather, lights, email, Joplin): `AGENT_LLM_BASE_URL` with
+ * `AGENT_LLM_API_KEY`, else OpenAI. Chat and images keep using OpenAI either way.
+ */
+export function agentEndpoint(env: Env = process.env): LlmEndpoint {
+  const baseURL = env.AGENT_LLM_BASE_URL?.trim();
+  if (baseURL) return { baseURL, apiKey: env.AGENT_LLM_API_KEY?.trim() || 'missing' };
+  return { apiKey: env.OPENAI_API_KEY?.trim() || 'missing' };
+}
+
+/** OpenAI-compatible client for DeepInfra (used by WhatsApp commands). */
+export const deepInfra = new OpenAI(deepInfraEndpoint());
+
+/** OpenAI-compatible client the tool-calling agents share. */
+export const agentLlm = new OpenAI(agentEndpoint());
 
 /** Default chat model for `deepInfraAPI` when `model` is omitted. */
-export const DEEPINFRA_DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V3';
+export const DEEPINFRA_DEFAULT_CHAT_MODEL = process.env.DEEPINFRA_CHAT_MODEL?.trim() || 'deepseek-ai/DeepSeek-V3';
 
 type DeepInfraChatOptions = { signal?: AbortSignal; temperature?: number | null };
 

@@ -1,12 +1,9 @@
 import dotenv from 'dotenv';
-import OpenAI from 'openai';
-import { getWeatherData, openaiAgentChatOpts } from '../../models/models.ts';
+import { getWeatherData, agentLlm, openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 dotenv.config();
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const WEATHER_AGENT_MODEL = process.env.WEATHER_AGENT_MODEL || 'gpt-5-nano';
 const MAX_AGENT_TURNS = 15;
@@ -114,7 +111,7 @@ export async function runWeatherAgent(userMessage: string): Promise<string> {
     ];
 
     for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
-      const completion = await openai.chat.completions.create({
+      const completion = await agentLlm.chat.completions.create({
         model: WEATHER_AGENT_MODEL,
         messages,
         tools: TOOLS,
@@ -193,7 +190,7 @@ export async function summarizeForecast(forecastText: string, agent = 'briefing'
   let outcome = 'error';
   try {
     if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set');
-    const completion = await openai.chat.completions.create({
+    const completion = await agentLlm.chat.completions.create({
       model: WEATHER_AGENT_MODEL,
       messages: [
         {
