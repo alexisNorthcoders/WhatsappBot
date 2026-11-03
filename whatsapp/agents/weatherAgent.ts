@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { getWeatherData, agentLlm, openaiAgentChatOpts } from '../../models/models.ts';
+import { getWeatherData, agentLlm, agentLlmKeyError, openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
@@ -101,8 +101,9 @@ export async function runWeatherAgent(userMessage: string): Promise<string> {
   let outcome = 'error';
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not set');
+    const keyError = agentLlmKeyError();
+    if (keyError) {
+      throw new Error(keyError);
     }
 
     const messages: ChatCompletionMessageParam[] = [
@@ -189,7 +190,8 @@ export async function summarizeForecast(forecastText: string, agent = 'briefing'
   const usage = { prompt: 0, completion: 0, total: 0 };
   let outcome = 'error';
   try {
-    if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set');
+    const keyError = agentLlmKeyError();
+    if (keyError) throw new Error(keyError);
     const completion = await agentLlm.chat.completions.create({
       model: WEATHER_AGENT_MODEL,
       messages: [

@@ -96,6 +96,12 @@ export function agentEndpoint(env: Env = process.env): LlmEndpoint {
   return { apiKey: env.OPENAI_API_KEY?.trim() || 'missing' };
 }
 
+/** Why the agents can't call their endpoint (its key is unset), or null when they can. */
+export function agentLlmKeyError(env: Env = process.env): string | null {
+  const keyVar = env.AGENT_LLM_BASE_URL?.trim() ? 'AGENT_LLM_API_KEY' : 'OPENAI_API_KEY';
+  return env[keyVar]?.trim() ? null : `${keyVar} is not set`;
+}
+
 /** OpenAI-compatible client for DeepInfra (used by WhatsApp commands). */
 export const deepInfra = new OpenAI(deepInfraEndpoint());
 
