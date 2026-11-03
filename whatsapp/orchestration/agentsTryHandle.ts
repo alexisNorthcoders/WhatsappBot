@@ -133,7 +133,7 @@ export function listAgents(deps: AgentChainDeps): ChainAgent[] {
       errorLabel: 'Weather assistant error',
     },
     {
-      key: 'joplin',
+      key: 'notes',
       shouldTry: deps.shouldTryJoplinAgent,
       run: skipAware(onText(deps.runJoplinAgent), deps.JOPLIN_AGENT_SKIP),
       logLabel: 'Joplin agent error',

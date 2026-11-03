@@ -37,7 +37,7 @@ export const ROUTE_CRITERIA = {
     what: 'Weather conditions or forecast for a place or time.',
     examples: ['will it rain tomorrow', 'how cold is it in Manchester', 'do I need a coat today'],
   },
-  joplin: {
+  notes: {
     what: "Read, search, create, edit or delete notes in the user's Joplin notebook, or save a web page into it.",
     examples: ['save a note: buy milk', 'find my note about the boiler service', 'save https://example.com to my notes'],
   },
