@@ -494,16 +494,15 @@ export async function gptImageGenerateResponse(userMessage: string) {
 
 export async function recipeGenerateResponse(userMessage: string) {
   try {
-    const completion = await openai.completions.create({
-      model: 'gpt-3.5-turbo-instruct',
-      temperature: 0.7,
-      prompt: `create a detailed recipe with only the following ingredients: ${userMessage}. Start off with 'recipe name', 'ingredients list' and 'step-by-step procedure for cooking`,
-      max_tokens: 1000
-    });
-
-    return completion.choices[0].text.trim();
+    const text = await deepInfraAPI(
+      `Create a detailed recipe using only the following ingredients: ${userMessage}. Start with the recipe name, then the ingredients list, then a step-by-step cooking procedure.`,
+      DEEPINFRA_DEFAULT_CHAT_MODEL,
+      { temperature: 0.7 },
+    );
+    if (!text.trim()) throw new Error('No text in completion');
+    return text.trim();
   } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
+    console.error('Error generating recipe response:', error);
     throw new Error('Error generating response');
   }
 }
