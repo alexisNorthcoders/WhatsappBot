@@ -12,7 +12,7 @@ import {
   getCacheStatus,
   getCachedLights,
 } from '../../hue/api.ts';
-import { agentLlm, openaiAgentChatOpts } from '../../models/models.ts';
+import { agentLlm, agentLlmKeyError, openaiAgentChatOpts } from '../../models/models.ts';
 import { logAgentInvocation, addCompletionUsage } from './agentUsageLog.ts';
 import type { ChatCompletionTool, ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
@@ -335,8 +335,9 @@ export async function runLightsAgent(userMessage: string): Promise<string> {
   let outcome = 'error';
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not set');
+    const keyError = agentLlmKeyError();
+    if (keyError) {
+      throw new Error(keyError);
     }
 
     const messages: ChatCompletionMessageParam[] = [

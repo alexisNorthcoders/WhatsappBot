@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentEndpoint, deepInfraEndpoint } from '../models/models.ts';
+import { agentEndpoint, agentLlmKeyError, deepInfraEndpoint } from '../models/models.ts';
 
 describe('deepInfraEndpoint', () => {
   it('defaults to DeepInfra', () => {
@@ -32,5 +32,20 @@ describe('agentEndpoint', () => {
 
   it('ignores a blank AGENT_LLM_BASE_URL', () => {
     assert.deepEqual(agentEndpoint({ AGENT_LLM_BASE_URL: '  ', OPENAI_API_KEY: 'sk' }), { apiKey: 'sk' });
+  });
+});
+
+describe('agentLlmKeyError', () => {
+  it('needs OPENAI_API_KEY when the agents use OpenAI', () => {
+    assert.equal(agentLlmKeyError({ OPENAI_API_KEY: 'sk' }), null);
+    assert.equal(agentLlmKeyError({}), 'OPENAI_API_KEY is not set');
+  });
+
+  it('needs only AGENT_LLM_API_KEY when AGENT_LLM_BASE_URL is set', () => {
+    assert.equal(agentLlmKeyError({ AGENT_LLM_BASE_URL: 'http://minipc.local:8080/v1', AGENT_LLM_API_KEY: 'local' }), null);
+    assert.equal(
+      agentLlmKeyError({ AGENT_LLM_BASE_URL: 'http://minipc.local:8080/v1', OPENAI_API_KEY: 'sk' }),
+      'AGENT_LLM_API_KEY is not set',
+    );
   });
 });

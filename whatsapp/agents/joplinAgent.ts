@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import joplinAPI, { WHATSAPP_BOT_NOTEBOOK } from '../../joplin/index.ts';
-import { agentLlm, openaiAgentChatOpts } from '../../models/models.ts';
+import { agentLlm, agentLlmKeyError, openaiAgentChatOpts } from '../../models/models.ts';
 import {
   botFetch,
   buildBotFetchRequestInit,
@@ -361,8 +361,9 @@ export async function runJoplinAgent(userMessage: string): Promise<string> {
   let outcome = 'error';
 
   try {
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not set');
+    const keyError = agentLlmKeyError();
+    if (keyError) {
+      throw new Error(keyError);
     }
 
     const messages: ChatCompletionMessageParam[] = [
