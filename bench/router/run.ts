@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import { createJevRouter } from '../../whatsapp/orchestration/jevRouter.ts';
 import { lightsJevQuestions } from '../../whatsapp/agents/lightsJev.ts';
 import { chatChoiceFetch, timedFetch } from './backends.ts';
+import { structuredFetch } from './structured.ts';
 import type { ChatBackendOptions, Recorder } from './backends.ts';
 import { loadDataset, loadLights } from './dataset.ts';
 import type { Row } from './dataset.ts';
@@ -34,8 +35,10 @@ const { values: args } = parseArgs({
     reps: { type: 'string', default: '3' },
     sample: { type: 'string', default: '24' },
     limit: { type: 'string' },
-    fanout: { type: 'string', default: 'all' },
+    prompt: { type: 'string', default: 'structured' },
+    fanout: { type: 'string', default: 'route-first' },
     options: { type: 'string', default: 'keys' },
+    'max-tokens': { type: 'string' },
     'timeout-ms': { type: 'string', default: '20000' },
     'min-probability': { type: 'string' },
     'lights-min-probability': { type: 'string', default: '0.7' },
@@ -77,8 +80,11 @@ const phases = args.phases.split(',') as Phase[];
 for (const p of phases) if (!['warm', 'uncached'].includes(p)) fail(`unknown phase ${p}`);
 if (backend === 'jev' && phases.some((p) => p !== 'warm'))
   fail('the uncached phase needs --backend chat (it turns off llama-server prompt caching)');
-if (args.fanout !== 'all' && args.fanout !== 'route-first') fail('--fanout all|route-first');
+if (args.fanout !== 'all' && args.fanout !== 'route-first' && args.fanout !== 'route-only')
+  fail('--fanout all|route-first|route-only');
 if (args.options !== 'keys' && args.options !== 'letters') fail('--options keys|letters');
+if (args.prompt !== 'structured' && args.prompt !== 'per-question') fail('--prompt structured|per-question');
+const structured = args.prompt === 'structured';
 const reps = Number(args.reps);
 const timeoutMs = Number(args['timeout-ms']);
 const lightsMin = Number(args['lights-min-probability']);
@@ -105,10 +111,13 @@ const chatOpts: ChatBackendOptions = {
   apiKey,
   fanout: args.fanout,
   options: args.options,
+  maxTokens: Number(args['max-tokens'] ?? (structured ? 96 : args.options === 'letters' ? 1 : 16)),
   extraBody: JSON.parse(args['extra-body']),
 };
 
-const label = args.label ?? `${backend}-${model}${backend === 'chat' ? `-${args.fanout}-${args.options}` : ''}`;
+const label =
+  args.label ??
+  `${backend}-${model}${backend === 'chat' ? (structured ? '-structured' : `-${args.fanout}-${args.options}`) : ''}`;
 const started = new Date();
 const outPath =
   args.out ??
@@ -133,8 +142,10 @@ write({
   phases,
   reps,
   sample: Number(args.sample),
-  fanout: backend === 'chat' ? args.fanout : 'jev-single-request',
-  options: backend === 'chat' ? args.options : undefined,
+  prompt: backend === 'chat' ? args.prompt : 'jev-single-request',
+  fanout: backend === 'chat' && !structured ? args.fanout : undefined,
+  options: backend === 'chat' && !structured ? args.options : undefined,
+  maxTokens: backend === 'chat' ? chatOpts.maxTokens : undefined,
   timeoutMs,
   minProbability: minProbability ?? 'bot default',
   lightsMinProbability: lightsMin,
@@ -154,7 +165,12 @@ async function runOne(row: Row, phase: Phase, rep: number, backendOpts = chatOpt
     model,
     timeoutMs,
     minProbability,
-    fetch: backend === 'jev' ? timedFetch(rec) : chatChoiceFetch(backendOpts, rec),
+    fetch:
+      backend === 'jev'
+        ? timedFetch(rec)
+        : structured
+          ? structuredFetch(backendOpts, rec)
+          : chatChoiceFetch(backendOpts, rec),
     extraQuestions: () => questions,
     logger: {
       info: () => {},

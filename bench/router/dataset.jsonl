@@ -42,18 +42,18 @@
 {"id": "m042", "text": "what's the weather like", "route": "weather", "kind": "core"}
 {"id": "m043", "text": "how hot will it get in Madrid on Sunday", "route": "weather", "kind": "core"}
 {"id": "m044", "text": "frost tonight?", "route": "weather", "kind": "core"}
-{"id": "m045", "text": "make a note: call the plumber about the leak", "route": "joplin", "kind": "core"}
-{"id": "m046", "text": "search my notes for the wifi password", "route": "joplin", "kind": "core"}
-{"id": "m047", "text": "add eggs to my shopping list note", "route": "joplin", "kind": "core"}
-{"id": "m048", "text": "what does my holiday packing list note say", "route": "joplin", "kind": "core"}
-{"id": "m049", "text": "delete the note called old ideas", "route": "joplin", "kind": "core"}
-{"id": "m050", "text": "save this article to Joplin https://news.ycombinator.com/item?id=1", "route": "joplin", "kind": "core"}
-{"id": "m051", "text": "new note titled Garden plans: plant tulips in October", "route": "joplin", "kind": "core"}
-{"id": "m052", "text": "show my latest notes", "route": "joplin", "kind": "core"}
-{"id": "m053", "text": "edit my todo note and add renew passport", "route": "joplin", "kind": "core"}
-{"id": "m054", "text": "do I have a note about the car service", "route": "joplin", "kind": "core"}
-{"id": "m055", "text": "clip https://www.bbc.co.uk/news to my notebook", "route": "joplin", "kind": "core"}
-{"id": "m056", "text": "list my notebooks", "route": "joplin", "kind": "core"}
+{"id": "m045", "text": "make a note: call the plumber about the leak", "route": "notes", "kind": "core"}
+{"id": "m046", "text": "search my notes for the wifi password", "route": "notes", "kind": "core"}
+{"id": "m047", "text": "add eggs to my shopping list note", "route": "notes", "kind": "core"}
+{"id": "m048", "text": "what does my holiday packing list note say", "route": "notes", "kind": "core"}
+{"id": "m049", "text": "delete the note called old ideas", "route": "notes", "kind": "core"}
+{"id": "m050", "text": "save this article to Joplin https://news.ycombinator.com/item?id=1", "route": "notes", "kind": "core"}
+{"id": "m051", "text": "new note titled Garden plans: plant tulips in October", "route": "notes", "kind": "core"}
+{"id": "m052", "text": "show my latest notes", "route": "notes", "kind": "core"}
+{"id": "m053", "text": "edit my todo note and add renew passport", "route": "notes", "kind": "core"}
+{"id": "m054", "text": "do I have a note about the car service", "route": "notes", "kind": "core"}
+{"id": "m055", "text": "clip https://www.bbc.co.uk/news to my notebook", "route": "notes", "kind": "core"}
+{"id": "m056", "text": "list my notebooks", "route": "notes", "kind": "core"}
 {"id": "m057", "text": "email sarah@work.com that the meeting moved to 3", "route": "email", "kind": "core"}
 {"id": "m058", "text": "send an email to the landlord about the broken heater", "route": "email", "kind": "core"}
 {"id": "m059", "text": "write an email to mum telling her we land at 6", "route": "email", "kind": "core"}
@@ -105,12 +105,12 @@
 {"id": "m105", "text": "the light in the oven isn't working", "route": "home", "kind": "near-miss"}
 {"id": "m106", "text": "remind me what the boiler model is", "route": "home", "kind": "near-miss"}
 {"id": "m107", "text": "email me the weather", "route": "email", "kind": "near-miss"}
-{"id": "m108", "text": "note to self: the garden lights need new batteries", "route": "joplin", "kind": "near-miss"}
+{"id": "m108", "text": "note to self: the garden lights need new batteries", "route": "notes", "kind": "near-miss"}
 {"id": "m109", "text": "remind me to turn off the garden lights at 11pm", "route": "reminder", "kind": "near-miss"}
 {"id": "m110", "text": "what's the weather like in the book Dune", "route": "chat", "kind": "near-miss"}
 {"id": "m111", "text": "book a table for Friday", "route": "chat", "kind": "near-miss"}
-{"id": "m112", "text": "save a note of tomorrow's forecast", "route": "joplin", "kind": "near-miss"}
-{"id": "m113", "text": "put read Dune in my notes", "route": "joplin", "kind": "near-miss"}
+{"id": "m112", "text": "save a note of tomorrow's forecast", "route": "notes", "kind": "near-miss"}
+{"id": "m113", "text": "put read Dune in my notes", "route": "notes", "kind": "near-miss"}
 {"id": "m114", "text": "thanks, the lights are perfect now", "route": "chat", "kind": "near-miss"}
 {"id": "m115", "text": "what's the support number for the boiler", "route": "home", "kind": "near-miss"}
 {"id": "m116", "text": "how do I connect the Hue bridge to the wifi", "route": "lights", "kind": "near-miss", "lights": {"action": "other"}}
