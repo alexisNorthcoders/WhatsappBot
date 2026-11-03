@@ -69,6 +69,23 @@ describe('router bench scoring', () => {
     assert.ok(rows.length >= 100);
   });
 
+  it('keeps the held-out set apart from the tuning set', () => {
+    const lights = loadLights(path.join(bench, 'lights.snapshot.json'));
+    const normalise = (text: string) =>
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9%@.:/ ]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const tuning = new Set(loadDataset(path.join(bench, 'dataset.jsonl'), lights).map((r) => normalise(r.text)));
+    const heldout = loadDataset(path.join(bench, 'heldout.jsonl'), lights);
+    assert.ok(heldout.length >= 50);
+    assert.deepEqual(
+      heldout.filter((r) => tuning.has(normalise(r.text))).map((r) => r.id),
+      [],
+    );
+  });
+
   it('scores a grammar-forced key among the allowed options, not by its raw logprob', () => {
     // qwen3-1.7b on "haircut Saturday 10am": it wanted to stop at "remind"; the grammar forced "e", "r"
     const t = (token: string, logprob: number, top: [string, number][]) => ({

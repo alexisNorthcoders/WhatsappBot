@@ -1,0 +1,67 @@
+{"id": "h001", "text": "switch the bathroom light on", "route": "lights", "kind": "core", "lights": {"action": "on", "target": "room:Bathroom"}}
+{"id": "h002", "text": "office desk lamp off", "route": "lights", "kind": "core", "lights": {"action": "off", "target": "light:12"}}
+{"id": "h003", "text": "put the living room lights on", "route": "lights", "kind": "core", "lights": {"action": "on", "target": "room:Living room"}}
+{"id": "h004", "text": "turn off the Living Room Right lamp", "route": "lights", "kind": "core", "lights": {"action": "off", "target": "light:4"}}
+{"id": "h005", "text": "lights out everywhere", "route": "lights", "kind": "core", "lights": {"action": "off", "target": "all"}}
+{"id": "h006", "text": "baby light on please", "route": "lights", "kind": "core", "lights": {"action": "on", "target": "light:3"}}
+{"id": "h007", "text": "kids bedroom light to 25%", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "room:Kids bedroom", "brightness": "25"}}
+{"id": "h008", "text": "garden light as bright as it goes", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "room:Garden", "brightness": "100"}}
+{"id": "h009", "text": "hall light at about three quarters", "route": "lights", "kind": "core", "lights": {"action": "brightness", "target": "light:8", "brightness": "75"}}
+{"id": "h010", "text": "make the stairs light green", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Staircase", "colour": "green"}}
+{"id": "h011", "text": "office lights orange", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Office", "colour": "orange"}}
+{"id": "h012", "text": "bedroom lamp warm white for reading", "route": "lights", "kind": "core", "lights": {"action": "colour", "target": "room:Bedroom", "colour": "warm"}}
+{"id": "h013", "text": "have I left the bathroom light on?", "route": "lights", "kind": "core", "lights": {"action": "list", "target": "room:Bathroom"}}
+{"id": "h014", "text": "show me all the lights and whether they're on", "route": "lights", "kind": "core", "lights": {"action": "list", "target": "all"}}
+{"id": "h015", "text": "turn the desk lamp on and the office light off", "route": "lights", "kind": "core", "lights": {"action": "other"}}
+{"id": "h016", "text": "set the living room to 40% in five minutes", "route": "lights", "kind": "core", "lights": {"action": "other"}}
+{"id": "h017", "text": "the Hue app keeps logging me out", "route": "lights", "kind": "near-miss", "lights": {"action": "other"}}
+{"id": "h018", "text": "should I buy LED or halogen bulbs for the kitchen", "route": "chat", "kind": "near-miss"}
+{"id": "h019", "text": "nice one, the garden light looks great", "route": "chat", "kind": "near-miss"}
+{"id": "h020", "text": "nudge me at 10pm to check the garden light is off", "route": "reminder", "kind": "near-miss"}
+{"id": "h021", "text": "note: the bathroom bulb is a GU10", "route": "notes", "kind": "near-miss"}
+{"id": "h022", "text": "how do I change the bulb in the cooker hood", "route": "home", "kind": "near-miss"}
+{"id": "h023", "text": "remind me to renew the TV licence on 1 June", "route": "reminder", "kind": "core"}
+{"id": "h024", "text": "physio appointment Wednesday 2:30pm", "route": "reminder", "kind": "core"}
+{"id": "h025", "text": "what have I got on this weekend", "route": "reminder", "kind": "core"}
+{"id": "h026", "text": "remove reminder 4", "route": "reminder", "kind": "core"}
+{"id": "h027", "text": "put Granny's visit in the calendar for the 18th and 19th", "route": "reminder", "kind": "core"}
+{"id": "h028", "text": "what's the date today", "route": "chat", "kind": "near-miss"}
+{"id": "h029", "text": "remind me to email the bank on Monday", "route": "reminder", "kind": "near-miss"}
+{"id": "h030", "text": "is it going to rain on Saturday in Leeds", "route": "weather", "kind": "core"}
+{"id": "h031", "text": "how humid is it today", "route": "weather", "kind": "core"}
+{"id": "h032", "text": "what's the UV index this afternoon", "route": "weather", "kind": "core"}
+{"id": "h033", "text": "weather for the weekend in Edinburgh", "route": "weather", "kind": "core"}
+{"id": "h034", "text": "will I need gloves this morning", "route": "weather", "kind": "core"}
+{"id": "h035", "text": "write a poem about the rain", "route": "chat", "kind": "near-miss"}
+{"id": "h036", "text": "what's the hottest temperature ever recorded in the UK", "route": "chat", "kind": "near-miss"}
+{"id": "h037", "text": "why does the boiler pressure drop when it's cold outside", "route": "home", "kind": "near-miss"}
+{"id": "h038", "text": "jot down that the gate code is 4471", "route": "notes", "kind": "core"}
+{"id": "h039", "text": "find my note with the passport number", "route": "notes", "kind": "core"}
+{"id": "h040", "text": "append milk to the groceries note", "route": "notes", "kind": "core"}
+{"id": "h041", "text": "keep this recipe in my notes https://www.bbcgoodfood.com/recipes/leek-soup", "route": "notes", "kind": "core"}
+{"id": "h042", "text": "what notes do I have in the Work notebook", "route": "notes", "kind": "core"}
+{"id": "h043", "text": "find my note about the oven warranty", "route": "notes", "kind": "near-miss"}
+{"id": "h044", "text": "email karen@example.com that I've sent the forms", "route": "email", "kind": "core"}
+{"id": "h045", "text": "send an email to the plumber asking when he can come", "route": "email", "kind": "core"}
+{"id": "h046", "text": "fire off an email to the council about the bin collection", "route": "email", "kind": "core"}
+{"id": "h047", "text": "email my sister the flight times", "route": "email", "kind": "core"}
+{"id": "h048", "text": "write to tom@example.org saying the party is at 8", "route": "email", "kind": "core"}
+{"id": "h049", "text": "how do I set up an email filter in Gmail", "route": "chat", "kind": "near-miss"}
+{"id": "h050", "text": "the dishwasher is beeping three times", "route": "home", "kind": "core"}
+{"id": "h051", "text": "what programme should I use for wool on the washing machine", "route": "home", "kind": "core"}
+{"id": "h052", "text": "how do I turn the heating up on the boiler", "route": "home", "kind": "core"}
+{"id": "h053", "text": "the fridge freezer is making a buzzing noise", "route": "home", "kind": "core"}
+{"id": "h054", "text": "what does the snowflake symbol on the oven mean", "route": "home", "kind": "core"}
+{"id": "h055", "text": "a good book for a 10 year old who likes dragons", "route": "books", "kind": "core"}
+{"id": "h056", "text": "novels like The Martian", "route": "books", "kind": "core"}
+{"id": "h057", "text": "what's a good first Stephen King", "route": "books", "kind": "core"}
+{"id": "h058", "text": "recommend a history book about the Tudors", "route": "books", "kind": "core"}
+{"id": "h059", "text": "I want something funny to read on holiday", "route": "books", "kind": "core"}
+{"id": "h060", "text": "who wrote The Hobbit", "route": "chat", "kind": "near-miss"}
+{"id": "h061", "text": "summarise the plot of Pride and Prejudice", "route": "chat", "kind": "near-miss"}
+{"id": "h062", "text": "what's the square root of 144", "route": "chat", "kind": "core"}
+{"id": "h063", "text": "give me a fun fact", "route": "chat", "kind": "core"}
+{"id": "h064", "text": "how do you say thank you in Japanese", "route": "chat", "kind": "core"}
+{"id": "h065", "text": "cheers mate", "route": "chat", "kind": "core"}
+{"id": "h066", "text": "what should I cook with chicken and leeks", "route": "chat", "kind": "core"}
+{"id": "h067", "text": "what's a nice way to say no to a wedding invite", "route": "chat", "kind": "near-miss"}
