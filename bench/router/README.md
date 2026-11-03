@@ -4,22 +4,29 @@ Sends a labelled set of WhatsApp messages through the bot's real router and scor
 the lights fast path. Use it to compare TypeSafe Jev with any model behind an OpenAI-compatible
 server, such as the models on the mini PC gateway.
 
-Both backends run `createJevRouter` from `whatsapp/orchestration/jevRouter.ts` with the questions
-from `lightsJevQuestions`, so they see the same request the bot sends and the same 0.5 route cutoff.
-Only the `fetch` differs:
+The comparison is on outcomes: which agent handles each message, and which Hue calls the lights
+fast path makes. Each backend asks the model in whatever way suits it, and its answers are mapped
+back to the shape the bot reads. `createJevRouter` (with its 0.5 route cutoff) and
+`runLightsFromJev` (with its 0.7 cutoff) then decide the outcome for every backend the same way.
+Both prompts are built from the bot's own `ROUTE_CRITERIA` and `lightsJevQuestions`, so they follow
+the bot when its options change.
 
-- `--backend jev` uses the real fetch: one SystemOne request answers all five questions.
-- `--backend chat` replaces it with an adapter that asks each Choice question as one chat completion.
-  The instructions and options go in the system message, which is a fixed prefix that
-  llama-server can cache. The message goes in the user turn. Questions go one at a time, because
-  the mini PC's 2 slots are shared with live traffic.
+- `--backend jev` sends the bot's own request: one SystemOne call answers all five questions.
+- `--backend chat` talks to an OpenAI-compatible server, one request at a time, because the mini
+  PC's 2 slots are shared with live traffic. It has two prompt strategies:
+  - `--prompt structured` (the default) asks for the route with a llama-server grammar that allows
+    only the option keys, so the reply is the bare key in 2 to 5 tokens. After a `lights` route,
+    one more call asks for a JSON object under a JSON schema: action and target, plus the level or
+    colour only when the action needs one. Non-lights messages cost one request, and lights
+    messages cost two.
+  - `--prompt per-question` asks each Jev question as its own chat completion, as the first runs
+    did. `--fanout` and `--options` only apply to this strategy.
 
-With `--options keys` (the default), the model writes the option key, and the answer's probability
-is the product of the reply's token probabilities. With `--options letters`, options are lettered,
-and the first token's `top_logprobs` give every option a probability. On the 20-option light-target
-question, Qwen3-30B often answered the letter next to the right one: "desk lamp" became the
-Bathroom light at 0.99. Over 18 target messages it got 14 right with letters, 13 with the options
-shuffled (the misses moved with position), and 16 with keys.
+**Probabilities.** llama-server reports each token's logprob from before the grammar applies, so a
+token the grammar forces can read as near-impossible. In one test, qwen3-1.7b wanted to stop at
+"remind", and the forced "er" scored about −28 each. The structured strategy renormalises each
+step over the top alternatives that still lead to a valid key, which gives the probability among the
+options, as Jev reports it.
 
 Lights are scored by running the real `runLightsFromJev` against `lights.snapshot.json` with a
 fake Hue that records its calls. The recorded calls are compared with those from ideal answers built
@@ -29,10 +36,9 @@ from the row's expected sub-answers.
 
 ```bash
 node bench/router/run.ts --backend jev --reps 3
-node bench/router/run.ts --backend chat --fanout route-first --reps 3   # mini PC gateway, qwen3-30b-a3b
-node bench/router/run.ts --backend chat --fanout all --reps 1           # all five questions every time
+node bench/router/run.ts --backend chat --reps 3                        # mini PC gateway, qwen3-30b-a3b, structured
 node bench/router/run.ts --backend chat --phases uncached --sample 24   # prompt caching off
-node bench/router/run.ts --backend chat --options letters --label qwen3-letters
+node bench/router/run.ts --backend chat --prompt per-question --fanout route-first --reps 3
 node bench/router/summarize.ts bench/router/results/*.jsonl
 ```
 
@@ -46,7 +52,7 @@ reprints it and adds a side-by-side table when given several files.
 Point `--url` and `--model` at the model, and give the run a `--label`:
 
 ```bash
-node bench/router/run.ts --backend chat --model qwen3-4b --fanout route-first --reps 3 --label qwen3-4b
+node bench/router/run.ts --backend chat --model qwen3-4b --reps 3 --label qwen3-4b
 node bench/router/run.ts --backend chat --url http://minipc.local:4000/v1 --model qwen3-1.7b --label qwen3-1.7b \
   --extra-body '{"chat_template_kwargs":{"enable_thinking":false}}'
 node bench/router/summarize.ts bench/router/results/*jev-latest*.jsonl bench/router/results/*qwen3-4b*.jsonl
@@ -56,9 +62,15 @@ node bench/router/summarize.ts bench/router/results/*jev-latest*.jsonl bench/rou
 for a model whose template takes other settings. Run Jev once and keep its results file as the
 baseline. Rerun it only when the dataset or the bot's questions change.
 
-`--fanout route-first` is the cheaper design for a local model: it asks the lights questions only
-after a `lights` route, so most messages cost one request. `--fanout all` asks all five every time,
-as the single Jev request does.
+For `--prompt per-question`, `--fanout route-first` asks the lights questions only after a
+`lights` route, `--fanout all` asks all five every time, and `--fanout route-only` asks only the
+route. `--options keys` (the default) has the model write the option key. `--options letters` letters
+the options instead, but on the 20-option light-target question Qwen3-30B often answered the letter
+next to the right one: "desk lamp" became the Bathroom light at 0.99.
+
+With thinking on, raise `--max-tokens` so the reasoning fits (1024 is enough for qwen3-1.7b). The
+answer is read after `</think>`. At about 25 tok/s on the mini PC, thinking made a qwen3-1.7b route
+call take 7.5 s at the median, far over the bot's 3 s Jev timeout.
 
 ## Phases
 

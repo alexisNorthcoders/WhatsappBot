@@ -55,8 +55,11 @@ export type ChatBackendOptions = {
   baseUrl: string;
   model: string;
   apiKey: string;
-  /** all: every question, like the one Jev request. route-first: lights questions only after a lights route. */
-  fanout: 'all' | 'route-first';
+  /**
+   * all: every question, like the one Jev request. route-first: lights questions only after a
+   * lights route. route-only: just the route, for scoring routing alone when calls are slow.
+   */
+  fanout: 'all' | 'route-first' | 'route-only';
   /**
    * keys: the model writes the option key; its probability is the product of the reply's token
    * probabilities. letters: options are lettered and the first token's top_logprobs give every
@@ -64,6 +67,8 @@ export type ChatBackendOptions = {
    */
   options: 'keys' | 'letters';
   extraBody: Record<string, unknown>;
+  /** reply cap; with thinking on it must also hold the reasoning */
+  maxTokens: number;
 };
 
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -84,7 +89,7 @@ export function chatChoiceFetch(opts: ChatBackendOptions, rec: Recorder): FetchL
     const answers: Record<string, ChoiceAnswer> = { route: await ask('route') };
     // a sub-answer that isn't an option is no answer, which the fast path reads as unconfident;
     // the call keeps its error, and only a bad route answer fails the router
-    if (opts.fanout === 'all' || answers.route.choice === 'lights')
+    if (opts.fanout === 'all' || (opts.fanout === 'route-first' && answers.route.choice === 'lights'))
       for (const id of Object.keys(questions)) {
         if (id === 'route') continue;
         try {
@@ -143,7 +148,7 @@ async function askChoice(
           { role: 'system', content: system },
           { role: 'user', content: `message: ${message}` },
         ],
-        max_tokens: opts.options === 'letters' ? 1 : 16,
+        max_tokens: opts.maxTokens,
         temperature: 0,
         logprobs: true,
         top_logprobs: 20,
@@ -159,11 +164,15 @@ async function askChoice(
     if (opts.options === 'keys') {
       const text = String(choice?.message?.content ?? '').trim();
       const key = keys.find((k) => k.toLowerCase() === text.toLowerCase());
-      if (!key) throw new Error(`reply is not an option key: ${JSON.stringify(text.slice(0, 60))}`);
-      const logprob = (choice.logprobs?.content ?? []).reduce(
-        (sum: number, t: { logprob: number }) => sum + t.logprob,
-        0,
-      );
+      if (!key) {
+        const why =
+          choice?.finish_reason === 'length' ? `hit max_tokens ${opts.maxTokens}` : 'reply is not an option key';
+        throw new Error(`${why}: ${JSON.stringify(text.slice(0, 60))}`);
+      }
+      // llama-server's logprobs include the <think> tokens; the answer is what follows </think>
+      const tokens: { token: string; logprob: number }[] = choice.logprobs?.content ?? [];
+      const thinkEnd = tokens.findIndex((t) => t.token === '</think>');
+      const logprob = tokens.slice(thinkEnd + 1).reduce((sum: number, t: { logprob: number }) => sum + t.logprob, 0);
       return {
         type: 'choice',
         choice: key,
