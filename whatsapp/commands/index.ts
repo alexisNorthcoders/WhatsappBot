@@ -4,7 +4,6 @@ import deepInfraCommand from './deepinfra.ts';
 import wizardCommand from './wizard.ts';
 import recipeCommand from './recipe.ts';
 import imageCommand from './image.ts';
-import sdxlCommand from './sdxl.ts';
 import spriteCommand from './sprite.ts';
 import danielCommand from './daniel.ts';
 import summarizeCommand from './summarize.ts';
@@ -17,7 +16,6 @@ export {
     wizardCommand as wizard,
     recipeCommand as recipe,
     imageCommand as image,
-    sdxlCommand as sdxl,
     spriteCommand as sprite,
     danielCommand as daniel,
     summarizeCommand as summarize,

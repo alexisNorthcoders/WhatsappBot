@@ -30,7 +30,6 @@ function recordingPorts(log: Recorded[]): OrchestratorPorts {
     },
     routes: {
       runSpritePlus: async () => ({ handled: false }),
-      runSdxlPlus: async () => ({ handled: false }),
       runCommandByFirstToken: async () => ({ handled: false }),
       runLegacyRoutes: async () => ({ handled: false }),
     },

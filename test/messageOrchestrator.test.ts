@@ -69,7 +69,6 @@ function basePorts(
     },
     routes: {
       runSpritePlus: async () => ({ handled: false }),
-      runSdxlPlus: async () => ({ handled: false }),
       runCommandByFirstToken: async () => ({ handled: false }),
       runLegacyRoutes: async () => ({ handled: false }),
     },
@@ -100,9 +99,6 @@ describe('createMessageOrchestrator', () => {
           assert.match(m.text, /sprite\+/i);
           return { handled: true };
         },
-        async runSdxlPlus() {
-          return { handled: false };
-        },
         async runCommandByFirstToken() {
           log.push('cmd');
           return { handled: true };
@@ -118,34 +114,6 @@ describe('createMessageOrchestrator', () => {
     assert.deepEqual(log, ['sprite']);
   });
 
-  it('routes sdxl+ before command registry (sdxl+ wins)', async () => {
-    const log: LogEntry[] = [];
-    const ports = basePorts({
-      __log: log,
-      routes: {
-        async runSpritePlus() {
-          return { handled: false };
-        },
-        async runSdxlPlus(m) {
-          log.push('sdxl');
-          assert.match(m.text, /sdxl\+/i);
-          return { handled: true };
-        },
-        async runCommandByFirstToken() {
-          log.push('cmd');
-          return { handled: true };
-        },
-        async runLegacyRoutes() {
-          log.push('legacy');
-          return { handled: false };
-        },
-      },
-    });
-    const { handleInbound } = createMessageOrchestrator(ports);
-    await handleInbound(fakeInbound({ text: 'sdxl+ brighten' }));
-    assert.deepEqual(log, ['sdxl']);
-  });
-
   it('image branch is exclusive: command registry is not run for image messages', async () => {
     const log: LogEntry[] = [];
     const ports = basePorts({
@@ -153,9 +121,6 @@ describe('createMessageOrchestrator', () => {
       routes: {
         async runSpritePlus() {
           log.push('sprite');
-          return { handled: false };
-        },
-        async runSdxlPlus() {
           return { handled: false };
         },
         async runCommandByFirstToken() {
@@ -237,9 +202,6 @@ describe('createMessageOrchestrator', () => {
       __log: log,
       routes: {
         async runSpritePlus() {
-          return { handled: false };
-        },
-        async runSdxlPlus() {
           return { handled: false };
         },
         async runCommandByFirstToken() {
@@ -342,7 +304,6 @@ describe('createMessageOrchestrator agent-runner delegation', () => {
       },
       routes: {
         runSpritePlus: async () => ({ handled: false }),
-        runSdxlPlus: async () => ({ handled: false }),
         // like the real registry: `!…` routes are legacy, not registered commands
         runCommandByFirstToken: async (m) => {
           if (m.text.startsWith('!')) return { handled: false };
@@ -489,7 +450,6 @@ describe('briefing command (#157)', () => {
       },
       routes: {
         runSpritePlus: async () => ({ handled: false }),
-        runSdxlPlus: async () => ({ handled: false }),
         runCommandByFirstToken: async () => assert.fail('registry should not see briefing'),
         runLegacyRoutes: async () => assert.fail('legacy routes should not see briefing'),
       },
