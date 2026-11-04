@@ -12,7 +12,7 @@ import {
   renderLightsPrompt,
   renderRoutePrompt,
   valueSpan,
-} from '../bench/router/structured.ts';
+} from '../whatsapp/orchestration/localRouter.ts';
 import { createJevRouter } from '../whatsapp/orchestration/jevRouter.ts';
 import { lightsJevQuestions } from '../whatsapp/agents/lightsJev.ts';
 

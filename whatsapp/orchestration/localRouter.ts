@@ -1,6 +1,39 @@
-import type { FetchLike } from '../../whatsapp/types.ts';
-import type { JevChoiceQuestion } from '../../whatsapp/agents/lightsJev.ts';
-import type { CallRecord, ChatBackendOptions, Recorder } from './backends.ts';
+/**
+ * Answers the router's questions with a small local model behind an OpenAI-compatible server
+ * (llama-server via the mini PC gateway) instead of Jev. It is a FetchLike for createJevRouter:
+ * it reads the SystemOne body the router builds and replies with SystemOne-shaped answers, so the
+ * route and lights fast path decide exactly as they do for Jev. bench/router scores it.
+ */
+import type { FetchLike } from '../types.ts';
+import type { JevChoiceQuestion } from '../agents/lightsJev.ts';
+
+/** One request to the model while answering a message. */
+export type LocalRouterCall = {
+  question: string;
+  ms: number;
+  status: number | null;
+  error?: string;
+  /** llama-server `timings`, when the gateway passes them through */
+  timings?: { prompt_n?: number; cache_n?: number; predicted_n?: number; prompt_ms?: number; predicted_ms?: number };
+};
+
+export type LocalRouterOptions = {
+  /** e.g. http://minipc.local:4000/v1 */
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  /** merged into every request; Qwen3's thinking is off by default */
+  extraBody?: Record<string, unknown>;
+  /** cap for the lights JSON reply */
+  maxTokens?: number;
+  /** the Hue lights, read when a lights route needs target names */
+  lights: () => { id: string; name: string; room: string }[];
+  /** sees each request, filled in when it ends */
+  onCall?: (call: LocalRouterCall) => void;
+  fetch?: FetchLike;
+};
+
+const DEFAULT_EXTRA_BODY = { chat_template_kwargs: { enable_thinking: false } };
 
 type Criterion = string | null | { what: string; not_for?: string; examples?: string[] };
 type Token = { token: string; logprob: number; top_logprobs?: { token: string; logprob: number }[] };
@@ -191,11 +224,7 @@ export function valueSpan(content: string, field: string): [number, number] | nu
  * The replies are mapped back to the answers the bot reads, so createJevRouter and
  * runLightsFromJev decide the outcome as they do for Jev.
  */
-export function structuredFetch(
-  opts: ChatBackendOptions,
-  rec: Recorder,
-  lights: { id: string; name: string; room: string }[],
-): FetchLike {
+export function createLocalRouterFetch(opts: LocalRouterOptions): FetchLike {
   return async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     const questions = body.questions as Record<string, JevChoiceQuestion>;
@@ -204,17 +233,17 @@ export function structuredFetch(
     const pick = (value: string, prob: number) => ({ type: 'choice', choice: value, probabilities: { [value]: prob } });
 
     const routePrompt = renderRoutePrompt(questions.route);
-    const routeReply = await complete(opts, rec, 'route', routePrompt, message, 16, signal);
+    const routeReply = await complete(opts, 'route', routePrompt, message, 16, signal);
     const route = routeReply.content;
     const answers: Record<string, unknown> = {
       route: pick(route, choiceProbability(routeReply.tokens, route, [0, route.length], routePrompt.keys, 'end')),
     };
 
     if (route === 'lights' && questions.lights_action) {
-      const { questions: named, toBotKey } = nameLightTargets(questions, lights);
+      const { questions: named, toBotKey } = nameLightTargets(questions, opts.lights());
       const lightsPrompt = renderLightsPrompt(named);
       try {
-        const reply = await complete(opts, rec, 'lights', lightsPrompt, message, opts.maxTokens, signal);
+        const reply = await complete(opts, 'lights', lightsPrompt, message, opts.maxTokens ?? 96, signal);
         const parsed = JSON.parse(reply.content) as Partial<Record<LightsField, string>>;
         for (const [f, id] of Object.entries(LIGHTS_FIELDS) as [LightsField, string][]) {
           const span = valueSpan(reply.content, f);
@@ -235,8 +264,7 @@ export function structuredFetch(
 }
 
 async function complete(
-  opts: ChatBackendOptions,
-  rec: Recorder,
+  opts: LocalRouterOptions,
   question: string,
   prompt: { system: string; constraint: Constraint },
   message: string,
@@ -244,8 +272,8 @@ async function complete(
   signal: AbortSignal | undefined,
 ): Promise<Reply> {
   const started = performance.now();
-  const record: CallRecord = { question, ms: 0, status: null };
-  rec.calls.push(record);
+  const record: LocalRouterCall = { question, ms: 0, status: null };
+  opts.onCall?.(record);
   try {
     const constraint =
       'grammar' in prompt.constraint
@@ -256,7 +284,7 @@ async function complete(
               json_schema: { name: question, strict: true, schema: prompt.constraint.schema },
             },
           };
-    const res = await fetch(`${opts.baseUrl}/chat/completions`, {
+    const res = await (opts.fetch ?? globalThis.fetch)(`${opts.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${opts.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -270,12 +298,12 @@ async function complete(
         logprobs: true,
         top_logprobs: 20,
         ...constraint,
-        ...opts.extraBody,
+        ...(opts.extraBody ?? DEFAULT_EXTRA_BODY),
       }),
       signal,
     });
     record.status = res.status;
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     record.timings = data.timings;
     const choice = data.choices?.[0];

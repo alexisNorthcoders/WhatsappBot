@@ -26,6 +26,8 @@ import { createLlmReminderExtractor } from '../calendar/reminderExtraction.ts';
 import { createLastLists } from '../calendar/lastLists.ts';
 import { runAgentsChainSequential } from './agentsTryHandle.ts';
 import { createJevRouter } from './jevRouter.ts';
+import { createLocalRouterFetch } from './localRouter.ts';
+import { getCachedLights } from '../../hue/api.ts';
 import type { AgentChainDeps } from './agentsTryHandle.ts';
 import type { OrchestratorPorts } from './createMessageOrchestrator.ts';
 import type { WASocket, downloadMediaMessage, WAMessage } from '@whiskeysockets/baileys';
@@ -116,16 +118,7 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
     runBookAgent: (m) => runBookAgent(m, { isAllowedActor, logger }),
     BOOK_AGENT_SKIP,
     isAllowedActor,
-    routeIntent: process.env.TYPESAFE_API_KEY
-      ? createJevRouter({
-          apiKey: process.env.TYPESAFE_API_KEY,
-          model: process.env.JEV_ROUTER_MODEL || undefined,
-          timeoutMs: Number(process.env.JEV_ROUTER_TIMEOUT_MS) || undefined,
-          minProbability: Number(process.env.JEV_ROUTER_MIN_PROBABILITY) || undefined,
-          extraQuestions: process.env.LIGHTS_JEV_DISABLE === '1' ? undefined : () => lightsJevQuestions(),
-          logger,
-        })
-      : undefined,
+    routeIntent: createRouteIntent(logger),
   };
 
   return {
@@ -262,4 +255,40 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
     agentRunner,
     logger,
   };
+}
+
+/**
+ * The local model when LOCAL_ROUTER_BASE_URL is set, else Jev when TYPESAFE_API_KEY is, else
+ * none (the keyword gates). Both answer the same questions through createJevRouter.
+ */
+function createRouteIntent(logger: Logger) {
+  const env = process.env;
+  const extraQuestions = env.LIGHTS_JEV_DISABLE === '1' ? undefined : () => lightsJevQuestions();
+  const minProbability = Number(env.JEV_ROUTER_MIN_PROBABILITY) || undefined;
+  if (env.LOCAL_ROUTER_BASE_URL) {
+    const model = env.LOCAL_ROUTER_MODEL || 'qwen3-4b';
+    return createJevRouter({
+      apiKey: '',
+      model,
+      fetch: createLocalRouterFetch({
+        baseUrl: env.LOCAL_ROUTER_BASE_URL.replace(/\/$/, ''),
+        apiKey: env.LOCAL_ROUTER_API_KEY ?? '',
+        model,
+        lights: getCachedLights,
+      }),
+      timeoutMs: Number(env.LOCAL_ROUTER_TIMEOUT_MS) || 5000,
+      minProbability,
+      extraQuestions,
+      logger,
+    });
+  }
+  if (!env.TYPESAFE_API_KEY) return undefined;
+  return createJevRouter({
+    apiKey: env.TYPESAFE_API_KEY,
+    model: env.JEV_ROUTER_MODEL || undefined,
+    timeoutMs: Number(env.JEV_ROUTER_TIMEOUT_MS) || undefined,
+    minProbability,
+    extraQuestions,
+    logger,
+  });
 }
