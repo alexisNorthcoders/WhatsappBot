@@ -16,7 +16,8 @@ export const ROUTE_CRITERIA = {
     what:
       'Create, list, cancel or get help with reminders and calendar events: "remind me", "nudge me", ' +
       'appointments with a date or time ("dentist Friday 3pm"), all-day events, "put … in my calendar", ' +
-      'or what is on the calendar today, tomorrow, this week or next week.',
+      'what is on the calendar on a day or in a week, whether the user is free then, or cancelling an item ' +
+      'by its number in a list just sent.',
     examples: [
       'remind me to call mum at 6pm',
       'nudge me in 20 minutes',
@@ -39,19 +40,22 @@ export const ROUTE_CRITERIA = {
   },
   notes: {
     what: "Read, search, create, edit or delete notes in the user's Joplin notebook, or save a web page into it.",
+    not_for: 'Advice about taking notes in general, which is "chat".',
     examples: ['save a note: buy milk', 'find my note about the boiler service', 'save https://example.com to my notes'],
   },
   email: {
     what: 'Send an email to someone.',
+    not_for: 'Questions about email, or help wording one without sending it, which are "chat".',
     examples: ['email john@example.com saying I will be late', 'send an email to my boss about Friday'],
   },
   home: {
     what: 'Questions about household appliances and equipment answered from their manuals (boiler, oven, dishwasher, etc.).',
-    not_for: 'The Hue lights, which are "lights".',
+    not_for: 'The Hue lights, which are "lights", or advice on buying new appliances, which is "chat".',
     examples: ['how do I descale the coffee machine', 'what boiler do we have', 'dishwasher shows error E24'],
   },
   books: {
     what: 'Asking for book recommendations: what to read next, books on a topic, or books like a given title or author.',
+    not_for: 'Facts about a book or author (who wrote it, the plot, the characters, its length), which are "chat".',
     examples: ['something like Mistborn but darker', 'what should I read next', 'recommend a good sci-fi book'],
   },
   [ROUTE_CHAT]: {
@@ -140,7 +144,7 @@ export function createJevRouter(opts: JevRouterOptions): (text: string) => Promi
     }
     const probability = Number(answer.probabilities?.[choice] ?? 0);
     const agent = probability >= minProbability ? choice : ROUTE_CHAT;
-    logger.info({ choice, probability, agent, ms: Date.now() - started }, 'Jev route');
+    logger.info({ model, choice, probability, agent, ms: Date.now() - started }, 'Jev route');
     return { agent, probability, answers: body.answers };
   };
 }
