@@ -246,6 +246,7 @@ describe('runLightsFromJev checks the message backs the answers', () => {
       ],
       ['Living Room Left off', { lights_action: ['off'], lights_target: ['room:Living room'] }],
       ['office lights orange', { lights_action: ['colour'], lights_target: ['all'], lights_colour: ['orange'] }],
+      ['everything off except the hall', { lights_action: ['off'], lights_target: ['all'] }],
       // a second, separate target
       ['lights on in the bedroom and the office', { lights_action: ['on'], lights_target: ['room:Bedroom'] }],
       ['turn the desk lamp on and the office light off', { lights_action: ['on'], lights_target: ['light:12'] }],
