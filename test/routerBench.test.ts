@@ -172,6 +172,29 @@ describe('router bench scoring', () => {
     assert.ok(p > 0.99, `target ${p}`);
   });
 
+  it('counts the ways of closing a value as the same answer when the close is its own token', () => {
+    // qwen3-4b on "turn the desk lamp on and the office light off": target is the last field,
+    // the model wanted '",\n', the schema forced a bare '"'
+    const content = '{"action": "other", "target": "Desk"}';
+    const t = (token: string, logprob: number, top: [string, number][] = []) => ({
+      token,
+      logprob,
+      top_logprobs: top.map(([token, logprob]) => ({ token, logprob })),
+    });
+    const tokens = [
+      t('{"action": "other", "target": "', 0),
+      t('Desk', 0),
+      t('"', -16.95, [
+        [',', -0.0],
+        ['",\n', -9.4],
+        ['"', -16.95],
+      ]),
+      t('}', 0),
+    ];
+    const p = choiceProbability(tokens, content, valueSpan(content, 'target')!, ['Desk', 'Desktop'], '"');
+    assert.ok(p > 0.99, `target ${p}`);
+  });
+
   it('constrains the replies to the options the bot asks', async () => {
     let body: any;
     const route = createJevRouter({

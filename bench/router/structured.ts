@@ -166,10 +166,11 @@ export function choiceProbability(
     const ok = (alt: string) => alt.startsWith(before) && allowed(sofar + alt.slice(before.length), alt === '');
     const alts = (t.top_logprobs ?? []).filter((x) => ok(x.token));
     if (!alts.some((x) => x.token === t.token)) alts.push(t);
-    // a token that runs past the value's close: what follows the close ('",' or '"\n') is
-    // the schema's business, so alternatives that close the same value are the same answer
+    // a token that reaches the value's close: what follows the close ('",' or '"\n') is the
+    // schema's business, so alternatives that close the same value are the same answer
     const cut = end + after - a;
-    const same = cut < t.token.length ? alts.filter((x) => x.token.slice(0, cut) === t.token.slice(0, cut)) : [t];
+    const closes = after > 0 && cut <= t.token.length;
+    const same = closes ? alts.filter((x) => x.token.slice(0, cut) === t.token.slice(0, cut)) : [t];
     const total = alts.reduce((s, x) => s + Math.exp(x.logprob), 0);
     probability *= total ? same.reduce((s, x) => s + Math.exp(x.logprob), 0) / total : 0;
   }
