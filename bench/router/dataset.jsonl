@@ -116,3 +116,35 @@
 {"id": "m116", "text": "how do I connect the Hue bridge to the wifi", "route": "lights", "kind": "near-miss", "lights": {"action": "other"}}
 {"id": "m117", "text": "recommend a lamp for reading", "route": "chat", "kind": "near-miss"}
 {"id": "m118", "text": "remind me tomorrow to recommend Dune to Sam", "route": "reminder", "kind": "near-miss"}
+{"id": "m119", "text": "how many books did Agatha Christie write", "route": "chat", "kind": "near-miss"}
+{"id": "m120", "text": "who is the narrator of Moby Dick", "route": "chat", "kind": "near-miss"}
+{"id": "m121", "text": "is the Silmarillion longer than the Lord of the Rings", "route": "chat", "kind": "near-miss"}
+{"id": "m122", "text": "what causes a hurricane", "route": "chat", "kind": "near-miss"}
+{"id": "m123", "text": "why is the sky blue", "route": "chat", "kind": "near-miss"}
+{"id": "m124", "text": "how do clouds form", "route": "chat", "kind": "near-miss"}
+{"id": "m125", "text": "how do I write a polite email declining an invitation", "route": "chat", "kind": "near-miss"}
+{"id": "m126", "text": "what does cc mean in an email", "route": "chat", "kind": "near-miss"}
+{"id": "m127", "text": "what's a good brand of washing machine to buy", "route": "chat", "kind": "near-miss"}
+{"id": "m128", "text": "which is more efficient, an air fryer or an oven", "route": "chat", "kind": "near-miss"}
+{"id": "m129", "text": "who invented the light bulb", "route": "chat", "kind": "near-miss"}
+{"id": "m130", "text": "what's the best way to take notes in a lecture", "route": "chat", "kind": "near-miss"}
+{"id": "m131", "text": "how do I stop forgetting things", "route": "chat", "kind": "near-miss"}
+{"id": "m132", "text": "what day of the week was 1 January 2000", "route": "chat", "kind": "near-miss"}
+{"id": "m133", "text": "write a limerick about my cat", "route": "chat", "kind": "near-miss"}
+{"id": "m134", "text": "thanks for the reminder", "route": "chat", "kind": "near-miss"}
+{"id": "m135", "text": "great, the email looks good", "route": "chat", "kind": "near-miss"}
+{"id": "m136", "text": "do I have anything tomorrow morning", "route": "reminder", "kind": "core"}
+{"id": "m137", "text": "am I free on Saturday", "route": "reminder", "kind": "core"}
+{"id": "m138", "text": "delete the second one", "route": "reminder", "kind": "core"}
+{"id": "m139", "text": "anything in my calendar for Friday", "route": "reminder", "kind": "core"}
+{"id": "m140", "text": "gym tomorrow at 7am", "route": "reminder", "kind": "core"}
+{"id": "m141", "text": "will it be sunny for the barbecue on Sunday", "route": "weather", "kind": "core"}
+{"id": "m142", "text": "what's the UV index today", "route": "weather", "kind": "core"}
+{"id": "m143", "text": "should I bring a brolly to London tomorrow", "route": "weather", "kind": "core"}
+{"id": "m144", "text": "save a note that the fridge filter was changed today", "route": "notes", "kind": "near-miss"}
+{"id": "m145", "text": "add to my notes that the car needs new tyres", "route": "notes", "kind": "near-miss"}
+{"id": "m146", "text": "my washing machine is leaking from the bottom", "route": "home", "kind": "near-miss"}
+{"id": "m147", "text": "the fridge light keeps flickering", "route": "home", "kind": "near-miss"}
+{"id": "m148", "text": "can you email Sam the boiler model", "route": "email", "kind": "near-miss"}
+{"id": "m149", "text": "a fantasy series like The Wheel of Time", "route": "books", "kind": "core"}
+{"id": "m150", "text": "I loved Project Hail Mary, what should I read next", "route": "books", "kind": "core"}

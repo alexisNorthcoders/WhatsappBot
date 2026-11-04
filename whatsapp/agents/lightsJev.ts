@@ -14,6 +14,7 @@ import {
 } from '../../hue/api.ts';
 import type { HueLight } from '../../hue/api.ts';
 import { logAgentInvocation } from './agentUsageLog.ts';
+import { messageAsksForAction, messageNamesTarget } from './lightsTextCheck.ts';
 import type { Logger } from '../types.ts';
 
 export type JevAnswer = { choice?: string; probabilities?: Record<string, number> };
@@ -146,8 +147,12 @@ export async function runLightsFromJev(
   const action = confident('lights_action');
   if (!action || action === 'other') return null;
   let resolved = pickTarget(answers?.lights_target, lights, minProbability);
+  if (resolved && !messageNamesTarget(text, resolved, lights)) resolved = null;
   if (!resolved && action === 'list') resolved = resolveTarget('all', lights);
-  if (!resolved) return null;
+  if (!resolved || (action !== 'list' && !messageAsksForAction(text, action))) {
+    logger?.info({ action, target: resolved?.target ?? null }, 'Lights fast path: message does not back the answers');
+    return null;
+  }
   const { target, label, members } = resolved;
 
   let reply: string;

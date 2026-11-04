@@ -10,7 +10,7 @@ import { parseArgs } from 'node:util';
 import { createJevRouter } from '../../whatsapp/orchestration/jevRouter.ts';
 import { lightsJevQuestions } from '../../whatsapp/agents/lightsJev.ts';
 import { chatChoiceFetch, timedFetch } from './backends.ts';
-import { structuredFetch } from './structured.ts';
+import { createLocalRouterFetch } from '../../whatsapp/orchestration/localRouter.ts';
 import type { ChatBackendOptions, Recorder } from './backends.ts';
 import { loadDataset, loadLights } from './dataset.ts';
 import type { Row } from './dataset.ts';
@@ -169,7 +169,7 @@ async function runOne(row: Row, phase: Phase, rep: number, backendOpts = chatOpt
       backend === 'jev'
         ? timedFetch(rec)
         : structured
-          ? structuredFetch(backendOpts, rec, lights)
+          ? createLocalRouterFetch({ ...backendOpts, lights: () => lights, onCall: (c) => rec.calls.push(c) })
           : chatChoiceFetch(backendOpts, rec),
     extraQuestions: () => questions,
     logger: {
