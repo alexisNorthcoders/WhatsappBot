@@ -98,6 +98,12 @@ Use `--env-file` and `--key-var` to override either one. Jev calls may be billed
 from `lights.snapshot.json`, and a one-light room and its light count as the same target.
 `loadDataset` rejects a row that reuses a `ROUTE_CRITERIA` example, because those are in the prompt.
 
+`heldout.jsonl` has the same format and is a held-out set, with ids `h001…`. Tune prompts and
+options against `dataset.jsonl` only. Score the held-out set with `--dataset bench/router/heldout.jsonl`
+once at the end of each idea, with a `--label` that names the idea. Don't change a held-out label
+after seeing a score. `test/routerBench.test.ts` fails if a held-out message is also in the tuning
+set.
+
 If the Hue setup changes, refresh the snapshot and check every `light:<id>` and `room:<name>`
 target in the dataset. `test/routerBench.test.ts` fails when a target no longer resolves.
 
