@@ -23,9 +23,9 @@ const LIGHTS = [
   { id: '12', name: 'Desk', room: 'Office', state: 'OFF' },
 ];
 const pick = (choice: string, p = 1) => ({ choice, probabilities: { [choice]: p } });
-const row = (lights: Row['lights'], route: Row['route'] = 'lights'): Row => ({
+const row = (text: string, lights: Row['lights'], route: Row['route'] = 'lights'): Row => ({
   id: 't',
-  text: 'x',
+  text,
   route,
   kind: 'core',
   lights,
@@ -34,7 +34,7 @@ const row = (lights: Row['lights'], route: Row['route'] = 'lights'): Row => ({
 describe('router bench scoring', () => {
   it('counts a single light and its one-light room as the same target', async () => {
     const r = await scoreLights(
-      row({ action: 'off', target: 'room:Bedroom' }),
+      row('bedroom light off', { action: 'off', target: 'room:Bedroom' }),
       'lights',
       { lights_action: pick('off'), lights_target: pick('light:9') },
       LIGHTS,
@@ -45,7 +45,7 @@ describe('router bench scoring', () => {
 
   it('marks the fast path firing on a non-lights message as fast-wrong', async () => {
     const r = await scoreLights(
-      row(undefined, 'home'),
+      row('turn on all the lights', undefined, 'home'),
       'lights',
       { lights_action: pick('on'), lights_target: pick('all') },
       LIGHTS,
@@ -56,7 +56,7 @@ describe('router bench scoring', () => {
 
   it('marks an unconfident answer that hands over to GPT as missed', async () => {
     const r = await scoreLights(
-      row({ action: 'on', target: 'room:Office' }),
+      row('office lights on', { action: 'on', target: 'room:Office' }),
       'lights',
       { lights_action: pick('on'), lights_target: pick('room:Office', 0.4) },
       LIGHTS,
