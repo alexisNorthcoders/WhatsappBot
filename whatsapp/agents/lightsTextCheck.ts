@@ -23,8 +23,6 @@ const QUESTION = /^\s*(is|are|was|were|have|has|had|did|do|does|which|what|why|h
 const DELAY =
   /\b(in|after|for)\s+(\S+\s+){0,2}?(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b|\bat\s+\d|\b\d{1,2}(:\d\d)?\s*(am|pm)\b|\b(tonight|tomorrow|later|until|till|when|every|o'?clock)\b/;
 
-const ALL = /\b(all|every|everything|everywhere|whole)\b/;
-
 const wordsOf = (s: string) => s.toLowerCase().match(/[a-z0-9]+/g) ?? [];
 
 /** "stairs" names the "Staircase"; "bedroom" doesn't name the "Kids bedroom" on its own */
@@ -70,7 +68,8 @@ export function messageNamesTarget(text: string, chosen: Target, lights: Light[]
   );
   const named = others.map((t) => ({ t, m: bestMatch(message, t, lights) })).filter(({ m }) => m.words.size > 0);
 
-  if (chosen.target === 'all') return ALL.test(text.toLowerCase()) || named.length === 0;
+  // "all" only when nothing narrower is named: "everything off except the hall" isn't all
+  if (chosen.target === 'all') return named.length === 0;
 
   const mine = bestMatch(message, chosen.target, lights);
   if (!mine.words.size) return false;
