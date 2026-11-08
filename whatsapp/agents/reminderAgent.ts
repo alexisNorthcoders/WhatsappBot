@@ -31,8 +31,27 @@ export function looksLikeAppointment(text: string) {
   return CALENDAR_PHRASE_RE.test(t) || (DAY_RE.test(t) && TIME_RE.test(t));
 }
 
-function reminderIntent(text: string): ReminderIntent | null {
-  return classifyReminderIntent(text) ?? (looksLikeAppointment(text) ? { kind: 'create' } : null);
+const CREATE_WORD_RE =
+  /\b(?:add|put|pop|stick|set|make|create|book|schedule|pencil|mark|block|remind|nudge|reminder|alert|don['’]?t\s+let\s+me|forget)\b/i;
+
+/**
+ * What a message the router sent here (and the agent's own check doesn't read) most likely asks:
+ * a question with no create word is a "what's on" question, so it gets the upcoming list;
+ * anything else is a Reminder to create, which the extraction function can still turn down
+ * (`notReminder`, then the message falls through to chat).
+ */
+export function routedReminderIntent(text: string): ReminderIntent {
+  const t = String(text || '').trim();
+  const question = t.includes('?') || QUESTION_RE.test(t);
+  return question && !CREATE_WORD_RE.test(t) ? { kind: 'list', window: 'upcoming' } : { kind: 'create' };
+}
+
+/** `guessed`: no phrasing matched, so the agent falls through rather than refuse or complain. */
+function reminderIntent(text: string, routed = false): (ReminderIntent & { guessed: boolean }) | null {
+  const intent = classifyReminderIntent(text);
+  if (intent) return { ...intent, guessed: false };
+  if (looksLikeAppointment(text)) return { kind: 'create', guessed: true };
+  return routed ? { ...routedReminderIntent(text), guessed: true } : null;
 }
 
 export function shouldTryReminderAgent(text: string): boolean {
@@ -54,6 +73,11 @@ type ReminderAgentDeps = {
   allDayNudgeMin?: number;
   lastLists?: ReturnType<typeof createLastLists>;
   logger?: Pick<Logger, 'warn'>;
+  /**
+   * The router picked the reminder agent for this message. A message the agent's own check
+   * doesn't read is then still handled (see {@link routedReminderIntent}) instead of going to chat.
+   */
+  routed?: boolean;
 };
 
 /**
@@ -65,7 +89,7 @@ export async function runReminderAgent(
   deps: ReminderAgentDeps,
 ): Promise<{ handled: boolean; replyText: string }> {
   const text = m.text;
-  const intent = reminderIntent(text);
+  const intent = reminderIntent(text, deps?.routed === true);
   if (!intent) {
     return { handled: false, replyText: '' };
   }
@@ -75,9 +99,9 @@ export async function runReminderAgent(
     return { handled: true, replyText: REMINDER_HELP_TEXT };
   }
 
-  // Appointment phrasing without "remind me" is only a guess: fall through to chat rather than
-  // refuse it or complain that the calendar is missing.
-  const guessed = intent.kind === 'create' && classifyReminderIntent(text) == null;
+  // Appointment phrasing without "remind me", or a routed message nothing matched, is only a
+  // guess: fall through to chat rather than refuse it or complain that the calendar is missing.
+  const { guessed } = intent;
 
   const isAllowed =
     typeof deps?.isAllowedActor === 'function' ? deps.isAllowedActor(m.actorId, m.actorAltId) : false;

@@ -91,8 +91,9 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
       append: appendMessage,
     },
     shouldTryReminderAgent,
-    runReminderAgent: async (m) =>
+    runReminderAgent: async (m, opts) =>
       runReminderAgent(m, {
+        routed: opts?.routed,
         isAllowedActor,
         creatorIdFor: (actorId, actorAltId) => secondPhoneJid(actorId, actorAltId) ?? actorId,
         ...reminderCalendarDeps,
