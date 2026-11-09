@@ -31,7 +31,7 @@ import { getCachedLights } from '../../hue/api.ts';
 import type { AgentChainDeps } from './agentsTryHandle.ts';
 import type { OrchestratorPorts } from './createMessageOrchestrator.ts';
 import type { WASocket, downloadMediaMessage, WAMessage } from '@whiskeysockets/baileys';
-import type { Command, Logger } from '../types.ts';
+import type { Command, FetchLike, Logger } from '../types.ts';
 
 // One store per process, keyed by chat id: ports are rebuilt on every socket reconnect, and a
 // list shown just before a reconnect must still answer "cancel N".
@@ -91,8 +91,9 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
       append: appendMessage,
     },
     shouldTryReminderAgent,
-    runReminderAgent: async (m) =>
+    runReminderAgent: async (m, opts) =>
       runReminderAgent(m, {
+        routed: opts?.routed,
         isAllowedActor,
         creatorIdFor: (actorId, actorAltId) => secondPhoneJid(actorId, actorAltId) ?? actorId,
         ...reminderCalendarDeps,
@@ -258,13 +259,27 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
 }
 
 /**
- * The local model when LOCAL_ROUTER_BASE_URL is set, else Jev when TYPESAFE_API_KEY is, else
- * none (the keyword gates). Both answer the same questions through createJevRouter.
+ * The router service when ROUTER_SERVICE_URL is set, else the local model when
+ * LOCAL_ROUTER_BASE_URL is, else Jev when TYPESAFE_API_KEY is, else none (the keyword gates).
+ * All answer the same questions through createJevRouter. The router service speaks Jev's
+ * SystemOne shape itself (route from an embedding classifier, lights fields from rules), so it
+ * needs no adapter: only its URL, key and model name.
  */
-function createRouteIntent(logger: Logger) {
-  const env = process.env;
+export function createRouteIntent(logger: Logger, env: NodeJS.ProcessEnv = process.env, fetch?: FetchLike) {
   const extraQuestions = env.LIGHTS_JEV_DISABLE === '1' ? undefined : () => lightsJevQuestions();
   const minProbability = Number(env.JEV_ROUTER_MIN_PROBABILITY) || undefined;
+  if (env.ROUTER_SERVICE_URL) {
+    return createJevRouter({
+      url: env.ROUTER_SERVICE_URL,
+      apiKey: env.ROUTER_SERVICE_API_KEY ?? '',
+      model: env.ROUTER_SERVICE_MODEL || 'whatsapp-router',
+      timeoutMs: Number(env.ROUTER_SERVICE_TIMEOUT_MS) || 2000,
+      minProbability,
+      extraQuestions,
+      logger,
+      fetch,
+    });
+  }
   if (env.LOCAL_ROUTER_BASE_URL) {
     const model = env.LOCAL_ROUTER_MODEL || 'qwen3-4b';
     return createJevRouter({

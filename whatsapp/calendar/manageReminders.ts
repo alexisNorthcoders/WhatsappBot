@@ -25,6 +25,9 @@ export const UPCOMING_DAYS = 60;
 /** Most items in one list reply. */
 export const LIST_LIMIT = 15;
 
+/** Sunday first, as Date#getUTCDay counts. */
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
 export const CANCEL_HINT = 'Say "cancel <number>" to remove one.';
 
 export const CALENDAR_UNREACHABLE_LIST_REPLY = "Couldn't reach Google Calendar. Please try again in a minute.";
@@ -57,6 +60,34 @@ export function listWindow(
         label: `Next week (${dayName(toMonday)} – ${dayName(toMonday + 6)})`,
         empty: 'Nothing on next week.',
       };
+    case 'weekend': {
+      // the coming Saturday and Sunday; from now when it is already the weekend
+      const toSat = (6 - dow + 7) % 7;
+      const start = dow === 0 ? -1 : toSat;
+      return {
+        timeMinMs: start <= 0 ? nowMs : midnight(start),
+        timeMaxMs: midnight(start + 2),
+        label: `This weekend (${dayName(start)} – ${dayName(start + 1)})`,
+        empty: 'Nothing on this weekend.',
+      };
+    }
+    case 'monday':
+    case 'tuesday':
+    case 'wednesday':
+    case 'thursday':
+    case 'friday':
+    case 'saturday':
+    case 'sunday': {
+      // the next such day; today itself on that day, from now
+      const days = (WEEKDAYS.indexOf(window) - dow + 7) % 7;
+      const label = days === 0 ? `Today (${dayName(0)})` : days === 1 ? `Tomorrow (${dayName(1)})` : dayName(days);
+      return {
+        timeMinMs: days === 0 ? nowMs : midnight(days),
+        timeMaxMs: midnight(days + 1),
+        label,
+        empty: days === 0 ? 'Nothing else on today.' : `Nothing on ${dayName(days)}.`,
+      };
+    }
     default:
       return {
         timeMinMs: nowMs,

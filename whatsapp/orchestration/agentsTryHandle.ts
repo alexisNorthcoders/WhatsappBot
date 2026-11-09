@@ -13,7 +13,8 @@ export type AgentChainDeps = {
   /** Jev-answered lights request; null hands over to runLightsAgent */
   runLightsFromJev?: (text: string, answers: Record<string, any>) => Promise<string | null>;
   shouldTryReminderAgent?: TextGate;
-  runReminderAgent?: (m: InboundMessage) => Promise<{ handled: boolean; replyText?: string }>;
+  /** `routed`: the router picked the reminder agent (it then handles what its own check misses) */
+  runReminderAgent?: (m: InboundMessage, opts?: { routed: boolean }) => Promise<{ handled: boolean; replyText?: string }>;
   shouldTryLightsAgent: TextGate;
   runLightsAgent: TextAgent;
   LIGHTS_AGENT_SKIP: string;
@@ -103,8 +104,8 @@ export function listAgents(deps: AgentChainDeps): ChainAgent[] {
     agents.push({
       key: 'reminder',
       shouldTry: deps.shouldTryReminderAgent,
-      run: async (m) => {
-        const r = await runReminderAgent(m);
+      run: async (m, route) => {
+        const r = await runReminderAgent(m, { routed: route !== undefined });
         return r?.handled ? (r.replyText ?? '') : null;
       },
       logLabel: 'Reminder agent error',
