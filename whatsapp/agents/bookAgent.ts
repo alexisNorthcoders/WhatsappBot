@@ -1,4 +1,4 @@
-import { askBookRecs } from '../bookRecsClient.ts';
+import type { Recommendation } from '../books/recommendBooks.ts';
 import type { InboundMessage } from '../orchestration/normalizeBaileysMessage.ts';
 import type { isAllowedActor } from '../whatsAppActorAllowlist.ts';
 import type { Logger } from '../types.ts';
@@ -19,7 +19,7 @@ const KEYWORD_PATTERN = new RegExp(
 );
 
 /**
- * Keyword gate; the service itself decides whether a hit is really a request (`not_a_request`).
+ * Keyword gate; the recommender itself decides whether a hit is really a request (`not_a_request`).
  */
 export function shouldTryBookAgent(text: string): boolean {
   if (process.env.BOOK_AGENT_ALWAYS === '1') return true;
@@ -28,26 +28,23 @@ export function shouldTryBookAgent(text: string): boolean {
 }
 
 /**
- * Owner-only. Non-owners never reach the service.
- * @returns The service's answer as is, the "unavailable" message, or BOOK_AGENT_SKIP.
+ * Owner-only. Non-owners, and every message when no catalog is configured, get BOOK_AGENT_SKIP.
+ * @returns The recommendation, the "unavailable" message, or BOOK_AGENT_SKIP.
  */
 export async function runBookAgent(m: InboundMessage, deps: {
-  askBookRecs?: typeof askBookRecs;
+  recommend?: (question: string) => Promise<Recommendation>;
   isAllowedActor?: typeof isAllowedActor;
   logger?: Pick<Logger, 'warn'>;
 } = {}): Promise<string> {
   const allowed = typeof deps.isAllowedActor === 'function' && deps.isAllowedActor(m.actorId, m.actorAltId);
-  if (!allowed) return BOOK_AGENT_SKIP;
+  if (!allowed || !deps.recommend) return BOOK_AGENT_SKIP;
 
-  const ask = deps.askBookRecs ?? askBookRecs;
-  const result = await ask(m.text);
-
-  if (!result.ok) {
-    if (result.reason === 'not_configured') return BOOK_AGENT_SKIP;
-    // 'timeout' and 'error' both mean the service is unavailable to the owner.
-    deps.logger?.warn({ reason: result.reason, err: result.error?.message }, 'Book recommendation service failed');
+  let result: Recommendation;
+  try {
+    result = await deps.recommend(m.text);
+  } catch (err) {
+    deps.logger?.warn({ err: (err as Error).message }, 'Book recommendations failed');
     return BOOK_RECS_UNAVAILABLE;
   }
-  if (result.kind === 'not_a_request') return BOOK_AGENT_SKIP;
-  return result.answer.trim() ? result.answer : BOOK_RECS_UNAVAILABLE;
+  return result.kind === 'not_a_request' ? BOOK_AGENT_SKIP : result.text;
 }

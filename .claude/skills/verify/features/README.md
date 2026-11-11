@@ -35,4 +35,5 @@ This directory is the maintained source for verifying what the bot does for its 
 - [Joplin notes](./joplin.md) covers listing, reading and creating notes in the `WhatsApp Bot` notebook.
 - [Lights](./lights.md) covers the Hue status list and switching lights.
 - [Reminders](./reminders.md) covers calendar lists, creating a reminder and cancelling it.
+- [Book recommendations](./books.md) covers "like X", open and genre requests, and non-requests falling through.
 - [Access control](./access.md) covers the owner allowlist, `claude…` forwarding and the `!restart` runner guard.
