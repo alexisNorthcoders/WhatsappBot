@@ -47,7 +47,7 @@ async function saveGeneratedImage(
 // providing a placeholder key when env is unset.
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY?.trim() || 'missing' });
 
-const DEFAULT_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-5-mini';
+const DEFAULT_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || 'gpt-5.6-terra';
 
 /**
  * GPT-5 and o-series chat models use `max_completion_tokens` instead of `max_tokens`.
@@ -245,25 +245,6 @@ export async function assistantgenerateResponse(
       );
     }
     return text;
-  } catch (error) {
-    console.error('Error generating GPT-3 response:', error);
-    throw new Error('Error generating response');
-  }
-}
-export async function gPT4generateResponse(userMessage: string) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: DEFAULT_CHAT_MODEL,
-      temperature: 0.7,
-      messages: [
-        { "role": "system", "content": "You will always give your responses summarized in bullet points unless asked otherwise." },
-        { "role": "user", "content": userMessage }],
-      ...openaiChatTokenOpts(DEFAULT_CHAT_MODEL, 1000),
-
-    });
-    const text = completion.choices[0]?.message?.content;
-    if (!text) throw new Error('No text in completion');
-    return text.trim();
   } catch (error) {
     console.error('Error generating GPT-3 response:', error);
     throw new Error('Error generating response');

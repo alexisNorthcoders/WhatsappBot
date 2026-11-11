@@ -6,7 +6,7 @@ The owner types a command word and gets a fixed reply or a single-purpose tool, 
 
 - `help` lists every command, agent and the fallback.
 - `clear` empties the chat's assistant memory.
-- `registry` runs a registered first-word command (`help`, `recipe`, `summarize`, `image`, `sprite`, `wizard`, `gpt4`, `deepinfra`, `daniel`, `home`).
+- `registry` runs a registered first-word command (`help`, `recipe`, `summarize`, `image`, `sprite`, `wizard`, `deepinfra`, `daniel`, `home`).
 
 ## How to get to it (user POV)
 

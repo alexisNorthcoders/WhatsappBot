@@ -7,7 +7,6 @@ const helpCommand: Command<TextSender> = async (sock, sender) => {
 ━━━━━━━━━━━━━━━━━━━━━━
 *AI Chat Commands*
 ━━━━━━━━━━━━━━━━━━━━━━
-• *gpt4* [prompt] — GPT-4 response
 • *deepinfra* [prompt] — DeepInfra model
 • *summarize*|*summarise* <url> [extra] — Optional focus text after the URL. Fetch page, extract article text, short DeepInfra summary
 • *wizard* [prompt] — Wizard model

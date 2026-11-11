@@ -1,4 +1,3 @@
-import gpt4Command from './gpt4.ts';
 import helpCommand from './help.ts';
 import deepInfraCommand from './deepinfra.ts';
 import wizardCommand from './wizard.ts';
@@ -10,7 +9,6 @@ import summarizeCommand from './summarize.ts';
 import homeCommand from './home.ts';
 
 export {
-    gpt4Command as gpt4,
     helpCommand as help,
     deepInfraCommand as deepinfra,
     wizardCommand as wizard,
