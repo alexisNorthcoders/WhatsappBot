@@ -12,7 +12,7 @@ const helpCommand: Command<TextSender> = async (sock, sender) => {
 • *summarize*|*summarise* <url> [extra] — Optional focus text after the URL. Fetch page, extract article text, short DeepInfra summary
 • *wizard* [prompt] — Wizard model
 • *recipe* [prompt] — Generate a recipe
-• *image* [prompt] — Generate an image (DALL·E)
+• *image* [prompt] — Generate an image (gpt-image-1.5)
 • *sprite* [size] [description] — Pixel-art sprite (sizes: 16x16, 32x32, 48x48, 64x64, 128x128; default 32x32). Example: sprite 64x64 fire dragon
 • *sprite+* [changes] — Refine the last sprite using the file saved on the server (no re-upload). Or *sprite+* filename.png [changes] (assets/generated)
 • *briefing* — Weather for your city plus what's left of today's Reminders, numbered so "cancel N" works (same identities as *claude*)

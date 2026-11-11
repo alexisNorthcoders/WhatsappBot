@@ -474,20 +474,21 @@ export async function pixelArtEditFromFile(
   }
 }
 
-export async function gptImageGenerateResponse(userMessage: string) {
+export async function gptImageGenerateResponse(userMessage: string): Promise<Buffer> {
   try {
     const response = await openai.images.generate({
-      model: "dall-e-3",
+      model: 'gpt-image-1.5',
       prompt: userMessage,
       n: 1,
-      size: "1024x1024",
+      size: '1024x1024',
+      output_format: 'png',
     });
     await saveGeneratedImage(response, userMessage);
-    const url = response.data?.[0]?.url;
-    if (!url) throw new Error('No image url in generate response');
-    return url;
+    const b64 = response.data?.[0]?.b64_json;
+    if (!b64) throw new Error('No image data in generate response');
+    return Buffer.from(b64, 'base64');
   } catch (error) {
-    console.error('Error generating Dall-e response:', error);
+    console.error('Error generating image:', error);
     throw new Error('Error generating response');
   }
 }
