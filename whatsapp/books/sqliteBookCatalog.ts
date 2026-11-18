@@ -1,13 +1,42 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { BookCatalog, Candidate, Exclusions, Title } from './bookCatalog.ts';
 
-/** Unverified rows are mostly extraction mistakes; unchecked ones (most Series) are kept. */
-const RANKABLE = `b.verification_status != 'unverified'`;
+/**
+ * Reads reddit-bot's recommendation read model (`rec_titles`, `rec_mentions`, `rec_names`)
+ * read-only, and nothing else of its schema. reddit-bot pins those views' columns in
+ * test/recReadModel.test.ts; they already leave out Unverified rows and carry the Sentiment score.
+ */
 
 /** Below this many mentions a Title's share of co-mentions is noise. */
 const MIN_SIMILAR_MENTIONS = 30;
 
 const STATS_MAX_AGE_MS = 60 * 60 * 1000;
+
+const LEADING_ARTICLE = /^(the|a|an) /;
+const SERIES_WORD = / (series|saga|trilogy|duology|quartet|cycle|chronicles?|archives?|books|novels)$/;
+const BOOK_RANGE = / (books? )?\d+ \d+$/;
+
+/**
+ * reddit-bot's Title key (`titleKey` in its src/db/recReadModel.ts), the key `rec_names` is
+ * stored under: lowercase letters and digits, without a leading article, a trailing series
+ * word or a trailing book range. Both repos test it against the same vectors.
+ */
+export function titleKey(name: string): string {
+  const folded = name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/['’‘]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+  let key = folded;
+  for (let prev = ''; prev !== key; ) {
+    prev = key;
+    key = key.replace(LEADING_ARTICLE, '').replace(SERIES_WORD, '').replace(BOOK_RANGE, '');
+  }
+  return key || folded;
+}
 
 const nameTokens = (name: string) => name.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 
@@ -18,23 +47,8 @@ function byExcludedAuthor(author: string | null, excluded: string[][]) {
   return excluded.some((tokens) => tokens.every((t) => have.has(t)));
 }
 
-/**
- * Wilson lower bound on the positive share of positive + negative mentions, as reddit-bot's
- * book_stats scores Books: 180 of 210 positive outranks 2 of 2.
- */
-export function wilsonLowerBound(positive: number, n: number, z = 1.96) {
-  if (!n) return 0;
-  const p = positive / n;
-  const z2 = z * z;
-  return (p + z2 / (2 * n) - z * Math.sqrt((p * (1 - p) + z2 / (4 * n)) / n)) / (1 + z2 / n);
-}
-
 type Scored = Title & { score: number };
 
-/**
- * Reads reddit-bot's database read-only. Mention counts are computed here, not read from
- * book_stats, because book_stats leaves out Series, which hold most of the discussion.
- */
 export function openSqliteBookCatalog(
   path: string,
   { now = Date.now }: { now?: () => number } = {},
@@ -42,31 +56,22 @@ export function openSqliteBookCatalog(
   const db = new DatabaseSync(path, { readOnly: true });
 
   const statsStmt = db.prepare(`
-    SELECT b.id, b.display_title AS title, b.author, b.kind, b.genre,
-      COUNT(*) AS mentions,
-      SUM(m.sentiment = 'positive') AS positive,
-      SUM(m.sentiment = 'negative') AS negative
-    FROM books b JOIN book_mentions m ON m.book_id = b.id
-    WHERE ${RANKABLE}
-    GROUP BY b.id`);
+    SELECT id, title, author, kind, genre, mentions, positive, negative, score FROM rec_titles
+    ORDER BY score DESC, mentions DESC`);
 
-  const findStmt = db.prepare(`
-    SELECT b.id FROM books b WHERE LOWER(b.display_title) = LOWER(?) AND ${RANKABLE}`);
+  const namesStmt = db.prepare(`SELECT title_id AS id FROM rec_names WHERE name_key = ?`);
 
   const excerptStmt = db.prepare(`
-    SELECT source_excerpt AS excerpt, permalink FROM book_mentions
-    WHERE book_id = ? AND sentiment = 'positive'
-      AND source_excerpt IS NOT NULL AND TRIM(source_excerpt) != ''
+    SELECT excerpt, permalink FROM rec_mentions
+    WHERE title_id = ? AND sentiment = 'positive' AND excerpt IS NOT NULL
     ORDER BY processed_at DESC LIMIT 2`);
 
   let cache: { at: number; byId: Map<number, Scored>; ranked: Scored[] } | null = null;
 
-  /** About a second over the whole table, so rebuilt at most hourly as reddit-bot writes. */
+  /** About a second over the whole view, so rebuilt at most hourly as reddit-bot writes. */
   function stats() {
     if (cache && now() - cache.at < STATS_MAX_AGE_MS) return cache;
-    const ranked = (statsStmt.all() as Title[])
-      .map((t) => ({ ...t, score: wilsonLowerBound(t.positive, t.positive + t.negative) }))
-      .sort((a, b) => b.score - a.score || b.mentions - a.mentions);
+    const ranked = statsStmt.all() as Scored[];
     cache = { at: now(), byId: new Map(ranked.map((t) => [t.id, t])), ranked };
     return cache;
   }
@@ -93,11 +98,12 @@ export function openSqliteBookCatalog(
   return {
     find(name) {
       const { byId } = stats();
-      const matches = (findStmt.all(name.trim()) as { id: number }[])
+      // A name can key several catalog rows (a Series and its fragments); the most-mentioned is meant.
+      const best = (namesStmt.all(titleKey(name)) as { id: number }[])
         .map((r) => byId.get(r.id))
         .filter((t) => t !== undefined)
-        .sort((a, b) => b.mentions - a.mentions);
-      return matches[0] ? toTitle(matches[0]) : null;
+        .reduce<Scored | null>((top, t) => (!top || t.mentions > top.mentions ? t : top), null);
+      return best ? toTitle(best) : null;
     },
 
     similarTo(anchorIds, { exclude, limit }) {
@@ -105,10 +111,10 @@ export function openSqliteBookCatalog(
       const { byId } = stats();
       const marks = anchorIds.map(() => '?').join(',');
       const shared = db.prepare(`
-        SELECT book_id AS id, COUNT(DISTINCT post_id) AS sharedThreads FROM book_mentions
-        WHERE post_id IN (SELECT post_id FROM book_mentions WHERE book_id IN (${marks}))
-          AND book_id NOT IN (${marks})
-        GROUP BY book_id`).all(...anchorIds, ...anchorIds) as { id: number; sharedThreads: number }[];
+        SELECT title_id AS id, COUNT(DISTINCT thread_id) AS sharedThreads FROM rec_mentions
+        WHERE thread_id IN (SELECT thread_id FROM rec_mentions WHERE title_id IN (${marks}))
+          AND title_id NOT IN (${marks})
+        GROUP BY title_id`).all(...anchorIds, ...anchorIds) as { id: number; sharedThreads: number }[];
       const keep = allowed(exclude);
       // shared² / mentions ranks by how concentrated a Title's discussion is in the anchors'
       // threads; raw shared counts just return the subreddit's most popular Series.

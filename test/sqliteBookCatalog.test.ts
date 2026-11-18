@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { openSqliteBookCatalog, wilsonLowerBound } from '../whatsapp/books/sqliteBookCatalog.ts';
+import { openSqliteBookCatalog, titleKey } from '../whatsapp/books/sqliteBookCatalog.ts';
 import { createBookDb } from './helpers/bookDb.ts';
 
 const none = { ids: [], authors: [] };
@@ -8,12 +8,12 @@ const none = { ids: [], authors: [] };
 function fantasyDb() {
   return createBookDb(
     [
-      { id: 1, title: 'Mistborn', author: 'Brandon Sanderson', kind: 'series', verification: 'unchecked' },
+      { id: 1, title: 'Mistborn', author: 'Brandon Sanderson', kind: 'series' },
       { id: 2, title: 'The Wheel of Time', author: 'Robert Jordan', kind: 'series' },
       { id: 3, title: 'The Lies of Locke Lamora', author: 'Scott Lynch' },
-      { id: 4, title: 'The Stormlight Archive', author: 'Brandon Sanderson', kind: 'series' },
+      { id: 4, title: 'The Stormlight Archive', author: 'Brandon Sanderson', kind: 'series', aliases: ['SA'] },
       { id: 5, title: 'Rarely Mentioned', author: 'Someone' },
-      { id: 6, title: 'Misread Title', verification: 'unverified' },
+      { id: 6, title: 'Stormlight 1-5', author: 'Brandon Sanderson', kind: 'series' },
       { id: 7, title: 'Legends & Lattes', author: 'Travis Baldree', genre: 'cozy_fantasy' },
       { id: 8, title: 'Divisive Cozy', author: 'Other', genre: 'cozy_fantasy' },
       { id: 9, title: 'mistborn', author: 'Brandon Sanderson' },
@@ -26,7 +26,7 @@ function fantasyDb() {
       { bookId: 3, threads: 30, from: 500 },
       { bookId: 4, threads: 35 },
       { bookId: 5, threads: 10 },
-      { bookId: 6, threads: 40 },
+      { bookId: 6, threads: 2, from: 1100 },
       { bookId: 7, threads: 50, from: 600 },
       { bookId: 8, threads: 25, from: 700 },
       { bookId: 8, threads: 25, from: 800, sentiment: 'negative' },
@@ -42,8 +42,14 @@ describe('sqliteBookCatalog', () => {
       id: 1, title: 'Mistborn', author: 'Brandon Sanderson', kind: 'series', genre: null,
       mentions: 40, positive: 40, negative: 0,
     });
-    assert.equal(catalog.find('Misread Title'), null);
     assert.equal(catalog.find('Never Mentioned'), null);
+  });
+
+  it("resolves a name's trivial variants and Aliases to the most-mentioned row they key", () => {
+    const catalog = openSqliteBookCatalog(fantasyDb().file);
+    for (const name of ['Stormlight', 'the stormlight series', 'Stormlight Archives', 'SA']) {
+      assert.equal(catalog.find(name)?.id, 4, name);
+    }
   });
 
   it("ranks titles concentrated in the anchor's threads above merely popular ones", () => {
@@ -85,9 +91,28 @@ describe('sqliteBookCatalog', () => {
   });
 });
 
-describe('wilsonLowerBound', () => {
-  it('scores a large mostly-positive sample above a tiny all-positive one', () => {
-    assert.ok(wilsonLowerBound(180, 210) > wilsonLowerBound(2, 2));
-    assert.equal(wilsonLowerBound(0, 0), 0);
+/** reddit-bot's test/recReadModel.test.ts holds the same vectors: keep the two lists equal. */
+const TITLE_KEY_VECTORS: [string, string][] = [
+  ['The Stormlight Archive', 'stormlight'],
+  ['Stormlight Archives series', 'stormlight'],
+  ['The Stormlight series', 'stormlight'],
+  ['Stormlight 1-5', 'stormlight'],
+  ['stormlight', 'stormlight'],
+  ['The Kingkiller Chronicle', 'kingkiller'],
+  ['The First Law trilogy', 'first law'],
+  ['The Earthsea Cycle', 'earthsea'],
+  ['Mistborn books 1-3', 'mistborn'],
+  ['The Wheel of Time', 'wheel of time'],
+  ['A Song of Ice and Fire', 'song of ice and fire'],
+  ['Legends & Lattes', 'legends and lattes'],
+  ['Kushiel’s Dart', 'kushiels dart'],
+  ['Les Misérables', 'les miserables'],
+  ['Stormlight 4', 'stormlight 4'],
+  ['The Series', 'series'],
+];
+
+describe('titleKey', () => {
+  it("computes reddit-bot's Title key", () => {
+    for (const [name, key] of TITLE_KEY_VECTORS) assert.equal(titleKey(name), key, name);
   });
 });
