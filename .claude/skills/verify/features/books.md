@@ -18,7 +18,8 @@ The owner asks for something to read and gets up to three picks from r/Fantasy d
 Preconditions:
 
 - `BOOK_DB_PATH` points at reddit-bot's `reddit_bot.sqlite3`. Without it the book agent skips and every message reaches chat.
-- The DB has reddit-bot's recommendation read model (`rec_titles`, `rec_mentions`, `rec_names` views), which reddit-bot's `initSchema` creates. The catalog reads only those views. On an older DB the log shows `book recommendations off: cannot open BOOK_DB_PATH` with `no such table: rec_titles`, and every message reaches chat.
+- The DB has reddit-bot's recommendation read model (`rec_titles`, `rec_mentions`, `rec_names`, `rec_similar` views), which reddit-bot's `initSchema` creates. The catalog reads only those views. On an older DB the log shows `book recommendations off: cannot open BOOK_DB_PATH` with `no such table: rec_titles` (or `rec_similar`), and every message reaches chat.
+- `rec_similar` is empty until reddit-bot's `npm run similarity` has run on that DB. Until then `books-like` falls back to the best-liked titles, so turn 1 still answers but without "like X" picks. On a copy, run `SQLITE_PATH=<copy> npm run similarity` in reddit-bot first.
 
 - **All four.** Run `drive "something like Mistborn but darker" "what should I read next" "recommend a cozy fantasy" "who wrote the name of the wind"`. Turns 1 to 3 each reply with a numbered list of up to three titles, each with a reason, `N mentions on r/Fantasy, P% positive` and a reddit link. Turn 1 has no Brandon Sanderson title. Turn 4 is a plain chat answer.
 - **Route.** In the log, turns 1 to 3 show `"Jev route"` with `"agent":"books"` and a `"book recommendation"` line with the shortlist size and picks. Turn 4 routes to `chat`.

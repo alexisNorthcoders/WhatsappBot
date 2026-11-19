@@ -22,6 +22,12 @@ function catalog() {
       { bookId: 5, threads: 30, from: 30 },
       { bookId: 6, threads: 40, from: 200 },
     ],
+    [
+      { anchor: 1, title: 2, score: 0.5 },
+      { anchor: 1, title: 3, score: 0.4 },
+      { anchor: 1, title: 4, score: 0.3 },
+      { anchor: 1, title: 5, score: 0.2 },
+    ],
   );
   return openSqliteBookCatalog(db.file);
 }
