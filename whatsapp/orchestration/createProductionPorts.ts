@@ -269,7 +269,7 @@ function bookRecommenderFromEnv(logger: Logger) {
   try {
     return createBookRecommender({
       catalog: openSqliteBookCatalog(path),
-      complete: (prompt) => deepInfraAPI(prompt, undefined, { temperature: 0 }),
+      complete: (prompt) => deepInfraAPI(prompt, undefined, { temperature: 0, json: true }),
       logger,
     });
   } catch (err) {
