@@ -13,6 +13,11 @@ describe('buildDeepInfraCompletionCreateArgs', () => {
     assert.equal(body.temperature, 0.35);
   });
 
+  it('asks for a JSON object only when json is set', () => {
+    assert.deepEqual(buildDeepInfraCompletionCreateArgs('x', 'm', { json: true }).response_format, { type: 'json_object' });
+    assert.ok(!('response_format' in buildDeepInfraCompletionCreateArgs('x', 'm', {})));
+  });
+
   it('omits temperature when option is undefined or null', () => {
     const u = buildDeepInfraCompletionCreateArgs('x', DEEPINFRA_DEFAULT_CHAT_MODEL, {});
     assert.ok(!('temperature' in u));

@@ -111,7 +111,11 @@ export const agentLlm = new OpenAI(agentEndpoint());
 /** Default chat model for `deepInfraAPI` when `model` is omitted. */
 export const DEEPINFRA_DEFAULT_CHAT_MODEL = process.env.DEEPINFRA_CHAT_MODEL?.trim() || 'deepseek-ai/DeepSeek-V3';
 
-type DeepInfraChatOptions = { signal?: AbortSignal; temperature?: number | null };
+/**
+ * `json` asks for `response_format: json_object`. Without it qwen3-30b-a3b on the mini PC
+ * sometimes ends a reply before its closing brace, which JSON.parse rejects.
+ */
+type DeepInfraChatOptions = { signal?: AbortSignal; temperature?: number | null; json?: boolean };
 
 /**
  * Build the body passed to `deepInfra.chat.completions.create` (pure; used by tests for option plumbing).
@@ -121,11 +125,12 @@ export function buildDeepInfraCompletionCreateArgs(
   model: string,
   options: DeepInfraChatOptions = {},
 ): ChatCompletionCreateParamsNonStreaming {
-  const { temperature } = options;
+  const { temperature, json } = options;
   return {
     messages: [{ role: 'user', content }],
     model,
     ...(temperature !== undefined && temperature !== null ? { temperature } : {}),
+    ...(json ? { response_format: { type: 'json_object' as const } } : {}),
   };
 }
 
