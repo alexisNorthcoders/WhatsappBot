@@ -50,6 +50,8 @@ export type BookCatalog = {
   /** The Titles r/Fantasy reads most and likes best, overall or in one genre; same Series rules. */
   popular: (opts: ShortlistOptions & { genre: string | null }) => Candidate[];
   genres: () => string[];
+  /** The Title with this id, or null. */
+  title: (id: number) => Title | null;
   /** A Title's confident tags (`facet:tag`); empty when untagged or on a DB without tags. */
   tagsOf: (id: number) => string[];
   /** The tags the parser may ask for; empty on a DB without reddit-bot's tags. */

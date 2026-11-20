@@ -228,6 +228,13 @@ export function openSqliteBookCatalog(
       return [...all].filter((g): g is string => !!g && g !== 'other').sort();
     },
 
+    title(id) {
+      const t = stats().byId.get(id);
+      if (!t) return null;
+      const { popularity: _, ...title } = t;
+      return title;
+    },
+
     tagsOf(id) {
       return stats().tags.get(id) ?? [];
     },

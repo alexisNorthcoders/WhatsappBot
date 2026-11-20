@@ -4,14 +4,14 @@ import { bookCompleteFromEnv, haikuComplete, withFallback, BOOK_HAIKU_MODEL } fr
 import type { CreateMessage } from '../whatsapp/books/haikuComplete.ts';
 
 const reply = (content: unknown[], stop_reason = 'end_turn') => (async () => ({ content, stop_reason })) as unknown as CreateMessage;
-const minipc = async (prompt: string) => `minipc:${prompt}`;
+const minipc = async (prompt: string) => ({ text: `minipc:${prompt}`, backend: 'minipc' as const });
 const quiet = { warn() {}, info() {} };
 
 describe('haikuComplete', () => {
   it('sends the prompt to Haiku 5.5 at low effort and returns the text blocks', async () => {
     const sent: unknown[] = [];
     const create = (async (p: unknown) => (sent.push(p), { content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: ' {"picks":[]} ' }], stop_reason: 'end_turn' })) as unknown as CreateMessage;
-    assert.equal(await haikuComplete(create)('pick'), '{"picks":[]}');
+    assert.deepEqual(await haikuComplete(create)('pick'), { text: '{"picks":[]}', backend: 'claude' });
     assert.deepEqual(sent, [{ model: BOOK_HAIKU_MODEL, max_tokens: 16000, output_config: { effort: 'low' }, messages: [{ role: 'user', content: 'pick' }] }]);
   });
 
@@ -22,14 +22,14 @@ describe('haikuComplete', () => {
 });
 
 describe('withFallback', () => {
-  it('uses the mini PC when Haiku throws, and Haiku otherwise', async () => {
+  it('uses the mini PC when Haiku throws, and Haiku otherwise, and says which answered', async () => {
     const warned: unknown[] = [];
     const failing = async () => {
       throw new Error('529 overloaded');
     };
-    assert.equal(await withFallback(failing, minipc, { warn: (o) => warned.push(o) })('p'), 'minipc:p');
+    assert.deepEqual(await withFallback(failing, minipc, { warn: (o) => warned.push(o) })('p'), { text: 'minipc:p', backend: 'minipc' });
     assert.deepEqual(warned, [{ err: '529 overloaded' }]);
-    assert.equal(await withFallback(async () => 'haiku', minipc)('p'), 'haiku');
+    assert.deepEqual(await withFallback(async () => ({ text: 'haiku', backend: 'claude' as const }), minipc)('p'), { text: 'haiku', backend: 'claude' });
   });
 });
 

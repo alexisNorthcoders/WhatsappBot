@@ -21,11 +21,11 @@ export function haikuComplete(create: CreateMessage, model = BOOK_HAIKU_MODEL): 
     if (message.stop_reason === 'refusal') throw new Error(`${model} refused`);
     const text = message.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])).join('').trim();
     if (!text) throw new Error(`${model} returned no text (stop_reason ${message.stop_reason})`);
-    return text;
+    return { text, backend: 'claude' };
   };
 }
 
-/** `primary`, or `fallback` when it throws. */
+/** `primary`, or `fallback` when it throws; the Completion says which one answered. */
 export function withFallback(primary: Complete, fallback: Complete, logger?: Pick<Logger, 'warn'>): Complete {
   return async (prompt) => {
     try {

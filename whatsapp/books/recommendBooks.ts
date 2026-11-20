@@ -15,7 +15,10 @@ export type BookPick = { candidate: Candidate; reason: string };
 
 export type Recommendation = { kind: 'not_a_request' } | { kind: 'answer'; text: string; picks: BookPick[] };
 
-export type Complete = (prompt: string) => Promise<string>;
+/** Which model answered: the guard against invented tags applies only to the mini PC's parse. */
+export type Backend = 'minipc' | 'claude';
+export type Completion = { text: string; backend: Backend };
+export type Complete = (prompt: string) => Promise<Completion>;
 
 const MAX_PICKS = 3;
 const SHORTLIST = 20;
@@ -90,7 +93,18 @@ export function guardAgainstAnchors(request: BookRequest, anchors: Title[], cata
   return { ...request, genre: null, tags };
 }
 
-export function buildPickPrompt(question: string, shortlist: Candidate[], { tags = [], loved = [] }: { tags?: string[]; loved?: string[] } = {}) {
+/** A loved author may appear in an open ask's answer, but only once: keep their first pick, drop the rest. */
+export function atMostOneBy(authors: string[], picks: BookPick[]): BookPick[] {
+  const lovedAuthor = (p: BookPick) => !!p.candidate.author && authors.includes(p.candidate.author);
+  const first = picks.find(lovedAuthor);
+  return picks.filter((p) => p === first || !lovedAuthor(p));
+}
+
+export function buildPickPrompt(
+  question: string,
+  shortlist: Candidate[],
+  { tags = [], loved = [] }: { tags?: string[]; loved?: { title: string; author: string | null }[] } = {},
+) {
   const candidates = shortlist.map((c) => ({
     id: c.id,
     title: c.title,
@@ -105,7 +119,10 @@ export function buildPickPrompt(question: string, shortlist: Candidate[], { tags
     ...(c.dossier ? { what_redditors_say: c.dossier } : { what_redditors_said: c.excerpts }),
   }));
   const wanted = tags.length ? `\n- The reader asked for: ${tags.join(', ')}. Prefer candidates whose tags or dossier show it; never pick one whose tags contradict it.` : '';
-  const lovedLine = loved.length ? `\n- The reader loved ${loved.join(', ')}; candidates were drawn from what's discussed alongside those.` : '';
+  const lovedAuthors = [...new Set(loved.flatMap((l) => l.author ?? []))];
+  const lovedLine = loved.length
+    ? `\n- The reader loved ${loved.map((l) => l.title).join(', ')}; candidates were drawn from what's discussed alongside those.${lovedAuthors.length ? ` Pick at most one book by ${lovedAuthors.join(' or ')}.` : ''}`
+    : '';
   return `You pick book recommendations for a reader from a shortlist built from r/Fantasy discussion. Reply with one JSON object only, no prose:
 {"picks": [{"id": number, "reason": string}]}
 
@@ -175,7 +192,8 @@ export function createBookRecommender({
     const started = Date.now();
     const genres = catalog.genres();
     const vocabulary = catalog.vocabulary();
-    const parsed = parseRequest(await complete(buildParsePrompt(question, genres, vocabulary)), genres, vocabulary);
+    const parseReply = await complete(buildParsePrompt(question, genres, vocabulary));
+    const parsed = parseRequest(parseReply.text, genres, vocabulary);
     if (!parsed) return { kind: 'not_a_request' };
 
     const reading = profile ? await profile.load() : null;
@@ -186,7 +204,7 @@ export function createBookRecommender({
       if (t) anchors.push(t);
       else unknown.push(name);
     }
-    const request = guardAgainstAnchors(parsed, anchors, catalog);
+    const request = parseReply.backend === 'minipc' ? guardAgainstAnchors(parsed, anchors, catalog) : parsed;
     const exclude = {
       ids: [
         ...anchors.map((a) => a.id),
@@ -210,13 +228,16 @@ export function createBookRecommender({
     if (shortlist.length < MIN_CANDIDATES && request.genre) shortlist = catalog.popular({ ...opts, genre: null });
     if (shortlist.length < MIN_CANDIDATES && request.tags.length) shortlist = catalog.popular({ ...opts, tags: [], genre: request.genre });
 
-    const lovedTitles = fromLoved && reading ? reading.shelf.filter((e) => e.status === 'loved').map((e) => e.title) : [];
+    const lovedTitles = fromLoved ? loved.flatMap((id) => catalog.title(id) ?? []) : [];
+    const lovedAuthors = lovedTitles.flatMap((t) => t.author ?? []);
+    const prompt = buildPickPrompt(question, shortlist, { tags: request.tags, loved: lovedTitles.map(({ title, author }) => ({ title, author })) });
     const picks = shortlist.length >= MIN_CANDIDATES
-      ? parsePicks(await complete(buildPickPrompt(question, shortlist, { tags: request.tags, loved: lovedTitles })), shortlist)
+      ? atMostOneBy(lovedAuthors, parsePicks((await complete(prompt)).text, shortlist))
       : [];
     if (profile && reading && picks.length) await profile.save(withPicks(reading, picks.map((p) => p.candidate), now()));
     logger?.info({
       request,
+      parsedBy: parseReply.backend,
       ...(request !== parsed ? { parsed: { genre: parsed.genre, tags: parsed.tags } } : {}),
       anchors: anchors.map((a) => a.id),
       loved: fromLoved ? loved : [],

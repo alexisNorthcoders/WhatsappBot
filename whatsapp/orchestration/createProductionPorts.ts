@@ -279,7 +279,10 @@ function bookRecommenderFromEnv(logger: Logger) {
     return {
       recommend: createBookRecommender({
         catalog,
-        complete: bookCompleteFromEnv((prompt) => deepInfraAPI(prompt, undefined, { temperature: 0, json: true }), logger),
+        complete: bookCompleteFromEnv(
+          async (prompt) => ({ text: await deepInfraAPI(prompt, undefined, { temperature: 0, json: true }), backend: 'minipc' }),
+          logger,
+        ),
         profile: store,
         logger,
       }),
