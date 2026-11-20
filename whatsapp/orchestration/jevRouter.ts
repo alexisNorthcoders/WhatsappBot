@@ -54,9 +54,9 @@ export const ROUTE_CRITERIA = {
     examples: ['how do I descale the coffee machine', 'what boiler do we have', 'dishwasher shows error E24'],
   },
   books: {
-    what: 'Asking for book recommendations: what to read next, books on a topic, or books like a given title or author.',
+    what: "Asking for book recommendations (what to read next, books on a topic, or books like a given title or author), or telling the bot which books they've read, loved or didn't finish, or asking to see or clear that reading profile.",
     not_for: 'Facts about a book or author (who wrote it, the plot, the characters, its length), which are "chat".',
-    examples: ['something like Mistborn but darker', 'what should I read next', 'recommend a good sci-fi book'],
+    examples: ['something like Mistborn but darker', 'what should I read next', 'recommend a good sci-fi book', 'loved Piranesi', 'show my reading profile'],
   },
   [ROUTE_CHAT]: {
     what: 'Anything else: general conversation, questions, jokes, advice, or a request none of the other options covers.',
