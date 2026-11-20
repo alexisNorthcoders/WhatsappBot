@@ -33,6 +33,7 @@ Preconditions:
 ## Gotchas
 
 - Recommending is read-only on reddit-bot's DB. The profile journeys write only `BOOK_PROFILE_FILE`; delete the scratch file afterwards.
-- The router service (`ROUTER_SERVICE_URL`) may route a bare "loved X" to chat: then the profile reply never comes. The keyword gate and Jev both know the phrasing; check the `"Jev route"` line.
+- Profile statements are answered before routing (`claimBookMessage` in the agent chain), so there is no `"Jev route"` line for them, and another agent's keyword ("Wind" in *The Name of the Wind*) can't take them. A statement naming nothing in the catalog ("I've read your message") falls through to the router as usual.
+- A stranger's "loved X" gets no reply, and `BOOK_PROFILE_FILE` isn't created.
 - Each turn makes two DeepInfra-client calls on `DEEPINFRA_CHAT_MODEL` (the mini PC), about 8 s together, both with `response_format: json_object` (without it qwen3-30b-a3b sometimes drops the closing brace and the answer is `Not enough data`). The first turn in a process also spends about 1 s building mention counts.
 - `Not enough data: …` means fewer than three titles survived the filters, which is a correct answer for a narrow request, not a failure.
