@@ -34,5 +34,5 @@ tagged Titles and 114 Membership links.
 | answers with <3 picks | 2 | 6 | 6 | 5 |
 | median s per ask | 14.4 | 11.1 | 9.4 | 9.4 |
 
-The judge's noise is about ±0.15 on the overall mean. The mini PC was unreachable for the final-code
+The judge's noise isn't measured here; for scale, S4's similarity judge flipped 2–3 of 25 pairwise verdicts between runs. Treat differences under about 0.2 as ties. The mini PC was unreachable for the final-code
 run, so the baseline is the only qwen3-30b-a3b column.
