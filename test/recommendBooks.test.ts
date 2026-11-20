@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBookRecommender, NOT_ENOUGH_DATA } from '../whatsapp/books/recommendBooks.ts';
+import { atMostOneBy, createBookRecommender, NOT_ENOUGH_DATA } from '../whatsapp/books/recommendBooks.ts';
+import type { Backend, BookPick, Completion } from '../whatsapp/books/recommendBooks.ts';
+import { withFallback } from '../whatsapp/books/haikuComplete.ts';
 import { openSqliteBookCatalog } from '../whatsapp/books/sqliteBookCatalog.ts';
 import { createBookDb } from './helpers/bookDb.ts';
 import type { ReadingProfile } from '../whatsapp/books/readingProfile.ts';
@@ -34,11 +36,11 @@ function catalog() {
 }
 
 /** A model that answers the parse prompt with `parse` and the pick prompt with `pick`. */
-function fakeModel(parse: object, pick: object = { picks: [] }) {
+function fakeModel(parse: object, pick: object = { picks: [] }, backend: Backend = 'minipc') {
   const prompts: string[] = [];
-  const complete = async (prompt: string) => {
+  const complete = async (prompt: string): Promise<Completion> => {
     prompts.push(prompt);
-    return JSON.stringify(prompt.startsWith('You pick') ? pick : parse);
+    return { text: JSON.stringify(prompt.startsWith('You pick') ? pick : parse), backend };
   };
   return { complete, prompts };
 }
@@ -106,7 +108,7 @@ describe('createBookRecommender', () => {
   it('reads JSON wrapped in reasoning text', async () => {
     const recommend = createBookRecommender({
       catalog: catalog(),
-      complete: async () => '<think>{"maybe": true}</think>\nSure: {"notRequest": true}',
+      complete: async () => ({ text: '<think>{"maybe": true}</think>\nSure: {"notRequest": true}', backend: 'minipc' }),
     });
     assert.deepEqual(await recommend('nice weather'), { kind: 'not_a_request' });
   });
@@ -247,6 +249,23 @@ describe('createBookRecommender anchor guard', () => {
     );
   });
 
+  it('keeps what Claude parsed, but guards the mini PC fallback when Claude fails', async () => {
+    const parse = request({ anchors: ['Cradle'], genre: 'grimdark', tags: ['tone:hopeful', 'tone:dark'] });
+    const requests: unknown[] = [];
+    const logger = { info: (o: unknown) => requests.push((o as { request: unknown; parsedBy: unknown }).request) };
+    const claude = fakeModel(parse, { picks: [] }, 'claude');
+    await createBookRecommender({ catalog: guardCatalog(), complete: claude.complete, logger })('like Cradle but darker');
+    const minipc = fakeModel(parse, { picks: [] });
+    const failing = async (): Promise<Completion> => {
+      throw new Error('overloaded');
+    };
+    await createBookRecommender({ catalog: guardCatalog(), complete: withFallback(failing, minipc.complete), logger })('like Cradle but darker');
+    assert.deepEqual(
+      requests.map((r) => [(r as { genre: unknown }).genre, (r as { tags: unknown }).tags]),
+      [['grimdark', ['tone:hopeful', 'tone:dark']], [null, ['tone:dark']]],
+    );
+  });
+
   it('keeps the genre and tags when no named Book resolves', async () => {
     const model = fakeModel(request({ genre: 'grimdark', tags: ['tone:hopeful'] }), { picks: [] });
     const recommend = createBookRecommender({ catalog: guardCatalog(), complete: model.complete });
@@ -254,5 +273,49 @@ describe('createBookRecommender anchor guard', () => {
     assert.match(model.prompts[1] ?? '', /The reader asked for: tone:hopeful\./);
     const listed = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
     assert.deepEqual(listed.sort(), [5, 6, 7], 'the grimdark genre still picks the list');
+  });
+});
+
+describe('loved authors on open asks', () => {
+  const pick = (id: number, author: string | null): BookPick => ({ candidate: { id, author } as BookPick['candidate'], reason: '' });
+
+  it('atMostOneBy keeps the first pick by a loved author and drops the rest', () => {
+    const picks = [pick(1, 'Other'), pick(2, 'Susanna Clarke'), pick(3, 'Susanna Clarke'), pick(4, null)];
+    assert.deepEqual(atMostOneBy(['Susanna Clarke'], picks).map((p) => p.candidate.id), [1, 2, 4]);
+    assert.deepEqual(atMostOneBy([], picks).map((p) => p.candidate.id), [1, 2, 3, 4]);
+  });
+
+  it('an answer drawn from loved titles has at most one pick by their authors, and the picker is told so', async () => {
+    const db = createBookDb(
+      [
+        { id: 1, title: 'Piranesi', author: 'Susanna Clarke' },
+        { id: 2, title: 'Jonathan Strange', author: 'Susanna Clarke' },
+        { id: 3, title: 'The Ladies of Grace Adieu', author: 'Susanna Clarke' },
+        { id: 4, title: 'Annihilation', author: 'Jeff VanderMeer' },
+        { id: 5, title: 'The Raw Shark Texts', author: 'Steven Hall' },
+      ],
+      [1, 2, 3, 4, 5].map((id) => ({ bookId: id, threads: 20, from: 100 * id })),
+      [{ anchor: 1, title: 2, score: 0.9 }, { anchor: 1, title: 3, score: 0.8 }, { anchor: 1, title: 4, score: 0.7 }, { anchor: 1, title: 5, score: 0.6 }],
+    );
+    const now = 1_000_000_000_000;
+    const profile = memoryProfile({ shelf: [{ id: 1, title: 'Piranesi', status: 'loved', at: now }], recent: [] });
+    const model = fakeModel(request({}), { picks: [{ id: 2, reason: 'a' }, { id: 3, reason: 'b' }, { id: 4, reason: 'c' }] });
+    const recommend = createBookRecommender({ catalog: openSqliteBookCatalog(db.file), complete: model.complete, profile, now: () => now });
+    const result = await recommend('what should I read next');
+    assert.deepEqual(result.kind === 'answer' && result.picks.map((p) => p.candidate.id), [2, 4]);
+    assert.match(model.prompts[1]!, /The reader loved Piranesi; .* Pick at most one book by Susanna Clarke\./);
+  });
+
+  it('anchored asks are unaffected: the anchor author is excluded as before', async () => {
+    const db = createBookDb(
+      [{ id: 1, title: 'Piranesi', author: 'Susanna Clarke' }, { id: 2, title: 'Jonathan Strange', author: 'Susanna Clarke' }, { id: 4, title: 'A', author: 'X' }, { id: 5, title: 'B', author: 'Y' }, { id: 6, title: 'C', author: 'Z' }],
+      [1, 2, 4, 5, 6].map((id) => ({ bookId: id, threads: 20, from: 100 * id })),
+      [{ anchor: 1, title: 2, score: 0.9 }, { anchor: 1, title: 4, score: 0.7 }, { anchor: 1, title: 5, score: 0.6 }, { anchor: 1, title: 6, score: 0.5 }],
+    );
+    const model = fakeModel(request({ anchors: ['Piranesi'] }), { picks: [{ id: 4, reason: 'a' }] });
+    await createBookRecommender({ catalog: openSqliteBookCatalog(db.file), complete: model.complete })('like Piranesi');
+    const listed = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
+    assert.ok(!listed.includes(2));
+    assert.doesNotMatch(model.prompts[1]!, /Pick at most one book by/);
   });
 });

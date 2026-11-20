@@ -15,7 +15,7 @@ import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { deepInfraAPI } from '../../models/models.ts';
-import { createBookRecommender } from '../../whatsapp/books/recommendBooks.ts';
+import { createBookRecommender, type Completion } from '../../whatsapp/books/recommendBooks.ts';
 import { openSqliteBookCatalog } from '../../whatsapp/books/sqliteBookCatalog.ts';
 import type { BookCatalog, Candidate } from '../../whatsapp/books/bookCatalog.ts';
 import { claudeCli } from './claudeCli.ts';
@@ -67,22 +67,22 @@ function requiredKey() {
   if (!key) throw new Error('--model haiku-api needs ANTHROPIC_API_KEY');
   return key;
 }
-async function complete(prompt: string): Promise<string> {
+async function complete(prompt: string): Promise<Completion> {
   const t = Date.now();
   try {
     if (model === 'minipc') {
       const text = await deepInfraAPI(prompt, undefined, { temperature: 0, json: process.env.BENCH_NO_JSON !== '1' });
       calls.push({ ms: Date.now() - t, ok: true });
-      return text;
+      return { text, backend: 'minipc' };
     }
     if (model === 'haiku-api') {
-      const text = await haikuApi(prompt);
+      const reply = await haikuApi(prompt);
       calls.push({ ms: Date.now() - t, ok: true });
-      return text;
+      return reply;
     }
     const r = await claudeCli(prompt, model);
     calls.push({ ms: r.wallMs, ok: true, apiMs: r.apiMs, costUsd: r.costUsd });
-    return r.text;
+    return { text: r.text, backend: 'claude' };
   } catch (err) {
     calls.push({ ms: Date.now() - t, ok: false, error: (err as Error).message });
     throw err;
