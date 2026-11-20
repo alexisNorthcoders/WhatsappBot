@@ -75,6 +75,21 @@ export function parseRequest(raw: string, genres: string[], vocabulary: Vocabula
   };
 }
 
+/**
+ * Some parse models (qwen3-30b-a3b) describe the named Books instead of the reader's wishes:
+ * "what should I read after Cradle?" came back as grimdark, dark and bleak. So with resolved
+ * anchors, drop the tags an anchor already carries and the genre. The cost: "like First Law but
+ * darker" loses `tone:dark` because First Law is dark, and "like Mistborn but sci-fi" loses
+ * the genre; the shortlist is then the anchors' neighbours, as for a plain "like X".
+ */
+export function guardAgainstAnchors(request: BookRequest, anchors: Title[], catalog: Pick<BookCatalog, 'tagsOf'>): BookRequest {
+  if (!anchors.length) return request;
+  const own = new Set(anchors.flatMap((a) => catalog.tagsOf(a.id)));
+  const tags = request.tags.filter((t) => !own.has(t));
+  if (request.genre === null && tags.length === request.tags.length) return request;
+  return { ...request, genre: null, tags };
+}
+
 export function buildPickPrompt(question: string, shortlist: Candidate[], { tags = [], loved = [] }: { tags?: string[]; loved?: string[] } = {}) {
   const candidates = shortlist.map((c) => ({
     id: c.id,
@@ -160,17 +175,18 @@ export function createBookRecommender({
     const started = Date.now();
     const genres = catalog.genres();
     const vocabulary = catalog.vocabulary();
-    const request = parseRequest(await complete(buildParsePrompt(question, genres, vocabulary)), genres, vocabulary);
-    if (!request) return { kind: 'not_a_request' };
+    const parsed = parseRequest(await complete(buildParsePrompt(question, genres, vocabulary)), genres, vocabulary);
+    if (!parsed) return { kind: 'not_a_request' };
 
     const reading = profile ? await profile.load() : null;
     const anchors: Title[] = [];
     const unknown: string[] = [];
-    for (const name of request.anchors) {
+    for (const name of parsed.anchors) {
       const t = catalog.find(name);
       if (t) anchors.push(t);
       else unknown.push(name);
     }
+    const request = guardAgainstAnchors(parsed, anchors, catalog);
     const exclude = {
       ids: [
         ...anchors.map((a) => a.id),
@@ -201,6 +217,7 @@ export function createBookRecommender({
     if (profile && reading && picks.length) await profile.save(withPicks(reading, picks.map((p) => p.candidate), now()));
     logger?.info({
       request,
+      ...(request !== parsed ? { parsed: { genre: parsed.genre, tags: parsed.tags } } : {}),
       anchors: anchors.map((a) => a.id),
       loved: fromLoved ? loved : [],
       shortlist: shortlist.length,
