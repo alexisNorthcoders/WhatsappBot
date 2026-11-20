@@ -207,3 +207,52 @@ describe('createBookRecommender tag fill', () => {
     assert.deepEqual(listed, [2, 3, 4, 5]);
   });
 });
+
+describe('createBookRecommender anchor guard', () => {
+  function guardCatalog() {
+    const db = createBookDb(
+      [
+        { id: 1, title: 'Cradle', author: 'A', genre: 'progression' },
+        { id: 2, title: 'N1', author: 'B', genre: 'progression' },
+        { id: 3, title: 'N2', author: 'C', genre: 'progression' },
+        { id: 4, title: 'N3', author: 'D', genre: 'progression' },
+        { id: 5, title: 'Grim One', author: 'E', genre: 'grimdark' },
+        { id: 6, title: 'Grim Two', author: 'F', genre: 'grimdark' },
+        { id: 7, title: 'Grim Three', author: 'G', genre: 'grimdark' },
+      ],
+      [1, 2, 3, 4, 5, 6, 7].map((id) => ({ bookId: id, threads: 20, from: 100 * id })),
+      [{ anchor: 1, title: 2, score: 0.9 }, { anchor: 1, title: 3, score: 0.8 }, { anchor: 1, title: 4, score: 0.7 }],
+      {
+        tags: [{ title: 1, tag: 'tone:hopeful' }, { title: 1, tag: 'pacing:fast' }, { title: 3, tag: 'tone:dark' }],
+        vocabulary: [{ tag: 'tone:hopeful' }, { tag: 'pacing:fast' }, { tag: 'tone:dark' }],
+      },
+    );
+    return openSqliteBookCatalog(db.file);
+  }
+
+  it("drops the tags a named Book carries and the genre, keeping the reader's own wishes", async () => {
+    const logged: Record<string, unknown>[] = [];
+    const model = fakeModel(
+      request({ anchors: ['Cradle'], genre: 'grimdark', tags: ['tone:hopeful', 'pacing:fast', 'tone:dark'] }),
+      { picks: [{ id: 3, reason: 'Darker.' }] },
+    );
+    const recommend = createBookRecommender({ catalog: guardCatalog(), complete: model.complete, logger: { info: (o) => logged.push(o as Record<string, unknown>) } });
+    await recommend('like Cradle but darker');
+    const listed = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
+    assert.deepEqual(listed.slice(0, 3), [3, 2, 4], "Cradle's neighbours, the dark one first; no grimdark genre list");
+    assert.match(model.prompts[1]!, /The reader asked for: tone:dark\./);
+    assert.deepEqual(
+      [(logged[0]!.request as { genre: unknown; tags: unknown }).genre, (logged[0]!.request as { tags: unknown }).tags, logged[0]!.parsed],
+      [null, ['tone:dark'], { genre: 'grimdark', tags: ['tone:hopeful', 'pacing:fast', 'tone:dark'] }],
+    );
+  });
+
+  it('keeps the genre and tags when no named Book resolves', async () => {
+    const model = fakeModel(request({ genre: 'grimdark', tags: ['tone:hopeful'] }), { picks: [] });
+    const recommend = createBookRecommender({ catalog: guardCatalog(), complete: model.complete });
+    await recommend('a hopeful grimdark book');
+    assert.match(model.prompts[1] ?? '', /The reader asked for: tone:hopeful\./);
+    const listed = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
+    assert.deepEqual(listed.sort(), [5, 6, 7], 'the grimdark genre still picks the list');
+  });
+});

@@ -228,6 +228,10 @@ export function openSqliteBookCatalog(
       return [...all].filter((g): g is string => !!g && g !== 'other').sort();
     },
 
+    tagsOf(id) {
+      return stats().tags.get(id) ?? [];
+    },
+
     vocabulary() {
       return ((vocabularyStmt?.all() ?? []) as { facet: string; tag: string; description: string }[])
         .map((r): VocabularyTag => ({ tag: `${r.facet}:${r.tag}`, description: r.description }));
