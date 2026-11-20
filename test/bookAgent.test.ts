@@ -29,7 +29,7 @@ function fakeRecommend(result: Recommendation | Error) {
   return recommend;
 }
 
-const answer = (text: string): Recommendation => ({ kind: 'answer', text });
+const answer = (text: string): Recommendation => ({ kind: 'answer', text, picks: [] });
 const NOT_A_REQUEST: Recommendation = { kind: 'not_a_request' };
 
 describe('shouldTryBookAgent', () => {
@@ -48,6 +48,10 @@ describe('shouldTryBookAgent', () => {
       'something darker like Mistborn',
       'any recommendations for my reading list?',
       'something similar to The Name of the Wind',
+      'loved Piranesi',
+      "I've read Mistborn",
+      'DNF The Wheel of Time',
+      'show my reading profile',
     ]) {
       assert.equal(shouldTryBookAgent(text), true, text);
     }
@@ -85,6 +89,15 @@ describe('runBookAgent', () => {
     const reply = await runBookAgent(inbound('something like Mistborn but darker'), { recommend, isAllowedActor });
     assert.equal(reply, text);
     assert.deepEqual(recommend.calls, ['something like Mistborn but darker']);
+  });
+
+  it('answers reading-profile messages without recommending, and passes everything else on', async () => {
+    const recommend = fakeRecommend(answer('picks'));
+    const profile = async (text: string) => (text.startsWith('loved') ? 'Noted.' : null);
+    assert.equal(await runBookAgent(inbound('loved Piranesi'), { recommend, profile, isAllowedActor }), 'Noted.');
+    assert.deepEqual(recommend.calls, []);
+    assert.equal(await runBookAgent(inbound('what should I read next'), { recommend, profile, isAllowedActor }), 'picks');
+    assert.equal(await runBookAgent(inbound('loved Piranesi', STRANGER), { recommend, profile, isAllowedActor }), BOOK_AGENT_SKIP);
   });
 
   it('skips when the message is not a request', async () => {

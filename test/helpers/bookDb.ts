@@ -49,10 +49,22 @@ const SCHEMA = `
 /** A `rec_similar` row: reddit-bot computes these nightly; the fixture states them. */
 export type FixtureSimilar = { anchor: number; title: number; score: number; sharedThreads?: number };
 
-export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[], similar: FixtureSimilar[] = []) {
+/**
+ * reddit-bot's optional views (Title tags, Dossiers, Series Membership). A key left out means
+ * the DB has no such view, as before reddit-bot deploys it.
+ */
+export type FixtureExtras = {
+  tags?: { title: number; tag: string; confidence?: number }[];
+  vocabulary?: { tag: string; description?: string }[];
+  dossiers?: { title: number; praise?: string[]; complaints?: string[]; advice?: string[]; comparisons?: string[] }[];
+  seriesBooks?: { series: number; book: number; position: number | null }[];
+};
+
+export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[], similar: FixtureSimilar[] = [], extras: FixtureExtras = {}) {
   const file = path.join(mkdtempSync(path.join(tmpdir(), 'books-')), 'reddit_bot.sqlite3');
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
+  db.exec('BEGIN');
   const addTitle = db.prepare(`INSERT INTO fixture_titles VALUES (?, ?, ?, ?, ?)`);
   const addName = db.prepare(`INSERT INTO rec_names VALUES (?, ?)`);
   for (const t of titles) {
@@ -70,5 +82,28 @@ export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[]
   mentions.forEach(add);
   const addSimilar = db.prepare(`INSERT INTO rec_similar VALUES (?, ?, ?, 0, ?)`);
   for (const s of similar) addSimilar.run(s.anchor, s.title, s.score, s.sharedThreads ?? 1);
+  if (extras.tags) {
+    db.exec(`CREATE TABLE rec_tags (title_id INTEGER, facet TEXT, tag TEXT, confidence REAL)`);
+    const add = db.prepare(`INSERT INTO rec_tags VALUES (?, ?, ?, ?)`);
+    for (const t of extras.tags) add.run(t.title, ...t.tag.split(':'), t.confidence ?? 0.8);
+  }
+  if (extras.vocabulary) {
+    db.exec(`CREATE TABLE rec_vocabulary (facet TEXT, tag TEXT, description TEXT, max_per_title INTEGER, version INTEGER)`);
+    const add = db.prepare(`INSERT INTO rec_vocabulary VALUES (?, ?, ?, 1, 1)`);
+    for (const v of extras.vocabulary) add.run(...v.tag.split(':'), v.description ?? v.tag);
+  }
+  if (extras.dossiers) {
+    db.exec(`CREATE TABLE rec_dossiers (title_id INTEGER, praise TEXT, complaints TEXT, advice TEXT, comparisons TEXT,
+      tagged_at TEXT, model TEXT, vocabulary_version INTEGER)`);
+    const add = db.prepare(`INSERT INTO rec_dossiers VALUES (?, ?, ?, ?, ?, '2026-11-19', 'haiku', 1)`);
+    const j = (xs?: string[]) => JSON.stringify(xs ?? []);
+    for (const d of extras.dossiers) add.run(d.title, j(d.praise), j(d.complaints), j(d.advice), j(d.comparisons));
+  }
+  if (extras.seriesBooks) {
+    db.exec(`CREATE TABLE rec_series_books (series_id INTEGER, book_id INTEGER, position REAL)`);
+    const add = db.prepare(`INSERT INTO rec_series_books VALUES (?, ?, ?)`);
+    for (const m of extras.seriesBooks) add.run(m.series, m.book, m.position);
+  }
+  db.exec('COMMIT');
   return { file, add, close: () => db.close() };
 }

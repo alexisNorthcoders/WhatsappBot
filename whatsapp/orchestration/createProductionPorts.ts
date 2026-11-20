@@ -21,6 +21,7 @@ import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/hom
 import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.ts';
 import { openSqliteBookCatalog } from '../books/sqliteBookCatalog.ts';
 import { createBookRecommender } from '../books/recommendBooks.ts';
+import { createReadingProfile, fileReadingProfileStore } from '../books/readingProfile.ts';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.ts';
 import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.ts';
@@ -67,7 +68,7 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
     await sock.sendMessage(recipient, { text: summary });
   }
 
-  const recommendBooks = bookRecommenderFromEnv(logger);
+  const books = bookRecommenderFromEnv(logger);
 
   // Reminders go to the Owner's calendar when Google credentials are set (#127).
   const calendar = googleCalendarFromEnv();
@@ -120,7 +121,7 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
     runHomeAgent,
     HOME_AGENT_SKIP,
     shouldTryBookAgent,
-    runBookAgent: (m) => runBookAgent(m, { recommend: recommendBooks, isAllowedActor, logger }),
+    runBookAgent: (m) => runBookAgent(m, { ...books, isAllowedActor, logger }),
     BOOK_AGENT_SKIP,
     isAllowedActor,
     routeIntent: createRouteIntent(logger),
@@ -262,19 +263,28 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
   };
 }
 
-/** Book recommendations from reddit-bot's database at BOOK_DB_PATH; off when unset or unreadable. */
+/**
+ * Book recommendations from reddit-bot's database at BOOK_DB_PATH, with the reading profile in
+ * BOOK_PROFILE_FILE; off when BOOK_DB_PATH is unset or unreadable.
+ */
 function bookRecommenderFromEnv(logger: Logger) {
   const path = process.env.BOOK_DB_PATH?.trim();
-  if (!path) return undefined;
+  if (!path) return {};
   try {
-    return createBookRecommender({
-      catalog: openSqliteBookCatalog(path),
-      complete: (prompt) => deepInfraAPI(prompt, undefined, { temperature: 0, json: true }),
-      logger,
-    });
+    const catalog = openSqliteBookCatalog(path);
+    const store = fileReadingProfileStore();
+    return {
+      recommend: createBookRecommender({
+        catalog,
+        complete: (prompt) => deepInfraAPI(prompt, undefined, { temperature: 0, json: true }),
+        profile: store,
+        logger,
+      }),
+      profile: createReadingProfile({ store, catalog }),
+    };
   } catch (err) {
     logger.warn({ err: (err as Error).message, path }, 'book recommendations off: cannot open BOOK_DB_PATH');
-    return undefined;
+    return {};
   }
 }
 

@@ -1,14 +1,19 @@
-import type { BookCatalog, Candidate, Title } from './bookCatalog.ts';
+import type { BookCatalog, Candidate, Title, VocabularyTag } from './bookCatalog.ts';
+import { excludedIds, lovedIds, withPicks, type ReadingProfileStore } from './readingProfile.ts';
 import type { Logger } from '../types.ts';
 
 export type BookRequest = {
   anchors: string[];
   genre: string | null;
+  /** Wanted Title tags (`facet:tag`) for modifiers such as "but darker" or "standalone". */
+  tags: string[];
   excludeTitles: string[];
   excludeAuthors: string[];
 };
 
-export type Recommendation = { kind: 'not_a_request' } | { kind: 'answer'; text: string };
+export type BookPick = { candidate: Candidate; reason: string };
+
+export type Recommendation = { kind: 'not_a_request' } | { kind: 'answer'; text: string; picks: BookPick[] };
 
 export type Complete = (prompt: string) => Promise<string>;
 
@@ -17,6 +22,7 @@ const SHORTLIST = 20;
 /** With fewer candidates than this the picker has no real choice, so say there's not enough data. */
 const MIN_CANDIDATES = 3;
 const MAX_REASON_CHARS = 300;
+const MAX_TAGS = 4;
 
 export const NOT_ENOUGH_DATA =
   "Not enough data: r/Fantasy hasn't discussed enough books matching that for me to recommend any with confidence.";
@@ -36,13 +42,16 @@ function jsonObject(raw: string): Record<string, unknown> | null {
 const strings = (v: unknown) =>
   (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => x.trim());
 
-export function buildParsePrompt(question: string, genres: string[]) {
+export function buildParsePrompt(question: string, genres: string[], vocabulary: VocabularyTag[] = []) {
+  const tagLine = vocabulary.length
+    ? `\n- tags: up to ${MAX_TAGS} of these tags that the reader explicitly asks for (a mood, tone, trope, format such as standalone, length, romance level, audience or subgenre), else []. "but darker" → a dark tone; "less romance" → little or no romance; "finished series" → complete. Tags: ${vocabulary.map((v) => `${v.tag} (${v.description})`).join('; ')}`
+    : '';
   return `You read a message from a fantasy reader and decide whether it asks for book recommendations. Reply with one JSON object only, no prose.
 
 If it asks for Books or Series to read (including open asks like "what should I read next?"), reply:
-{"anchors": string[], "genre": string | null, "excludeTitles": string[], "excludeAuthors": string[]}
-- anchors: Books or Series named as reference points ("like Mistborn" → ["Mistborn"]), else [].
-- genre: one of ${genres.join(', ')} when the reader clearly asks for one, else null.
+{"anchors": string[], "genre": string | null, ${vocabulary.length ? '"tags": string[], ' : ''}"excludeTitles": string[], "excludeAuthors": string[]}
+- anchors: Books or Series named as reference points ("like Mistborn" → ["Mistborn"]; "Hobb's books" → ["Realm of the Elderlings"]), else []. Expand abbreviations (WoT → The Wheel of Time, ASOIAF → A Song of Ice and Fire).
+- genre: one of ${genres.join(', ')} when the reader clearly asks for one, else null.${tagLine}
 - excludeTitles / excludeAuthors: Books or authors the reader doesn't want (already read, dislikes), else [].
 
 If it doesn't ask for something to read (a statement, a question about a book's plot or author, chit-chat), reply:
@@ -52,19 +61,21 @@ Message: ${JSON.stringify(question)}`;
 }
 
 /** Validate the parse reply. Anything malformed counts as not a request, so the chain moves on. */
-export function parseRequest(raw: string, genres: string[]): BookRequest | null {
+export function parseRequest(raw: string, genres: string[], vocabulary: VocabularyTag[] = []): BookRequest | null {
   const j = jsonObject(raw);
   if (!j || j.notRequest === true) return null;
   const genre = typeof j.genre === 'string' ? j.genre.trim().toLowerCase() : null;
+  const known = new Set(vocabulary.map((v) => v.tag));
   return {
     anchors: strings(j.anchors),
     genre: genre && genres.includes(genre) ? genre : null,
+    tags: [...new Set(strings(j.tags).map((t) => t.toLowerCase()))].filter((t) => known.has(t)).slice(0, MAX_TAGS),
     excludeTitles: strings(j.excludeTitles),
     excludeAuthors: strings(j.excludeAuthors),
   };
 }
 
-export function buildPickPrompt(question: string, shortlist: Candidate[]) {
+export function buildPickPrompt(question: string, shortlist: Candidate[], { tags = [], loved = [] }: { tags?: string[]; loved?: string[] } = {}) {
   const candidates = shortlist.map((c) => ({
     id: c.id,
     title: c.title,
@@ -75,15 +86,18 @@ export function buildPickPrompt(question: string, shortlist: Candidate[]) {
     positive: c.positive,
     negative: c.negative,
     shared_threads_with_named_books: c.sharedThreads,
-    what_redditors_said: c.excerpts,
+    tags: c.tags.length ? c.tags : undefined,
+    ...(c.dossier ? { what_redditors_say: c.dossier } : { what_redditors_said: c.excerpts }),
   }));
+  const wanted = tags.length ? `\n- The reader asked for: ${tags.join(', ')}. Prefer candidates whose tags or dossier show it; never pick one whose tags contradict it.` : '';
+  const lovedLine = loved.length ? `\n- The reader loved ${loved.join(', ')}; candidates were drawn from what's discussed alongside those.` : '';
   return `You pick book recommendations for a reader from a shortlist built from r/Fantasy discussion. Reply with one JSON object only, no prose:
 {"picks": [{"id": number, "reason": string}]}
 
-- Use ONLY candidates from the list, by id. Pick up to ${MAX_PICKS} that best fit the request.
+- Use ONLY candidates from the list, by id. Pick up to ${MAX_PICKS} that best fit the request, including every modifier in it.${wanted}${lovedLine}
 - Prefer candidates with more mentions and a higher positive share, and, for "like X" requests, more shared threads.
-- Don't pick both a Series and a Book from it.
-- reason: one sentence on why it fits this reader, grounded in what Redditors said.
+- Pick three different authors, and never two books of one series.
+- reason: one sentence on why it fits this reader. State only what the candidate's dossier, tags or quotes support; don't invent plot, magic or tone.
 - If nothing fits, reply {"picks": []}.
 
 Request: ${JSON.stringify(question)}
@@ -91,9 +105,9 @@ Candidates: ${JSON.stringify(candidates)}`;
 }
 
 /** Validate the pick reply: unknown or repeated ids are dropped, never shown. */
-export function parsePicks(raw: string, shortlist: Candidate[]) {
+export function parsePicks(raw: string, shortlist: Candidate[]): BookPick[] {
   const byId = new Map(shortlist.map((c) => [c.id, c]));
-  const picks: { candidate: Candidate; reason: string }[] = [];
+  const picks: BookPick[] = [];
   const listed = jsonObject(raw)?.picks;
   for (const p of Array.isArray(listed) ? listed : []) {
     const { id, reason } = (p ?? {}) as { id?: unknown; reason?: unknown };
@@ -110,12 +124,13 @@ export function statLine(t: Title) {
   return `${t.mentions} mentions on r/Fantasy, ${pct}% positive`;
 }
 
-export function formatAnswer(picks: { candidate: Candidate; reason: string }[], unknown: string[]) {
+export function formatAnswer(picks: BookPick[], unknown: string[]) {
   const notes = unknown.map((name) => `I don't have data on ${name}.`);
   if (!picks.length) return [...notes, NOT_ENOUGH_DATA].join('\n\n');
   const body = picks.map(({ candidate: c, reason }, i) => {
     const head = `${i + 1}. *${c.title}*${c.author ? ` by ${c.author}` : ''}${c.kind === 'series' ? ' (series)' : ''}`;
-    return [head, reason, statLine(c), c.link].filter(Boolean).join('\n');
+    const start = c.startWith && c.startWith !== c.title ? `Start with *${c.startWith}*.` : null;
+    return [head, reason, start, statLine(c), c.link].filter(Boolean).join('\n');
   });
   return [...notes, ...body].join('\n\n');
 }
@@ -123,24 +138,32 @@ export function formatAnswer(picks: { candidate: Candidate; reason: string }[], 
 /**
  * "Something like Mistborn but darker" → up to three picks from r/Fantasy discussion.
  * Named Books are anchors: candidates are what's discussed alongside them, minus the anchors'
- * own authors (the reader already knows them). Without anchors, the best-liked Titles, in the
- * requested genre when there's enough of it.
+ * own authors (the reader already knows them). Without anchors, what the reader loved is the
+ * anchor; without that, the most-read, best-liked Titles, in the requested genre when there's
+ * enough of it. Modifiers become Title tags that rank matching candidates first. The reading
+ * profile's shelf and recent picks are left out, and each answer's picks join the recent ones.
  */
 export function createBookRecommender({
   catalog,
   complete,
+  profile,
+  now = Date.now,
   logger,
 }: {
   catalog: BookCatalog;
   complete: Complete;
+  profile?: ReadingProfileStore;
+  now?: () => number;
   logger?: Pick<Logger, 'info'>;
 }) {
   return async function recommend(question: string): Promise<Recommendation> {
     const started = Date.now();
     const genres = catalog.genres();
-    const request = parseRequest(await complete(buildParsePrompt(question, genres)), genres);
+    const vocabulary = catalog.vocabulary();
+    const request = parseRequest(await complete(buildParsePrompt(question, genres, vocabulary)), genres, vocabulary);
     if (!request) return { kind: 'not_a_request' };
 
+    const reading = profile ? await profile.load() : null;
     const anchors: Title[] = [];
     const unknown: string[] = [];
     for (const name of request.anchors) {
@@ -152,28 +175,32 @@ export function createBookRecommender({
       ids: [
         ...anchors.map((a) => a.id),
         ...request.excludeTitles.flatMap((name) => catalog.find(name)?.id ?? []),
+        ...(reading ? excludedIds(reading, now()) : []),
       ],
       authors: [...request.excludeAuthors, ...anchors.flatMap((a) => a.author ?? [])],
     };
+    const opts = { exclude, limit: SHORTLIST, tags: request.tags };
 
-    let shortlist = catalog.similarTo(anchors.map((a) => a.id), { exclude, limit: SHORTLIST });
-    if (shortlist.length < MIN_CANDIDATES) {
-      shortlist = catalog.popular({ genre: request.genre, exclude, limit: SHORTLIST });
-    }
-    if (shortlist.length < MIN_CANDIDATES && request.genre) {
-      shortlist = catalog.popular({ genre: null, exclude, limit: SHORTLIST });
-    }
+    const loved = !anchors.length && !request.genre && reading ? lovedIds(reading) : [];
+    let shortlist = catalog.similarTo(anchors.length ? anchors.map((a) => a.id) : loved, opts);
+    const fromLoved = !anchors.length && shortlist.length >= MIN_CANDIDATES;
+    if (shortlist.length < MIN_CANDIDATES) shortlist = catalog.popular({ ...opts, genre: request.genre });
+    if (shortlist.length < MIN_CANDIDATES && request.genre) shortlist = catalog.popular({ ...opts, genre: null });
+    if (shortlist.length < MIN_CANDIDATES && request.tags.length) shortlist = catalog.popular({ ...opts, tags: [], genre: request.genre });
 
+    const lovedTitles = fromLoved && reading ? reading.shelf.filter((e) => e.status === 'loved').map((e) => e.title) : [];
     const picks = shortlist.length >= MIN_CANDIDATES
-      ? parsePicks(await complete(buildPickPrompt(question, shortlist)), shortlist)
+      ? parsePicks(await complete(buildPickPrompt(question, shortlist, { tags: request.tags, loved: lovedTitles })), shortlist)
       : [];
+    if (profile && reading && picks.length) await profile.save(withPicks(reading, picks.map((p) => p.candidate), now()));
     logger?.info({
       request,
       anchors: anchors.map((a) => a.id),
+      loved: fromLoved ? loved : [],
       shortlist: shortlist.length,
       picks: picks.map((p) => p.candidate.id),
       ms: Date.now() - started,
     }, 'book recommendation');
-    return { kind: 'answer', text: formatAnswer(picks, unknown) };
+    return { kind: 'answer', text: formatAnswer(picks, unknown), picks };
   };
 }
