@@ -157,7 +157,7 @@ describe('createBookRecommender with tags and a reading profile', () => {
     await recommend('something like Mistborn but darker');
     assert.match(model.prompts[0]!, /tone:dark \(grim\)/);
     const listed = JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number; what_redditors_say?: unknown }[];
-    assert.deepEqual(listed.map((c) => c.id), [4, 5, 3, 7]);
+    assert.deepEqual(listed.map((c) => c.id), [4, 5, 3, 7, 6], 'dark neighbours first, then a dark popular title as fill');
     assert.deepEqual(listed[0]!.what_redditors_say, { praise: ['soldiers as family'], complaints: [], advice: [], comparisons: [] });
     assert.match(model.prompts[1]!, /The reader asked for: tone:dark\./);
   });
@@ -189,5 +189,21 @@ describe('createBookRecommender with tags and a reading profile', () => {
     const recommend = createBookRecommender({ catalog: openSqliteBookCatalog(db.file), complete: model.complete });
     const result = await recommend('like Locke Lamora');
     assert.match(result.kind === 'answer' ? result.text : '', /^1\. \*Mistborn\* \(series\)\nHeists\.\nStart with \*The Final Empire\*\.\n10 mentions/);
+  });
+});
+
+describe('createBookRecommender tag fill', () => {
+  it('adds best-liked titles carrying a wanted tag when few of the neighbours do', async () => {
+    const db = createBookDb(
+      [{ id: 1, title: 'Epic', author: 'A' }, { id: 2, title: 'N1', author: 'B' }, { id: 3, title: 'N2', author: 'C' }, { id: 4, title: 'N3', author: 'D' }, { id: 5, title: 'Short One', author: 'E' }],
+      [1, 2, 3, 4, 5].map((id) => ({ bookId: id, threads: 20, from: 100 * id })),
+      [{ anchor: 1, title: 2, score: 0.9 }, { anchor: 1, title: 3, score: 0.8 }, { anchor: 1, title: 4, score: 0.7 }],
+      { tags: [{ title: 5, tag: 'format:standalone' }], vocabulary: [{ tag: 'format:standalone' }] },
+    );
+    const model = fakeModel(request({ anchors: ['Epic'], tags: ['format:standalone'] }), { picks: [{ id: 5, reason: 'Short.' }] });
+    const recommend = createBookRecommender({ catalog: openSqliteBookCatalog(db.file), complete: model.complete });
+    await recommend('like Epic but a standalone');
+    const listed = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
+    assert.deepEqual(listed, [2, 3, 4, 5]);
   });
 });

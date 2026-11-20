@@ -44,7 +44,7 @@ const strings = (v: unknown) =>
 
 export function buildParsePrompt(question: string, genres: string[], vocabulary: VocabularyTag[] = []) {
   const tagLine = vocabulary.length
-    ? `\n- tags: up to ${MAX_TAGS} of these tags that the reader explicitly asks for (a mood, tone, trope, format such as standalone, length, romance level, audience or subgenre), else []. "but darker" → a dark tone; "less romance" → little or no romance; "finished series" → complete. Tags: ${vocabulary.map((v) => `${v.tag} (${v.description})`).join('; ')}`
+    ? `\n- tags: up to ${MAX_TAGS} of these tags for qualities the reader explicitly asks for in their own words (a mood, tone, trope, format such as standalone, length, romance level or subgenre), else []. Never describe the named books themselves: "like Stormlight" → [], "like Mistborn but darker" → ["tone:dark"], "like First Law but funnier" → ["tone:humorous"], "less romance" → ["romance:none"], "a finished series" → ["status:complete"]. Most "like X" requests have no tags. Tags:${vocabulary.map((v) => `${v.tag} (${v.description})`).join('; ')}`
     : '';
   return `You read a message from a fantasy reader and decide whether it asks for book recommendations. Reply with one JSON object only, no prose.
 
@@ -184,6 +184,12 @@ export function createBookRecommender({
     const loved = !anchors.length && !request.genre && reading ? lovedIds(reading) : [];
     let shortlist = catalog.similarTo(anchors.length ? anchors.map((a) => a.id) : loved, opts);
     const fromLoved = !anchors.length && shortlist.length >= MIN_CANDIDATES;
+    const carriesTag = (c: Candidate) => c.tags.some((t) => request.tags.includes(t));
+    if (shortlist.length && request.tags.length && shortlist.filter(carriesTag).length < MIN_CANDIDATES) {
+      // "Like WoT but standalone": few neighbours carry the tag, so add the best-liked Titles that do.
+      const extra = catalog.popular({ ...opts, limit: SHORTLIST / 2, genre: null, exclude: { ...exclude, ids: [...exclude.ids, ...shortlist.map((c) => c.id)] } });
+      shortlist = [...shortlist, ...extra];
+    }
     if (shortlist.length < MIN_CANDIDATES) shortlist = catalog.popular({ ...opts, genre: request.genre });
     if (shortlist.length < MIN_CANDIDATES && request.genre) shortlist = catalog.popular({ ...opts, genre: null });
     if (shortlist.length < MIN_CANDIDATES && request.tags.length) shortlist = catalog.popular({ ...opts, tags: [], genre: request.genre });

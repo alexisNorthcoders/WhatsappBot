@@ -169,21 +169,22 @@ export function openSqliteBookCatalog(
   }
 
   /**
-   * Allowed, de-duplicated Titles in the given order, wanted-tag matches first, cut to `limit`.
-   * An excluded Title excludes its family, and only the first of a family is kept.
+   * Allowed, de-duplicated Titles in the given order, cut to `limit`. An excluded Title
+   * excludes its family, and only the first of a family is kept. Wanted tags re-rank only the
+   * first 2×limit allowed rows, so a tagged but distant Title can't jump the close ones.
    */
   function shortlist<T extends { t: Ranked }>(rows: T[], s: Stats, { exclude, limit, tags = [] }: { exclude: Exclusions; limit: number; tags?: string[] }) {
     const authors = exclude.authors.map(nameTokens).filter((t) => t.length);
     const taken = new Set(exclude.ids.flatMap((id) => [...family(id, s.membership)]));
-    const matched = (id: number) => (s.tags.get(id) ?? []).filter((tag) => tags.includes(tag)).length;
-    const out: T[] = [];
-    for (const row of [...rows].sort((a, b) => matched(b.t.id) - matched(a.t.id))) {
+    const window: T[] = [];
+    for (const row of rows) {
       if (taken.has(row.t.id) || byExcludedAuthor(row.t.author, authors)) continue;
       for (const id of family(row.t.id, s.membership)) taken.add(id);
-      out.push(row);
-      if (out.length === limit) break;
+      window.push(row);
+      if (window.length === 2 * limit) break;
     }
-    return out;
+    const matched = (id: number) => (s.tags.get(id) ?? []).filter((tag) => tags.includes(tag)).length;
+    return window.sort((a, b) => matched(b.t.id) - matched(a.t.id)).slice(0, limit);
   }
 
   return {
