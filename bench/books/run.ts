@@ -3,7 +3,10 @@
  * writes one JSONL line per ask: the parsed request, the shortlist the picker saw, the picks and
  * the answer, with timings. `judge.ts` scores the file afterwards.
  *
- *   node --env-file=.env bench/books/run.ts --db <copy.sqlite3> --model minipc|<claude model> --label L --out <dir>
+ *   node --env-file=.env bench/books/run.ts --db <copy.sqlite3> --model minipc|haiku-api|<claude model> --label L --out <dir>
+ *
+ * `haiku-api` is the bot's own `BOOK_LLM=haiku` path (Messages API, needs ANTHROPIC_API_KEY), without
+ * the mini PC fallback so failures show; any other non-minipc model goes through `claude -p`.
  *
  * Output holds Reddit excerpts, so --out must be outside the repo. Asks run one at a time: the
  * mini PC gateway has two slots shared with live traffic.
@@ -16,6 +19,8 @@ import { createBookRecommender } from '../../whatsapp/books/recommendBooks.ts';
 import { openSqliteBookCatalog } from '../../whatsapp/books/sqliteBookCatalog.ts';
 import type { BookCatalog, Candidate } from '../../whatsapp/books/bookCatalog.ts';
 import { claudeCli } from './claudeCli.ts';
+import Anthropic from '@anthropic-ai/sdk';
+import { haikuComplete } from '../../whatsapp/books/haikuComplete.ts';
 
 export type Ask = { id: string; kind: string; ask: string; note?: string };
 
@@ -55,11 +60,23 @@ mkdirSync(values.out, { recursive: true });
 appendFileSync(file, JSON.stringify({ settings: { model, db: values.db, at: new Date().toISOString() } }) + '\n');
 
 let calls: CallLog[] = [];
+const anthropic = model === 'haiku-api' ? new Anthropic({ apiKey: requiredKey(), timeout: 20_000, maxRetries: 1 }) : null;
+const haikuApi = haikuComplete((p) => anthropic!.messages.create(p));
+function requiredKey() {
+  const key = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!key) throw new Error('--model haiku-api needs ANTHROPIC_API_KEY');
+  return key;
+}
 async function complete(prompt: string): Promise<string> {
   const t = Date.now();
   try {
     if (model === 'minipc') {
       const text = await deepInfraAPI(prompt, undefined, { temperature: 0, json: process.env.BENCH_NO_JSON !== '1' });
+      calls.push({ ms: Date.now() - t, ok: true });
+      return text;
+    }
+    if (model === 'haiku-api') {
+      const text = await haikuApi(prompt);
       calls.push({ ms: Date.now() - t, ok: true });
       return text;
     }
