@@ -22,6 +22,7 @@ import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/boo
 import { openSqliteBookCatalog } from '../books/sqliteBookCatalog.ts';
 import { createBookRecommender } from '../books/recommendBooks.ts';
 import { createReadingProfile, fileReadingProfileStore } from '../books/readingProfile.ts';
+import { bookCompleteFromEnv } from '../books/haikuComplete.ts';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.ts';
 import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.ts';
 import { DEFAULT_ALL_DAY_NUDGE_MIN, parseAllDayNudgeTime } from '../calendar/nudgeTick.ts';
@@ -278,7 +279,7 @@ function bookRecommenderFromEnv(logger: Logger) {
     return {
       recommend: createBookRecommender({
         catalog,
-        complete: (prompt) => deepInfraAPI(prompt, undefined, { temperature: 0, json: true }),
+        complete: bookCompleteFromEnv((prompt) => deepInfraAPI(prompt, undefined, { temperature: 0, json: true }), logger),
         profile: store,
         logger,
       }),
