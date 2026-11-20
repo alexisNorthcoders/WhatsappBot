@@ -171,6 +171,25 @@ describe('runAgentsChainSequential book agent wiring', () => {
     assert.deepEqual(sent, [{ chatId: OWNER, text: 'Try *Prince of Thorns*.' }]);
   });
 
+  it('a claimed reading-profile message beats the router and other keyword gates; an unclaimed one reaches them', async () => {
+    const sent: string[] = [];
+    let routed = 0;
+    const deps = chainDeps({
+      messaging: { sendText: async (_chatId, text) => sent.push(text) },
+      routeIntent: async () => (routed++, { agent: 'weather', probability: 0.9 }),
+      shouldTryWeatherAgent: () => true,
+      runWeatherAgent: async () => 'Windy.',
+      shouldTryBookAgent,
+      runBookAgent: async () => BOOK_AGENT_SKIP,
+      claimBookMessage: async (m) => (m.text.includes('Name of the Wind') ? 'Noted.' : null),
+      BOOK_AGENT_SKIP,
+    });
+    assert.equal((await runAgentsChainSequential(inbound("I've read The Name of the Wind"), deps)).handled, true);
+    assert.deepEqual([sent, routed], [['Noted.'], 0]);
+    await runAgentsChainSequential(inbound('is it windy'), deps);
+    assert.deepEqual([sent, routed], [['Noted.', 'Windy.'], 1]);
+  });
+
   it('not_a_request falls through to the normal handlers', async () => {
     const sent: unknown[] = [];
     const recommend = fakeRecommend(NOT_A_REQUEST);
