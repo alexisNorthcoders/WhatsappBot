@@ -31,6 +31,12 @@ export type AgentChainDeps = {
   runHomeAgent?: TextAgent;
   HOME_AGENT_SKIP?: string;
   shouldTryBookAgent?: TextGate;
+  /**
+   * Messages only the book agent handles (reading-profile statements such as "I've read The
+   * Name of the Wind"): it runs before the router and the keyword chain, so another agent's
+   * keyword ("wind") can't take them. Returns the reply, or null to fall through to them.
+   */
+  claimBookMessage?: (m: InboundMessage) => Promise<string | null>;
   /** gets the whole message (owner check needs the actor) */
   runBookAgent?: (m: InboundMessage) => Promise<string>;
   BOOK_AGENT_SKIP?: string;
@@ -72,6 +78,12 @@ export async function runAgentsChainSequential(m: InboundMessage, deps: AgentCha
       await messaging.sendText(chatId, `${agent.errorLabel}: ${(err as Error).message}`);
       return true;
     }
+  }
+
+  const books = agents.find((a) => a.key === 'books');
+  if (books && deps.claimBookMessage) {
+    const claim = deps.claimBookMessage;
+    if (await runAgent({ ...books, run: (msg) => claim(msg) })) return { handled: true };
   }
 
   if (typeof routeIntent === 'function') {

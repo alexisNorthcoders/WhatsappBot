@@ -121,6 +121,8 @@ export function createProductionPorts(deps: ProductionPortsDeps): OrchestratorPo
     runHomeAgent,
     HOME_AGENT_SKIP,
     shouldTryBookAgent,
+    claimBookMessage: async (m) =>
+      books.profile && isAllowedActor(m.actorId, m.actorAltId) ? books.profile(m.text) : null,
     runBookAgent: (m) => runBookAgent(m, { ...books, isAllowedActor, logger }),
     BOOK_AGENT_SKIP,
     isAllowedActor,
