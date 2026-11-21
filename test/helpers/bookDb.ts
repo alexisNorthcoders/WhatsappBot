@@ -58,6 +58,19 @@ export type FixtureExtras = {
   vocabulary?: { tag: string; description?: string }[];
   dossiers?: { title: number; praise?: string[]; complaints?: string[]; advice?: string[]; comparisons?: string[] }[];
   seriesBooks?: { series: number; book: number; position: number | null }[];
+  /** reddit-bot's ask index: past request Threads, their seeds and tags, and what they were answered with. */
+  asks?: FixtureAsk[];
+};
+
+export type FixtureAsk = {
+  thread: string;
+  title: string;
+  summary?: string;
+  likes?: number[];
+  unlikes?: number[];
+  wants?: string[];
+  avoids?: string[];
+  answers?: { title: number; support: number; redditors: number; against?: number }[];
 };
 
 export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[], similar: FixtureSimilar[] = [], extras: FixtureExtras = {}) {
@@ -103,6 +116,30 @@ export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[]
     db.exec(`CREATE TABLE rec_series_books (series_id INTEGER, book_id INTEGER, position REAL)`);
     const add = db.prepare(`INSERT INTO rec_series_books VALUES (?, ?, ?)`);
     for (const m of extras.seriesBooks) add.run(m.series, m.book, m.position);
+  }
+  if (extras.asks) {
+    db.exec(`
+      CREATE TABLE rec_asks (thread_id TEXT, title TEXT, summary TEXT, wanted TEXT, avoided TEXT, asked_at TEXT,
+        permalink TEXT, source TEXT, ask_version INTEGER);
+      CREATE TABLE rec_ask_seeds (thread_id TEXT, title_id INTEGER, relation TEXT);
+      CREATE TABLE rec_ask_tags (thread_id TEXT, polarity TEXT, facet TEXT, tag TEXT);
+      CREATE VIRTUAL TABLE ask_fts USING fts5(thread_id UNINDEXED, title, summary, wanted, tokenize = 'porter unicode61');
+      CREATE TABLE rec_ask_answers (thread_id TEXT, title_id INTEGER, support REAL, redditors INTEGER, comments INTEGER,
+        top_level INTEGER, score INTEGER, against INTEGER);`);
+    const ask = db.prepare(`INSERT INTO rec_asks VALUES (?, ?, ?, '', '', '2026-11-01', ?, 'text', 1)`);
+    const fts = db.prepare(`INSERT INTO ask_fts VALUES (?, ?, ?, '')`);
+    const seed = db.prepare(`INSERT INTO rec_ask_seeds VALUES (?, ?, ?)`);
+    const tag = db.prepare(`INSERT INTO rec_ask_tags VALUES (?, ?, ?, ?)`);
+    const answer = db.prepare(`INSERT INTO rec_ask_answers VALUES (?, ?, ?, ?, ?, 0, 0, ?)`);
+    for (const a of extras.asks) {
+      ask.run(a.thread, a.title, a.summary ?? '', `https://www.reddit.com/r/Fantasy/comments/${a.thread}/ask/`);
+      fts.run(a.thread, a.title, a.summary ?? '');
+      for (const id of a.likes ?? []) seed.run(a.thread, id, 'like');
+      for (const id of a.unlikes ?? []) seed.run(a.thread, id, 'unlike');
+      for (const t of a.wants ?? []) tag.run(a.thread, 'want', ...t.split(':'));
+      for (const t of a.avoids ?? []) tag.run(a.thread, 'avoid', ...t.split(':'));
+      for (const x of a.answers ?? []) answer.run(a.thread, x.title, x.support, x.redditors, x.redditors, x.against ?? 0);
+    }
   }
   db.exec('COMMIT');
   return { file, add, close: () => db.close() };

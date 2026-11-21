@@ -12,6 +12,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { claudeCli } from './claudeCli.ts';
 import type { Ask, RunLine } from './run.ts';
+import { communityLine } from '../../whatsapp/books/recommendBooks.ts';
 
 const JUDGE_MODEL = 'claude-opus-5-5';
 const DIMENSIONS = ['fit', 'variety', 'grounding'] as const;
@@ -25,7 +26,7 @@ export function buildJudgePrompt(line: RunLine, ask: Ask) {
   const picked = new Set(line.picks.map((p) => p.id));
   const evidence = line.shortlist
     .filter((c) => picked.has(c.id))
-    .map((c) => ({ title: c.title, author: c.author, kind: c.kind, mentions: c.mentions, positive: c.positive, negative: c.negative, what_redditors_said: c.excerpts, dossier: (c as { dossier?: unknown }).dossier }));
+    .map((c) => ({ title: c.title, author: c.author, kind: c.kind, mentions: c.mentions, positive: c.positive, negative: c.negative, what_redditors_said: c.excerpts, dossier: c.dossier, answered_in_similar_asks: c.answered ? communityLine(c.answered) : undefined }));
   return `You grade a fantasy book recommender. A reader sent the request below; the bot replied with up to three picks drawn from r/Fantasy discussion. Score the reply 1-5 on each dimension, using your own knowledge of the books:
 
 - fit: do the picks suit THIS request, including every modifier ("but darker", "standalone", "less romance") and exclusion? Picks the reader named or obviously already knows, or by an excluded author, cost heavily. A reply with no picks scores 1 unless the request is truly unanswerable.

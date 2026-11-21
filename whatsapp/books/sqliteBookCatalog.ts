@@ -1,5 +1,6 @@
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type { BookCatalog, Candidate, Dossier, Exclusions, Title, VocabularyTag } from './bookCatalog.ts';
+import { ASK_ANSWERS_SQL, ASK_RETRIEVAL_SQL, ASK_SETTINGS, askParams, poolAnswers, type AskAnswer, type AskSettings, type RankedAsk } from './askRetrieval.ts';
 
 /**
  * Reads reddit-bot's recommendation read model read-only, and nothing else of its schema.
@@ -7,9 +8,10 @@ import type { BookCatalog, Candidate, Dossier, Exclusions, Title, VocabularyTag 
  *
  * Required: `rec_titles`, `rec_mentions`, `rec_names` and `rec_similar` (its nightly book
  * similarity). Optional, because reddit-bot deploys them later: `rec_tags`, `rec_vocabulary`
- * and `rec_dossiers` (Haiku Title tags and Dossiers) and `rec_series_books` (Series Membership).
+ * and `rec_dossiers` (Haiku Title tags and Dossiers), `rec_series_books` (Series Membership), and
+ * `rec_asks`, `rec_ask_seeds`, `rec_ask_tags`, `ask_fts` and `rec_ask_answers` (the ask index).
  * Without one, its feature is off: no tag filtering, excerpts instead of Dossiers, no Series
- * collapse or "start with".
+ * collapse or "start with", no answers from past asks.
  */
 
 const STATS_MAX_AGE_MS = 60 * 60 * 1000;
@@ -85,7 +87,7 @@ type Membership = { seriesOf: Map<number, number[]>; books: Map<number, { id: nu
 
 export function openSqliteBookCatalog(
   path: string,
-  { now = Date.now }: { now?: () => number } = {},
+  { now = Date.now, askSettings = ASK_SETTINGS }: { now?: () => number; askSettings?: AskSettings } = {},
 ): BookCatalog {
   const db = new DatabaseSync(path, { readOnly: true });
 
@@ -111,6 +113,8 @@ export function openSqliteBookCatalog(
   const vocabularyStmt = optional(`SELECT facet, tag, description FROM rec_vocabulary ORDER BY facet, tag`);
   const dossierStmt = optional(`SELECT praise, complaints, advice, comparisons FROM rec_dossiers WHERE title_id = ?`);
   const membershipStmt = optional(`SELECT series_id, book_id, position FROM rec_series_books`);
+  const askStmt = optional(ASK_RETRIEVAL_SQL);
+  const answersStmt = optional(ASK_ANSWERS_SQL);
 
   type Stats = { at: number; byId: Map<number, Ranked>; ranked: Ranked[]; tags: Map<number, string[]>; membership: Membership };
   let cache: Stats | null = null;
@@ -213,6 +217,21 @@ export function openSqliteBookCatalog(
       });
       return shortlist(rows, s, { ...opts, exclude: { ...opts.exclude, ids: [...opts.exclude.ids, ...anchorIds] } })
         .map(({ t, sharedThreads }) => candidate(t, s, sharedThreads));
+    },
+
+    answeredFor(query, opts) {
+      if (!askStmt || !answersStmt) return [];
+      const s = stats();
+      const asks = askStmt.all(askParams(query, askSettings)) as RankedAsk[];
+      const rows = poolAnswers(asks, (id) => answersStmt.all(id) as AskAnswer[]).flatMap((p) => {
+        const t = s.byId.get(p.titleId);
+        return t ? [{ t, p }] : [];
+      });
+      return shortlist(rows, s, opts).map(({ t, p }) => {
+        const c = candidate(t, s);
+        const example = { title: p.best.title ?? 'an r/Fantasy request', link: p.best.permalink };
+        return { ...c, link: example.link ?? c.link, answered: { redditors: p.redditors, against: p.against, asks: p.asks, example } };
+      });
     },
 
     popular({ genre, tags = [], ...opts }) {

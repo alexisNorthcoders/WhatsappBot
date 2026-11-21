@@ -28,5 +28,8 @@
   { "id": "multi-malazan-blackcompany", "kind": "multi", "ask": "I like Malazan and the Black Company, what else?", "note": "military, gritty epic" },
   { "id": "ambig-wot-abbrev", "kind": "ambiguous", "ask": "something like WoT", "note": "WoT = The Wheel of Time" },
   { "id": "ambig-hobb", "kind": "ambiguous", "ask": "I want something like Hobb's books", "note": "Robin Hobb: Realm of the Elderlings; no Hobb titles" },
-  { "id": "ambig-asoiaf", "kind": "ambiguous", "ask": "anything like ASOIAF?", "note": "ASOIAF = A Song of Ice and Fire" }
+  { "id": "ambig-asoiaf", "kind": "ambiguous", "ask": "anything like ASOIAF?", "note": "ASOIAF = A Song of Ice and Fire" },
+  { "id": "s9-cozy-lattes", "kind": "added", "ask": "something cozy like Legends & Lattes", "note": "low-stakes cozy fantasy; no Baldree" },
+  { "id": "s9-kid-percy", "kind": "added", "ask": "a book for a 10-year-old who loved Percy Jackson", "note": "middle-grade, age-appropriate adventure; nothing adult" },
+  { "id": "s9-dragons-unlike-fourth-wing", "kind": "added", "ask": "books with dragons, but nothing like Fourth Wing", "note": "dragons; not romantasy like Fourth Wing; not Fourth Wing itself" }
 ]

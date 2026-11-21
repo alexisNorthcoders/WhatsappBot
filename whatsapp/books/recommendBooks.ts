@@ -1,4 +1,4 @@
-import type { BookCatalog, Candidate, Title, VocabularyTag } from './bookCatalog.ts';
+import type { BookCatalog, Candidate, CommunityAnswer, Title, VocabularyTag } from './bookCatalog.ts';
 import { excludedIds, lovedIds, withPicks, type ReadingProfileStore } from './readingProfile.ts';
 import type { Logger } from '../types.ts';
 
@@ -7,6 +7,10 @@ export type BookRequest = {
   genre: string | null;
   /** Wanted Title tags (`facet:tag`) for modifiers such as "but darker" or "standalone". */
   tags: string[];
+  /** Tags for what the reader says they don't want ("not grimdark"). */
+  avoidTags: string[];
+  /** Books named as what the reader doesn't want it to be like ("dragons, but unlike Fourth Wing"). */
+  unlike: string[];
   excludeTitles: string[];
   excludeAuthors: string[];
 };
@@ -26,6 +30,10 @@ const SHORTLIST = 20;
 const MIN_CANDIDATES = 3;
 const MAX_REASON_CHARS = 300;
 const MAX_TAGS = 4;
+/** Community answers lead the shortlist, up to this many; similarity, tags and popularity fill it. */
+const MAX_LEAD = 10;
+/** One Redditor's suggestion in one ask is an anecdote, not an answer. */
+const MIN_ANSWER_REDDITORS = 2;
 
 export const NOT_ENOUGH_DATA =
   "Not enough data: r/Fantasy hasn't discussed enough books matching that for me to recommend any with confidence.";
@@ -47,13 +55,15 @@ const strings = (v: unknown) =>
 
 export function buildParsePrompt(question: string, genres: string[], vocabulary: VocabularyTag[] = []) {
   const tagLine = vocabulary.length
-    ? `\n- tags: up to ${MAX_TAGS} of these tags for qualities the reader explicitly asks for in their own words (a mood, tone, trope, format such as standalone, length, romance level or subgenre), else []. Never describe the named books themselves: "like Stormlight" → [], "like Mistborn but darker" → ["tone:dark"], "like First Law but funnier" → ["tone:humorous"], "less romance" → ["romance:none"], "a finished series" → ["status:complete"]. Most "like X" requests have no tags. Tags:${vocabulary.map((v) => `${v.tag} (${v.description})`).join('; ')}`
+    ? `\n- tags: up to ${MAX_TAGS} of these tags for qualities the reader explicitly asks for in their own words (a mood, tone, trope, format such as standalone, length, romance level or subgenre), else []. Never describe the named books themselves: "like Stormlight" → [], "like Mistborn but darker" → ["tone:dark"], "like First Law but funnier" → ["tone:humorous"], "less romance" → ["romance:none"], "a finished series" → ["status:complete"]. Most "like X" requests have no tags. For a young reader, include the audience: a child up to about 12 or "middle grade" → "audience:middle_grade", a teen or "YA" → "audience:ya". Tags:${vocabulary.map((v) => `${v.tag} (${v.description})`).join('; ')}
+- avoidTags: up to ${MAX_TAGS} tags from the same list for qualities the reader says they don't want ("nothing grimdark" → ["subgenre:grimdark"], "no YA" → ["audience:ya"]), else [].`
     : '';
   return `You read a message from a fantasy reader and decide whether it asks for book recommendations. Reply with one JSON object only, no prose.
 
 If it asks for Books or Series to read (including open asks like "what should I read next?"), reply:
-{"anchors": string[], "genre": string | null, ${vocabulary.length ? '"tags": string[], ' : ''}"excludeTitles": string[], "excludeAuthors": string[]}
+{"anchors": string[], "unlike": string[], "genre": string | null, ${vocabulary.length ? '"tags": string[], "avoidTags": string[], ' : ''}"excludeTitles": string[], "excludeAuthors": string[]}
 - anchors: Books or Series named as reference points ("like Mistborn" → ["Mistborn"]; "Hobb's books" → ["Realm of the Elderlings"]), else []. Expand abbreviations (WoT → The Wheel of Time, ASOIAF → A Song of Ice and Fire).
+- unlike: Books or Series named as what the reader doesn't want it to be like ("dragons, but nothing like Fourth Wing" → ["Fourth Wing"]), else [].
 - genre: one of ${genres.join(', ')} when the reader clearly asks for one, else null.${tagLine}
 - excludeTitles / excludeAuthors: Books or authors the reader doesn't want (already read, dislikes), else [].
 
@@ -69,10 +79,13 @@ export function parseRequest(raw: string, genres: string[], vocabulary: Vocabula
   if (!j || j.notRequest === true) return null;
   const genre = typeof j.genre === 'string' ? j.genre.trim().toLowerCase() : null;
   const known = new Set(vocabulary.map((v) => v.tag));
+  const tags = (v: unknown) => [...new Set(strings(v).map((t) => t.toLowerCase()))].filter((t) => known.has(t)).slice(0, MAX_TAGS);
   return {
     anchors: strings(j.anchors),
     genre: genre && genres.includes(genre) ? genre : null,
-    tags: [...new Set(strings(j.tags).map((t) => t.toLowerCase()))].filter((t) => known.has(t)).slice(0, MAX_TAGS),
+    tags: tags(j.tags),
+    avoidTags: tags(j.avoidTags),
+    unlike: strings(j.unlike),
     excludeTitles: strings(j.excludeTitles),
     excludeAuthors: strings(j.excludeAuthors),
   };
@@ -100,6 +113,12 @@ export function atMostOneBy(authors: string[], picks: BookPick[]): BookPick[] {
   return picks.filter((p) => p === first || !lovedAuthor(p));
 }
 
+/** "recommended by 14 Redditors in 3 similar asks, e.g. "…"; 2 argued against". */
+export function communityLine(a: CommunityAnswer) {
+  const by = `recommended by ${a.redditors} Redditor${a.redditors === 1 ? '' : 's'} in ${a.asks} similar ask${a.asks === 1 ? '' : 's'}, e.g. "${a.example.title}"`;
+  return a.against ? `${by}; ${a.against} argued against it` : by;
+}
+
 export function buildPickPrompt(
   question: string,
   shortlist: Candidate[],
@@ -116,8 +135,12 @@ export function buildPickPrompt(
     negative: c.negative,
     shared_threads_with_named_books: c.sharedThreads,
     tags: c.tags.length ? c.tags : undefined,
+    answered_in_similar_asks: c.answered ? communityLine(c.answered) : undefined,
     ...(c.dossier ? { what_redditors_say: c.dossier } : { what_redditors_said: c.excerpts }),
   }));
+  const asked = shortlist.some((c) => c.answered)
+    ? `\n- answered_in_similar_asks means Redditors recommended it in past r/Fantasy threads asking for something like this request. Prefer those candidates when they fit, and you may say so in the reason.`
+    : '';
   const wanted = tags.length ? `\n- The reader asked for: ${tags.join(', ')}. Prefer candidates whose tags or dossier show it; never pick one whose tags contradict it.` : '';
   const lovedAuthors = [...new Set(loved.flatMap((l) => l.author ?? []))];
   const lovedLine = loved.length
@@ -126,7 +149,7 @@ export function buildPickPrompt(
   return `You pick book recommendations for a reader from a shortlist built from r/Fantasy discussion. Reply with one JSON object only, no prose:
 {"picks": [{"id": number, "reason": string}]}
 
-- Use ONLY candidates from the list, by id. Pick up to ${MAX_PICKS} that best fit the request, including every modifier in it.${wanted}${lovedLine}
+- Use ONLY candidates from the list, by id. Pick up to ${MAX_PICKS} that best fit the request, including every modifier in it.${wanted}${lovedLine}${asked}
 - Prefer candidates with more mentions and a higher positive share, and, for "like X" requests, more shared threads.
 - Pick three different authors, and never two books of one series.
 - reason: one sentence on why it fits this reader. State only what the candidate's dossier, tags or quotes support; don't invent plot, magic or tone.
@@ -205,28 +228,37 @@ export function createBookRecommender({
       else unknown.push(name);
     }
     const request = parseReply.backend === 'minipc' ? guardAgainstAnchors(parsed, anchors, catalog) : parsed;
+    const unlikeIds = request.unlike.flatMap((name) => catalog.find(name)?.id ?? []);
     const exclude = {
       ids: [
         ...anchors.map((a) => a.id),
+        ...unlikeIds,
         ...request.excludeTitles.flatMap((name) => catalog.find(name)?.id ?? []),
         ...(reading ? excludedIds(reading, now()) : []),
       ],
       authors: [...request.excludeAuthors, ...anchors.flatMap((a) => a.author ?? [])],
     };
-    const opts = { exclude, limit: SHORTLIST, tags: request.tags };
-
     const loved = !anchors.length && !request.genre && reading ? lovedIds(reading) : [];
+
+    // What r/Fantasy answered asks like this one leads; today's sources fill the rest.
+    const asked = { likes: anchors.length ? anchors.map((a) => a.id) : loved, unlikes: unlikeIds, wants: request.tags, avoids: request.avoidTags, text: question };
+    const lead = catalog.answeredFor(asked, { exclude, limit: SHORTLIST, tags: request.tags })
+      .filter((c) => (c.answered?.redditors ?? 0) >= MIN_ANSWER_REDDITORS)
+      .slice(0, MAX_LEAD);
+    const opts = { exclude: { ...exclude, ids: [...exclude.ids, ...lead.map((c) => c.id)] }, limit: SHORTLIST, tags: request.tags };
+
     let shortlist = catalog.similarTo(anchors.length ? anchors.map((a) => a.id) : loved, opts);
     const fromLoved = !anchors.length && shortlist.length >= MIN_CANDIDATES;
     const carriesTag = (c: Candidate) => c.tags.some((t) => request.tags.includes(t));
     if (shortlist.length && request.tags.length && shortlist.filter(carriesTag).length < MIN_CANDIDATES) {
       // "Like WoT but standalone": few neighbours carry the tag, so add the best-liked Titles that do.
-      const extra = catalog.popular({ ...opts, limit: SHORTLIST / 2, genre: null, exclude: { ...exclude, ids: [...exclude.ids, ...shortlist.map((c) => c.id)] } });
+      const extra = catalog.popular({ ...opts, limit: SHORTLIST / 2, genre: null, exclude: { ...opts.exclude, ids: [...opts.exclude.ids, ...shortlist.map((c) => c.id)] } });
       shortlist = [...shortlist, ...extra];
     }
     if (shortlist.length < MIN_CANDIDATES) shortlist = catalog.popular({ ...opts, genre: request.genre });
     if (shortlist.length < MIN_CANDIDATES && request.genre) shortlist = catalog.popular({ ...opts, genre: null });
     if (shortlist.length < MIN_CANDIDATES && request.tags.length) shortlist = catalog.popular({ ...opts, tags: [], genre: request.genre });
+    shortlist = [...lead, ...shortlist].slice(0, SHORTLIST);
 
     const lovedTitles = fromLoved ? loved.flatMap((id) => catalog.title(id) ?? []) : [];
     const lovedAuthors = lovedTitles.flatMap((t) => t.author ?? []);
@@ -241,6 +273,7 @@ export function createBookRecommender({
       ...(request !== parsed ? { parsed: { genre: parsed.genre, tags: parsed.tags } } : {}),
       anchors: anchors.map((a) => a.id),
       loved: fromLoved ? loved : [],
+      answered: lead.map((c) => c.id),
       shortlist: shortlist.length,
       picks: picks.map((p) => p.candidate.id),
       ms: Date.now() - started,
