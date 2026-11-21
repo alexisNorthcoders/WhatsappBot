@@ -363,7 +363,8 @@ describe('community answers from similar asks', () => {
     assert.equal(candidates[0]!.answered_in_similar_asks, 'recommended by 4 Redditors in 1 similar ask, e.g. "books like mistborn"');
     assert.equal(candidates[3]!.answered_in_similar_asks, undefined);
     assert.match(model.prompts[1]!, /answered_in_similar_asks means/);
-    assert.match(result.kind === 'answer' ? result.text : '', /\nhttps:\/\/www\.reddit\.com\/r\/Fantasy\/comments\/m1\/ask\/$/);
+    assert.match(result.kind === 'answer' ? result.text : '', /\nRecommended by 4 Redditors in 1 similar r\/Fantasy ask\nhttps:\/\/www\.reddit\.com\/r\/Fantasy\/comments\/m1\/ask\/$/);
+    assert.match(model.prompts[1]!, /Don't mention past asks/);
   });
 
   it('retrieves by the books the reader names as unwanted and by avoided tags, and excludes those books', async () => {
