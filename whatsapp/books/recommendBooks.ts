@@ -139,7 +139,7 @@ export function buildPickPrompt(
     ...(c.dossier ? { what_redditors_say: c.dossier } : { what_redditors_said: c.excerpts }),
   }));
   const asked = shortlist.some((c) => c.answered)
-    ? `\n- answered_in_similar_asks means Redditors recommended it in past r/Fantasy threads asking for something like this request. Prefer those candidates when they fit. Only a candidate that has answered_in_similar_asks may be called recommended in similar asks.`
+    ? `\n- answered_in_similar_asks means Redditors recommended it in past r/Fantasy threads asking for something like this request. Prefer those candidates when they fit. Don't mention past asks or threads in the reason: the reply adds that evidence itself.`
     : '';
   const wanted = tags.length ? `\n- The reader asked for: ${tags.join(', ')}. Prefer candidates whose tags or dossier show it; never pick one whose tags contradict it.` : '';
   const lovedAuthors = [...new Set(loved.flatMap((l) => l.author ?? []))];
@@ -179,13 +179,18 @@ export function statLine(t: Title) {
   return `${t.mentions} mentions on r/Fantasy, ${pct}% positive`;
 }
 
+/** The reply's evidence for a pick from similar asks; the link after it is the ask that backed it most. */
+export function askedLine(a: CommunityAnswer) {
+  return `Recommended by ${a.redditors} Redditor${a.redditors === 1 ? '' : 's'} in ${a.asks} similar r/Fantasy ask${a.asks === 1 ? '' : 's'}`;
+}
+
 export function formatAnswer(picks: BookPick[], unknown: string[]) {
   const notes = unknown.map((name) => `I don't have data on ${name}.`);
   if (!picks.length) return [...notes, NOT_ENOUGH_DATA].join('\n\n');
   const body = picks.map(({ candidate: c, reason }, i) => {
     const head = `${i + 1}. *${c.title}*${c.author ? ` by ${c.author}` : ''}${c.kind === 'series' ? ' (series)' : ''}`;
     const start = c.startWith && c.startWith !== c.title ? `Start with *${c.startWith}*.` : null;
-    return [head, reason, start, statLine(c), c.link].filter(Boolean).join('\n');
+    return [head, reason, start, statLine(c), c.answered ? askedLine(c.answered) : null, c.link].filter(Boolean).join('\n');
   });
   return [...notes, ...body].join('\n\n');
 }
