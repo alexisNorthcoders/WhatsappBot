@@ -19,6 +19,24 @@ node bench/books/judge.ts <scratch>/bench/mine.jsonl <scratch>/bench/haiku.jsonl
   public. The judge writes `<run>.judged.jsonl` next to each run and only judges lines that are
   still missing, so a rerun resumes.
 - Asks run one at a time, because the mini PC gateway has two slots shared with live traffic.
+- `--no-asks` turns off the shortlist's answers from similar past asks (`answeredFor`), for an
+  A/B on one DB copy.
+- The asks of kind `added` (cozy like Legends & Lattes, a 10-year-old who loved Percy Jackson,
+  dragons unlike Fourth Wing) came after the first 30; compare overall scores on the 30 when
+  comparing with older runs.
+
+## Tuning ask retrieval
+
+```bash
+node bench/books/tuneAsks.ts --db <scratch>/copy.sqlite3 --out <scratch>/tune
+```
+
+It parses each ask (Haiku, cached), retrieves the top 5 past asks under each of 179 weight
+settings, has Opus rate every retrieved past ask once (0–2: would its answers suit this reader?),
+then ranks the settings by nDCG@3 offline. Ratings are cached in `<out>/labels.jsonl`, so a new
+grid or a new DB only rates the asks it hasn't seen. On 2026-11-21 (379 ratings, $0.69 of Opus) the best
+setting, seed 3 / tag 2 / text 1.5, scored 0.702 against 0.676 for reddit-bot's 2 / 1 / 1.5; the
+two differ on 4 of 33 asks, all wins for the new weights, and most of the grid lies within 0.03.
 
 ## Results (2026-11-20)
 

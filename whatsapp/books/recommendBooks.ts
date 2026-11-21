@@ -139,7 +139,7 @@ export function buildPickPrompt(
     ...(c.dossier ? { what_redditors_say: c.dossier } : { what_redditors_said: c.excerpts }),
   }));
   const asked = shortlist.some((c) => c.answered)
-    ? `\n- answered_in_similar_asks means Redditors recommended it in past r/Fantasy threads asking for something like this request. Prefer those candidates when they fit, and you may say so in the reason.`
+    ? `\n- answered_in_similar_asks means Redditors recommended it in past r/Fantasy threads asking for something like this request. Prefer those candidates when they fit. Only a candidate that has answered_in_similar_asks may be called recommended in similar asks.`
     : '';
   const wanted = tags.length ? `\n- The reader asked for: ${tags.join(', ')}. Prefer candidates whose tags or dossier show it; never pick one whose tags contradict it.` : '';
   const lovedAuthors = [...new Set(loved.flatMap((l) => l.author ?? []))];
