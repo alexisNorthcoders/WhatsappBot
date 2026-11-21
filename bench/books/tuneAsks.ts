@@ -132,7 +132,9 @@ function evaluate(w: AskWeights) {
 const results = grid.map((w) => ({ w, ...evaluate(w) })).sort((a, b) => b.ndcg - a.ndcg || a.junk - b.junk);
 const fmt = (r: (typeof results)[number]) => `seed ${r.w.seed} tag ${r.w.tag} text ${r.w.text}: nDCG@3 ${r.ndcg.toFixed(3)}, top-3 rated 0 ${(100 * r.junk).toFixed(0)}% (${r.judged} asks)`;
 console.log(`labels: ${labels.size}; bench asks with a query: ${queries.size}`);
-console.log(`S8 default  ${fmt({ w: ASK_SETTINGS.weights, ...evaluate(ASK_SETTINGS.weights) })}`);
+const REDDIT_BOT_WEIGHTS = { seed: 2, tag: 1, text: 1.5 };
+console.log(`reddit-bot  ${fmt({ w: REDDIT_BOT_WEIGHTS, ...evaluate(REDDIT_BOT_WEIGHTS) })}`);
+console.log(`current     ${fmt({ w: ASK_SETTINGS.weights, ...evaluate(ASK_SETTINGS.weights) })}`);
 for (const r of results.slice(0, 15)) console.log(`            ${fmt(r)}`);
 
 /** For the best and the default weights: ratings by rank, and by score band, to set how many asks to pool and the floor. */

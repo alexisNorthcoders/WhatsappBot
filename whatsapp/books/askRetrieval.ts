@@ -44,8 +44,14 @@ export type AskSettings = {
   minScore: number;
 };
 
-/** reddit-bot's hand-set first guess; `bench/books/tuneAsks.ts` measures alternatives. */
-export const ASK_SETTINGS: AskSettings = { weights: { seed: 2, tag: 1, text: 1.5 }, asks: 3, minScore: 0 };
+/**
+ * Measured by `bench/books/tuneAsks.ts` on the 33 bench asks (2026-11-21, 379 Opus-rated past
+ * asks): nDCG@3 0.702 against 0.676 for reddit-bot's first guess (2 / 1 / 1.5). They differ on
+ * 4 asks, all wins for these weights; most of the grid sits within 0.03, so the weights matter
+ * little. Ratings drop after the third ask, and no score band separates unsuitable asks, so
+ * three asks and no floor.
+ */
+export const ASK_SETTINGS: AskSettings = { weights: { seed: 3, tag: 2, text: 1.5 }, asks: 3, minScore: 0 };
 
 /**
  * Past asks ranked for a request. Per ask:
@@ -54,6 +60,9 @@ export const ASK_SETTINGS: AskSettings = { weights: { seed: 2, tag: 1, text: 1.5
  * - tag overlap: the same with wanted and avoided tags;
  * - text match: its bm25 over title, summary and wanted text, scaled so the best match is 1.
  * score = @w_seed × seed + @w_tag × tag + @w_text × text; ties go to the newer ask.
+ * A wanted audience (`audience:middle_grade`) is a requirement, not a preference: only asks
+ * wanting it too count, or "for a 10-year-old who loved Percy Jackson" pools an adult ask that
+ * merely names Percy Jackson.
  */
 export const ASK_RETRIEVAL_SQL = `
   WITH
@@ -61,6 +70,7 @@ export const ASK_RETRIEVAL_SQL = `
     req_unlike(id) AS (SELECT value FROM json_each(@unlikes)),
     req_want(t) AS (SELECT value FROM json_each(@wants)),
     req_avoid(t) AS (SELECT value FROM json_each(@avoids)),
+    req_audience(t) AS (SELECT value FROM json_each(@audiences)),
     seed AS (
       SELECT thread_id, SUM(CASE
           WHEN relation = 'like' AND title_id IN req_like THEN 1
@@ -90,6 +100,8 @@ export const ASK_RETRIEVAL_SQL = `
   LEFT JOIN tag ON tag.thread_id = cand.thread_id
   LEFT JOIN text ON text.thread_id = cand.thread_id
   WHERE score > 0 AND score >= @min_score
+    AND NOT EXISTS (SELECT 1 FROM req_audience r WHERE r.t NOT IN (
+      SELECT x.facet || ':' || x.tag FROM rec_ask_tags x WHERE x.thread_id = a.thread_id AND x.polarity = 'want'))
   ORDER BY score DESC, a.asked_at DESC
   LIMIT @limit`;
 
@@ -104,6 +116,7 @@ export function askParams(q: AskQuery, { weights, asks, minScore }: AskSettings)
     unlikes: JSON.stringify(q.unlikes),
     wants: JSON.stringify(q.wants),
     avoids: JSON.stringify(q.avoids),
+    audiences: JSON.stringify(q.wants.filter((t) => t.startsWith('audience:'))),
     fts: ftsQuery(q.text),
     w_seed: weights.seed,
     w_tag: weights.tag,

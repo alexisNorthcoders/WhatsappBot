@@ -79,6 +79,17 @@ describe('sqliteBookCatalog answeredFor', () => {
     assert.equal(out[1]!.answered!.against, 10);
   });
 
+  it('pools only asks for the same audience when the reader names one', () => {
+    const kids: FixtureAsk[] = [
+      { thread: 'adult', title: 'like mistborn for a prison book club', likes: [1], answers: [{ title: 3, support: 30, redditors: 8 }] },
+      { thread: 'kid', title: 'for my 9 year old', wants: ['audience:middle_grade'], answers: [{ title: 8, support: 2, redditors: 2 }] },
+    ];
+    const catalog = openSqliteBookCatalog(createBookDb(titles, mentions, [], { asks: kids }).file);
+    const query = { likes: [1], unlikes: [], avoids: [], text: 'for a 10 year old who loved Mistborn' };
+    assert.deepEqual(catalog.answeredFor({ ...query, wants: ['audience:middle_grade'] }, { exclude: none, limit: 10 }).map((c) => c.id), [8]);
+    assert.equal(catalog.answeredFor({ ...query, wants: [] }, { exclude: none, limit: 10 })[0]!.id, 3, 'without an age the adult ask leads');
+  });
+
   it('retrieves by tags and by unlikes', () => {
     const catalog = openSqliteBookCatalog(createBookDb(titles, mentions, [], { asks }).file);
     const query = { likes: [], unlikes: [], wants: [], avoids: [], text: '' };
