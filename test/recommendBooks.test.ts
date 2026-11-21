@@ -384,3 +384,25 @@ describe('community answers from similar asks', () => {
     assert.doesNotMatch(model.prompts[1]!, /answered_in_similar_asks/);
   });
 });
+
+describe('community answers with a tag fill', () => {
+  it('keep the best-liked tagged titles when many untagged neighbours follow the answers', async () => {
+    const neighbours = Array.from({ length: 25 }, (_, i) => ({ id: 100 + i, title: `Long Series ${i}`, author: `Author ${i}`, kind: 'series' as const }));
+    const db = createBookDb(
+      [{ id: 1, title: 'The Wheel of Time', author: 'Robert Jordan', kind: 'series' }, ...neighbours,
+        { id: 200, title: 'A Standalone', author: 'Solo One' }, { id: 201, title: 'Another Standalone', author: 'Solo Two' }, { id: 202, title: 'Answered Pick', author: 'Asked For' }],
+      [1, ...neighbours.map((n) => n.id), 200, 201, 202].map((id) => ({ bookId: id, threads: 20, from: 100 * id })),
+      neighbours.map((n, i) => ({ anchor: 1, title: n.id, score: 1 - i / 100 })),
+      {
+        tags: [{ title: 200, tag: 'format:standalone' }, { title: 201, tag: 'format:standalone' }],
+        vocabulary: [{ tag: 'format:standalone', description: 'a standalone novel' }],
+        asks: [{ thread: 'w1', title: 'after wheel of time', likes: [1], answers: [{ title: 202, support: 5, redditors: 3 }] }],
+      },
+    );
+    const model = fakeModel(request({ anchors: ['The Wheel of Time'], tags: ['format:standalone'] }), { picks: [] }, 'claude');
+    await createBookRecommender({ catalog: openSqliteBookCatalog(db.file), complete: model.complete })('like Wheel of Time but a standalone');
+    const ids = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
+    assert.equal(ids[0], 202, 'the answer leads');
+    assert.ok(ids.includes(200) && ids.includes(201), 'the tagged standalones still reach the picker');
+  });
+});
