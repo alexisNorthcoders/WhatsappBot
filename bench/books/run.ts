@@ -45,6 +45,7 @@ const { values } = parseArgs({
     label: { type: 'string' },
     out: { type: 'string' },
     only: { type: 'string' },
+    'no-asks': { type: 'boolean' },
   },
 });
 if (!values.db || !values.out || !values.label) throw new Error('--db, --label and --out are required');
@@ -57,7 +58,7 @@ const asks = (JSON.parse(readFileSync(path.join(import.meta.dirname, 'asks.json'
 const model = values.model!;
 const file = path.join(values.out, `${values.label}.jsonl`);
 mkdirSync(values.out, { recursive: true });
-appendFileSync(file, JSON.stringify({ settings: { model, db: values.db, at: new Date().toISOString() } }) + '\n');
+appendFileSync(file, JSON.stringify({ settings: { model, db: values.db, asks: !values['no-asks'], at: new Date().toISOString() } }) + '\n');
 
 let calls: CallLog[] = [];
 const anthropic = model === 'haiku-api' ? new Anthropic({ apiKey: requiredKey(), timeout: 20_000, maxRetries: 1 }) : null;
@@ -89,13 +90,14 @@ async function complete(prompt: string): Promise<Completion> {
   }
 }
 
-/** The real catalog, remembering every Candidate it hands the recommender. */
+/** The real catalog, remembering every Candidate it hands the recommender; `--no-asks` turns ask retrieval off. */
 function recording(catalog: BookCatalog, seen: Map<number, Candidate>): BookCatalog {
   const keep = (cs: Candidate[]) => (cs.forEach((c) => seen.set(c.id, c)), cs);
   return {
     ...catalog,
     similarTo: (...a) => keep(catalog.similarTo(...a)),
     popular: (...a) => keep(catalog.popular(...a)),
+    answeredFor: (...a) => (values['no-asks'] ? [] : keep(catalog.answeredFor(...a))),
   };
 }
 
