@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0",
     "@cacheable/node-cache": "^1.7.6",
     "@mozilla/readability": "^0.6.0",
     "@whiskeysockets/baileys": "7.0.0-rc14",

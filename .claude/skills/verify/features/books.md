@@ -8,6 +8,8 @@ The owner asks for something to read and gets up to three picks from r/Fantasy d
 - `books-open` answers "what should I read next" with the best-liked titles.
 - `books-genre` answers "recommend a cozy fantasy" from that genre's titles.
 - `books-not-a-request` lets a question about a book ("who wrote X") fall through to chat.
+- `books-profile` keeps the owner's reading profile: "I've read X", "loved X", "DNF X", "show my reading profile", "forget X from my reading profile", "clear my reading profile". Recommendations then leave out everything on it and anything recommended in the last 30 days, and open asks ("what should I read next") start from the loved titles.
+- `books-tags` (needs reddit-bot's `rec_tags`/`rec_vocabulary`): a modifier ("but darker", "standalone", "less romance") becomes Title tags, and tagged candidates rank first. With `rec_dossiers` the picker reasons from the Dossier; with `rec_series_books` a Series and its own Books never both appear, and a picked Series says `Start with *Book 1*.`
 
 ## How to get to it (user POV)
 
@@ -19,13 +21,22 @@ Preconditions:
 
 - `BOOK_DB_PATH` points at reddit-bot's `reddit_bot.sqlite3`. Without it the book agent skips and every message reaches chat.
 - The DB has reddit-bot's recommendation read model (`rec_titles`, `rec_mentions`, `rec_names`, `rec_similar` views), which reddit-bot's `initSchema` creates. The catalog reads only those views. On an older DB the log shows `book recommendations off: cannot open BOOK_DB_PATH` with `no such table: rec_titles` (or `rec_similar`), and every message reaches chat.
+- The read model may also have `rec_tags`, `rec_vocabulary`, `rec_dossiers` and `rec_series_books` (reddit-bot's Title tags, Dossiers and Series Membership). Each is optional: without it, its part of `books-tags` is off and nothing errors.
+- The reading profile is a JSON file at `BOOK_PROFILE_FILE` (default `logs/books/profile.json` in the checkout). **Point it at a scratch file when driving** (`BOOK_PROFILE_FILE=<scratch>/profile.json node … drive.ts …`), or the journeys edit the owner's real profile and recent-picks list.
 - `rec_similar` is empty until reddit-bot's `npm run similarity` has run on that DB. Until then `books-like` falls back to the best-liked titles, so turn 1 still answers but without "like X" picks. On a copy, run `SQLITE_PATH=<copy> npm run similarity` in reddit-bot first.
 
 - **All four.** Run `drive "something like Mistborn but darker" "what should I read next" "recommend a cozy fantasy" "who wrote the name of the wind"`. Turns 1 to 3 each reply with a numbered list of up to three titles, each with a reason, `N mentions on r/Fantasy, P% positive` and a reddit link. Turn 1 has no Brandon Sanderson title. Turn 4 is a plain chat answer.
+- **Profile.** With `BOOK_PROFILE_FILE` on a scratch path, run `drive "loved Piranesi" "I've read Mistborn, The Name of the Wind" "show my reading profile" "what should I read next" "clear my reading profile"` as one call. Turns 1–2 reply `Noted: you … *Title*`; turn 3 lists `*Loved:* Piranesi` and `*Read:* …`; turn 4's log line `"book recommendation"` has `"loved":[<Piranesi id>]` and its picks are none of the shelved titles; turn 5 replies `Cleared…`. The scratch file then holds `{"shelf":[],"recent":[]}`.
+- **Tags** (on a DB with `rec_tags`): `drive "something like Mistborn but darker"` logs `"tags":["tone:dark"]` (or `bleak`) in the request.
 - **Route.** In the log, turns 1 to 3 show `"Jev route"` with `"agent":"books"` and a `"book recommendation"` line with the shortlist size and picks. Turn 4 routes to `chat`.
 
 ## Gotchas
 
-- Read-only: nothing to undo.
-- Each turn makes two DeepInfra-client calls on `DEEPINFRA_CHAT_MODEL` (the mini PC), about 8 s together. The first turn in a process also spends about 1 s building mention counts.
+- Recommending is read-only on reddit-bot's DB. The profile journeys write only `BOOK_PROFILE_FILE`; delete the scratch file afterwards.
+- Profile statements are answered before routing (`claimBookMessage` in the agent chain), so there is no `"Jev route"` line for them, and another agent's keyword ("Wind" in *The Name of the Wind*) can't take them. A statement naming nothing in the catalog ("I've read your message") falls through to the router as usual.
+- A stranger's "loved X" gets no reply, and `BOOK_PROFILE_FILE` isn't created.
+- An open ask drawn from loved titles may include a loved author, but at most one pick by loved authors: the picker is told so, and later picks by them are dropped.
+- With `BOOK_LLM=haiku` and `ANTHROPIC_API_KEY` set, both calls go to Claude Haiku 5.5 through the Messages API instead. Startup logs `book recommendations use Haiku, falling back to the mini PC`. A failed, timed-out (20 s) or refused Haiku call logs `book LLM failed, using the mini PC` and that call goes to the mini PC. `BOOK_LLM=haiku` without a key logs a warning and stays on the mini PC. To drive it, set both on the `drive.ts` command line; never add the key to `.env` yourself.
+- When a named Book resolves **and the mini PC answered the parse call** (including a Haiku call that fell back to it), the recommender drops the parsed genre and any parsed tag that Book already carries; the log line then has `"parsed"` with what the model said. `"parsedBy"` in the log line says which backend parsed (`minipc` or `claude`); a Claude parse is used as is, so "like First Law but darker" keeps `tone:dark` there. So "like First Law but darker" gets no `tone:dark` (First Law is dark). It catches only tags the anchor carries at ≥0.6: on the mini PC, "what should I read after Cradle?" loses the `grimdark` genre but keeps the invented `tone:dark`, `tone:bleak` and `pacing:slow` (Cradle has none of them), and the picker then reasons from those.
+- Each turn makes two DeepInfra-client calls on `DEEPINFRA_CHAT_MODEL` (the mini PC), about 8 s together, both with `response_format: json_object` (without it qwen3-30b-a3b sometimes drops the closing brace and the answer is `Not enough data`). The first turn in a process also spends about 1 s building mention counts.
 - `Not enough data: …` means fewer than three titles survived the filters, which is a correct answer for a narrow request, not a failure.

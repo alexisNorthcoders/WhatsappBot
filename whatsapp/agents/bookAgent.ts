@@ -1,4 +1,5 @@
 import type { Recommendation } from '../books/recommendBooks.ts';
+import { parseProfileCommand } from '../books/readingProfile.ts';
 import type { InboundMessage } from '../orchestration/normalizeBaileysMessage.ts';
 import type { isAllowedActor } from '../whatsAppActorAllowlist.ts';
 import type { Logger } from '../types.ts';
@@ -19,20 +20,23 @@ const KEYWORD_PATTERN = new RegExp(
 );
 
 /**
- * Keyword gate; the recommender itself decides whether a hit is really a request (`not_a_request`).
+ * Keyword gate, plus reading-profile messages ("loved Mistborn", "show my reading profile"); the
+ * recommender itself decides whether a hit is really a request (`not_a_request`).
  */
 export function shouldTryBookAgent(text: string): boolean {
   if (process.env.BOOK_AGENT_ALWAYS === '1') return true;
   if (!text || typeof text !== 'string') return false;
-  return KEYWORD_PATTERN.test(text);
+  return KEYWORD_PATTERN.test(text) || parseProfileCommand(text) !== null;
 }
 
 /**
- * Owner-only. Non-owners, and every message when no catalog is configured, get BOOK_AGENT_SKIP.
+ * Owner-only (the allowlist). Reading-profile messages are answered first, then requests. Non-owners, and every message when no catalog is configured, get BOOK_AGENT_SKIP.
  * @returns The recommendation, the "unavailable" message, or BOOK_AGENT_SKIP.
  */
 export async function runBookAgent(m: InboundMessage, deps: {
   recommend?: (question: string) => Promise<Recommendation>;
+  /** Reading-profile messages: the reply, or null when the message isn't one. */
+  profile?: (text: string) => Promise<string | null>;
   isAllowedActor?: typeof isAllowedActor;
   logger?: Pick<Logger, 'warn'>;
 } = {}): Promise<string> {
@@ -41,6 +45,8 @@ export async function runBookAgent(m: InboundMessage, deps: {
 
   let result: Recommendation;
   try {
+    const shelved = deps.profile ? await deps.profile(m.text) : null;
+    if (shelved !== null) return shelved;
     result = await deps.recommend(m.text);
   } catch (err) {
     deps.logger?.warn({ err: (err as Error).message }, 'Book recommendations failed');
