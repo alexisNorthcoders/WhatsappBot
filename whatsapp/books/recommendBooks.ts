@@ -250,7 +250,7 @@ export function createBookRecommender({
     const lead = catalog.answeredFor(asked, { exclude, limit: SHORTLIST, tags: request.tags })
       .filter((c) => (c.answered?.redditors ?? 0) >= MIN_ANSWER_REDDITORS)
       .slice(0, MAX_LEAD);
-    const opts = { exclude: { ...exclude, ids: [...exclude.ids, ...lead.map((c) => c.id)] }, limit: SHORTLIST, tags: request.tags };
+    const opts = { exclude: { ...exclude, ids: [...exclude.ids, ...lead.map((c) => c.id)] }, limit: SHORTLIST - lead.length, tags: request.tags };
 
     let shortlist = catalog.similarTo(anchors.length ? anchors.map((a) => a.id) : loved, opts);
     const fromLoved = !anchors.length && shortlist.length >= MIN_CANDIDATES;
@@ -263,7 +263,7 @@ export function createBookRecommender({
     if (shortlist.length < MIN_CANDIDATES) shortlist = catalog.popular({ ...opts, genre: request.genre });
     if (shortlist.length < MIN_CANDIDATES && request.genre) shortlist = catalog.popular({ ...opts, genre: null });
     if (shortlist.length < MIN_CANDIDATES && request.tags.length) shortlist = catalog.popular({ ...opts, tags: [], genre: request.genre });
-    shortlist = [...lead, ...shortlist].slice(0, SHORTLIST);
+    shortlist = [...lead, ...shortlist];
 
     const lovedTitles = fromLoved ? loved.flatMap((id) => catalog.title(id) ?? []) : [];
     const lovedAuthors = lovedTitles.flatMap((t) => t.author ?? []);
