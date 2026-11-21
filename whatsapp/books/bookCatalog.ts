@@ -32,6 +32,22 @@ export type Candidate = Title & {
   link: string | null;
   /** For a Series: its first Book, when reddit-bot knows the Series' Books. */
   startWith: string | null;
+  /** Present when past r/Fantasy asks like the reader's recommended it. */
+  answered?: CommunityAnswer;
+};
+
+/** A request as ask retrieval takes it: Title ids, `facet:tag` tags and the reader's own words. */
+export type AskQuery = { likes: number[]; unlikes: number[]; wants: string[]; avoids: string[]; text: string };
+
+/** What r/Fantasy answered a Title with, pooled over the past asks closest to the reader's. */
+export type CommunityAnswer = {
+  /** Supporting recommendations, summed over the asks (one Redditor may count in several). */
+  redditors: number;
+  /** Redditors who argued against it in those asks. */
+  against: number;
+  asks: number;
+  /** The ask that backed it most. */
+  example: { title: string; link: string | null };
 };
 
 export type Exclusions = { ids: number[]; authors: string[] };
@@ -47,6 +63,11 @@ export type BookCatalog = {
    * first. A Series and its own Books never both appear, and excluding one excludes the other.
    */
   similarTo: (anchorIds: number[], opts: ShortlistOptions) => Candidate[];
+  /**
+   * What r/Fantasy answered the past asks closest to this one with, most supported first, with
+   * rebuttals demoting a Title; same Series rules. Empty on a DB without reddit-bot's ask index.
+   */
+  answeredFor: (query: AskQuery, opts: ShortlistOptions) => Candidate[];
   /** The Titles r/Fantasy reads most and likes best, overall or in one genre; same Series rules. */
   popular: (opts: ShortlistOptions & { genre: string | null }) => Candidate[];
   genres: () => string[];

@@ -319,3 +319,90 @@ describe('loved authors on open asks', () => {
     assert.doesNotMatch(model.prompts[1]!, /Pick at most one book by/);
   });
 });
+
+describe('community answers from similar asks', () => {
+  function askedCatalog() {
+    const db = createBookDb(
+      [
+        { id: 1, title: 'Mistborn', author: 'Brandon Sanderson', kind: 'series' },
+        { id: 2, title: 'The Stormlight Archive', author: 'Brandon Sanderson', kind: 'series' },
+        { id: 3, title: 'The Lies of Locke Lamora', author: 'Scott Lynch' },
+        { id: 4, title: 'The Black Company', author: 'Glen Cook' },
+        { id: 5, title: 'Prince of Thorns', author: 'Mark Lawrence' },
+        { id: 6, title: 'The Blade Itself', author: 'Joe Abercrombie' },
+        { id: 7, title: 'Temeraire', author: 'Naomi Novik' },
+        { id: 9, title: 'Fourth Wing', author: 'Rebecca Yarros' },
+      ],
+      [1, 2, 3, 4, 5, 6, 7, 9].map((id) => ({ bookId: id, threads: 30, from: 100 * id })),
+      [
+        { anchor: 1, title: 2, score: 0.5 },
+        { anchor: 1, title: 3, score: 0.4 },
+        { anchor: 1, title: 4, score: 0.3 },
+        { anchor: 1, title: 5, score: 0.2 },
+      ],
+      {
+        vocabulary: [{ tag: 'trope:dragons', description: 'dragons' }, { tag: 'romance:central', description: 'romance-led' }],
+        asks: [
+          {
+            thread: 'm1', title: 'books like mistborn', likes: [1],
+            answers: [{ title: 6, support: 9, redditors: 4 }, { title: 5, support: 20, redditors: 1 }],
+          },
+          { thread: 'd1', title: 'dragons but not fourth wing', unlikes: [9], wants: ['trope:dragons'], answers: [{ title: 7, support: 6, redditors: 3 }] },
+        ],
+      },
+    );
+    return openSqliteBookCatalog(db.file);
+  }
+  const listed = (prompt: string) => JSON.parse(prompt.split('Candidates: ')[1]!) as { id: number; answered_in_similar_asks?: string }[];
+
+  it('lead the shortlist with their evidence, link the ask, and leave a lone suggestion to the other sources', async () => {
+    const model = fakeModel(request({ anchors: ['Mistborn'] }), { picks: [{ id: 6, reason: 'r/Fantasy suggests it to Mistborn fans.' }] });
+    const result = await createBookRecommender({ catalog: askedCatalog(), complete: model.complete })('something like Mistborn');
+    const candidates = listed(model.prompts[1]!);
+    assert.deepEqual(candidates.map((c) => c.id), [6, 3, 4, 5], 'the answer first; Prince of Thorns, one Redditor, stays in its similarity place');
+    assert.equal(candidates[0]!.answered_in_similar_asks, 'recommended by 4 Redditors in 1 similar ask, e.g. "books like mistborn"');
+    assert.equal(candidates[3]!.answered_in_similar_asks, undefined);
+    assert.match(model.prompts[1]!, /answered_in_similar_asks means/);
+    assert.match(result.kind === 'answer' ? result.text : '', /\nRecommended by 4 Redditors in 1 similar r\/Fantasy ask\nhttps:\/\/www\.reddit\.com\/r\/Fantasy\/comments\/m1\/ask\/$/);
+    assert.match(model.prompts[1]!, /Don't mention past asks/);
+  });
+
+  it('retrieves by the books the reader names as unwanted and by avoided tags, and excludes those books', async () => {
+    const model = fakeModel(request({ unlike: ['Fourth Wing'], tags: ['trope:dragons'], avoidTags: ['romance:central', 'romance:invented'] }));
+    await createBookRecommender({ catalog: askedCatalog(), complete: model.complete })('dragons, but nothing like Fourth Wing');
+    assert.match(model.prompts[0]!, /"unlike": string\[\]/);
+    assert.match(model.prompts[0]!, /"avoidTags": string\[\]/);
+    const candidates = listed(model.prompts[1]!);
+    assert.equal(candidates[0]!.id, 7);
+    assert.ok(!candidates.some((c) => c.id === 9), 'the unwanted book is never offered');
+  });
+
+  it('change nothing when no ask is close: the prompt has no ask line', async () => {
+    const model = fakeModel(request({ anchors: ['The Black Company'] }));
+    await createBookRecommender({ catalog: askedCatalog(), complete: model.complete })('like the black company');
+    assert.equal(model.prompts.length, 2);
+    assert.doesNotMatch(model.prompts[1]!, /answered_in_similar_asks/);
+  });
+});
+
+describe('community answers with a tag fill', () => {
+  it('keep the best-liked tagged titles when many untagged neighbours follow the answers', async () => {
+    const neighbours = Array.from({ length: 25 }, (_, i) => ({ id: 100 + i, title: `Long Series ${i}`, author: `Author ${i}`, kind: 'series' as const }));
+    const db = createBookDb(
+      [{ id: 1, title: 'The Wheel of Time', author: 'Robert Jordan', kind: 'series' }, ...neighbours,
+        { id: 200, title: 'A Standalone', author: 'Solo One' }, { id: 201, title: 'Another Standalone', author: 'Solo Two' }, { id: 202, title: 'Answered Pick', author: 'Asked For' }],
+      [1, ...neighbours.map((n) => n.id), 200, 201, 202].map((id) => ({ bookId: id, threads: 20, from: 100 * id })),
+      neighbours.map((n, i) => ({ anchor: 1, title: n.id, score: 1 - i / 100 })),
+      {
+        tags: [{ title: 200, tag: 'format:standalone' }, { title: 201, tag: 'format:standalone' }],
+        vocabulary: [{ tag: 'format:standalone', description: 'a standalone novel' }],
+        asks: [{ thread: 'w1', title: 'after wheel of time', likes: [1], answers: [{ title: 202, support: 5, redditors: 3 }] }],
+      },
+    );
+    const model = fakeModel(request({ anchors: ['The Wheel of Time'], tags: ['format:standalone'] }), { picks: [] }, 'claude');
+    await createBookRecommender({ catalog: openSqliteBookCatalog(db.file), complete: model.complete })('like Wheel of Time but a standalone');
+    const ids = (JSON.parse(model.prompts[1]!.split('Candidates: ')[1]!) as { id: number }[]).map((c) => c.id);
+    assert.equal(ids[0], 202, 'the answer leads');
+    assert.ok(ids.includes(200) && ids.includes(201), 'the tagged standalones still reach the picker');
+  });
+});
