@@ -32,6 +32,16 @@ function fantasyDb() {
       { bookId: 8, threads: 25, from: 800, sentiment: 'negative' },
       { bookId: 9, threads: 3, from: 900 },
     ],
+    [
+      { anchor: 1, title: 99, score: 0.9 },
+      { anchor: 1, title: 3, score: 0.5, sharedThreads: 15 },
+      { anchor: 1, title: 4, score: 0.4, sharedThreads: 35 },
+      { anchor: 1, title: 2, score: 0.2, sharedThreads: 20 },
+      { anchor: 1, title: 7, score: 0.1 },
+      { anchor: 7, title: 1, score: 0.1 },
+      { anchor: 7, title: 3, score: 0.3, sharedThreads: 5 },
+      { anchor: 7, title: 2, score: 0.25, sharedThreads: 2 },
+    ],
   );
 }
 
@@ -52,12 +62,13 @@ describe('sqliteBookCatalog', () => {
     }
   });
 
-  it("ranks titles concentrated in the anchor's threads above merely popular ones", () => {
+  it("ranks by reddit-bot's book similarity, skipping titles the read model no longer offers", () => {
     const catalog = openSqliteBookCatalog(fantasyDb().file);
     const similar = catalog.similarTo([1], { exclude: { ids: [], authors: ['Brandon Sanderson'] }, limit: 10 });
     assert.deepEqual(similar.map((c) => [c.title, c.sharedThreads]), [
       ['The Lies of Locke Lamora', 15],
       ['The Wheel of Time', 20],
+      ['Legends & Lattes', 1],
     ]);
     assert.deepEqual(similar[0].excerpts, ['Loved book 3.', 'Loved book 3.']);
     assert.match(similar[0].link ?? '', /^https:\/\/www\.reddit\.com\/r\/Fantasy\//);
@@ -65,8 +76,18 @@ describe('sqliteBookCatalog', () => {
 
   it('leaves out excluded titles, and keeps same-author titles unless excluded', () => {
     const catalog = openSqliteBookCatalog(fantasyDb().file);
-    const similar = catalog.similarTo([1], { exclude: { ids: [3], authors: [] }, limit: 10 });
+    const similar = catalog.similarTo([1], { exclude: { ids: [3], authors: [] }, limit: 2 });
     assert.deepEqual(similar.map((c) => c.title), ['The Stormlight Archive', 'The Wheel of Time']);
+  });
+
+  it('ranks a title close to several anchors above one close to a single anchor', () => {
+    const catalog = openSqliteBookCatalog(fantasyDb().file);
+    const similar = catalog.similarTo([1, 7], { exclude: none, limit: 10 });
+    assert.deepEqual(similar.map((c) => [c.title, c.sharedThreads]), [
+      ['The Lies of Locke Lamora', 20],
+      ['The Wheel of Time', 22],
+      ['The Stormlight Archive', 35],
+    ]);
   });
 
   it('ranks popular titles by how reliably positive they are, within a genre when asked', () => {

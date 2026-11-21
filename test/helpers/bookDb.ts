@@ -35,6 +35,9 @@ const SCHEMA = `
     title_id INTEGER NOT NULL, thread_id TEXT NOT NULL, sentiment TEXT NOT NULL,
     excerpt TEXT, permalink TEXT, processed_at TEXT NOT NULL);
   CREATE TABLE rec_names (name_key TEXT NOT NULL, title_id INTEGER NOT NULL);
+  CREATE TABLE rec_similar (
+    anchor_id INTEGER NOT NULL, title_id INTEGER NOT NULL, score REAL NOT NULL,
+    shared_comments INTEGER NOT NULL, shared_threads INTEGER NOT NULL);
   CREATE VIEW rec_titles AS
     SELECT id, title, author, kind, genre, mentions, positive, negative,
       1.0 * positive / (positive + negative + 1) AS score
@@ -43,7 +46,10 @@ const SCHEMA = `
         SUM(m.sentiment = 'positive') AS positive, SUM(m.sentiment = 'negative') AS negative
       FROM fixture_titles t JOIN rec_mentions m ON m.title_id = t.id GROUP BY t.id);`;
 
-export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[]) {
+/** A `rec_similar` row: reddit-bot computes these nightly; the fixture states them. */
+export type FixtureSimilar = { anchor: number; title: number; score: number; sharedThreads?: number };
+
+export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[], similar: FixtureSimilar[] = []) {
   const file = path.join(mkdtempSync(path.join(tmpdir(), 'books-')), 'reddit_bot.sqlite3');
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
@@ -62,5 +68,7 @@ export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[]
     }
   };
   mentions.forEach(add);
+  const addSimilar = db.prepare(`INSERT INTO rec_similar VALUES (?, ?, ?, 0, ?)`);
+  for (const s of similar) addSimilar.run(s.anchor, s.title, s.score, s.sharedThreads ?? 1);
   return { file, add, close: () => db.close() };
 }

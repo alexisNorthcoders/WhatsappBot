@@ -16,7 +16,7 @@ export type Title = {
 
 /** A Title offered to the picker, with why it was shortlisted and what Redditors said. */
 export type Candidate = Title & {
-  /** Threads it shares with the reader's anchors; absent for popularity picks. */
+  /** Threads it shares with the reader's anchors (summed over them); absent for popularity picks. */
   sharedThreads?: number;
   excerpts: string[];
   link: string | null;
@@ -27,7 +27,7 @@ export type Exclusions = { ids: number[]; authors: string[] };
 export type BookCatalog = {
   /** The best-known Title with this name, or null. */
   find: (name: string) => Title | null;
-  /** Titles discussed in the same threads as the anchors, relative to how popular each is. */
+  /** Titles r/Fantasy discusses alongside the anchors, by reddit-bot's book similarity, closest first. */
   similarTo: (anchorIds: number[], opts: { exclude: Exclusions; limit: number }) => Candidate[];
   /** The best-liked Titles overall, or in one genre. */
   popular: (opts: { genre: string | null; exclude: Exclusions; limit: number }) => Candidate[];

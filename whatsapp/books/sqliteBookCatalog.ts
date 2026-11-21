@@ -2,13 +2,12 @@ import { DatabaseSync } from 'node:sqlite';
 import type { BookCatalog, Candidate, Exclusions, Title } from './bookCatalog.ts';
 
 /**
- * Reads reddit-bot's recommendation read model (`rec_titles`, `rec_mentions`, `rec_names`)
- * read-only, and nothing else of its schema. reddit-bot pins those views' columns in
- * test/recReadModel.test.ts; they already leave out Unverified rows and carry the Sentiment score.
+ * Reads reddit-bot's recommendation read model (`rec_titles`, `rec_mentions`, `rec_names`,
+ * `rec_similar`) read-only, and nothing else of its schema. reddit-bot pins those views' columns
+ * in test/recReadModel.test.ts; they already leave out Unverified rows and carry the Sentiment
+ * score. `rec_similar` is reddit-bot's nightly book similarity: each Title's nearest neighbours,
+ * scored from co-mentions in the same comment and thread (its docs/adr/0002-book-similarity.md).
  */
-
-/** Below this many mentions a Title's share of co-mentions is noise. */
-const MIN_SIMILAR_MENTIONS = 30;
 
 const STATS_MAX_AGE_MS = 60 * 60 * 1000;
 
@@ -61,6 +60,9 @@ export function openSqliteBookCatalog(
 
   const namesStmt = db.prepare(`SELECT title_id AS id FROM rec_names WHERE name_key = ?`);
 
+  // similarTo prepares per anchor count; this fails at open, like the views above, on a DB without it.
+  db.prepare(`SELECT anchor_id, title_id, score, shared_threads FROM rec_similar LIMIT 0`);
+
   const excerptStmt = db.prepare(`
     SELECT excerpt, permalink FROM rec_mentions
     WHERE title_id = ? AND sentiment = 'positive' AND excerpt IS NOT NULL
@@ -110,22 +112,20 @@ export function openSqliteBookCatalog(
       if (!anchorIds.length) return [];
       const { byId } = stats();
       const marks = anchorIds.map(() => '?').join(',');
-      const shared = db.prepare(`
-        SELECT title_id AS id, COUNT(DISTINCT thread_id) AS sharedThreads FROM rec_mentions
-        WHERE thread_id IN (SELECT thread_id FROM rec_mentions WHERE title_id IN (${marks}))
-          AND title_id NOT IN (${marks})
-        GROUP BY title_id`).all(...anchorIds, ...anchorIds) as { id: number; sharedThreads: number }[];
+      // A Title close to several anchors outranks one close to a single anchor.
+      const similar = db.prepare(`
+        SELECT title_id AS id, SUM(score) AS score, SUM(shared_threads) AS sharedThreads FROM rec_similar
+        WHERE anchor_id IN (${marks}) AND title_id NOT IN (${marks})
+        GROUP BY title_id ORDER BY score DESC, title_id`).all(...anchorIds, ...anchorIds) as {
+        id: number;
+        sharedThreads: number;
+      }[];
       const keep = allowed(exclude);
-      // shared² / mentions ranks by how concentrated a Title's discussion is in the anchors'
-      // threads; raw shared counts just return the subreddit's most popular Series.
-      return shared
+      return similar
         .flatMap(({ id, sharedThreads }) => {
           const t = byId.get(id);
-          return t && t.mentions >= MIN_SIMILAR_MENTIONS && keep(t)
-            ? [{ t, sharedThreads, rank: (sharedThreads * sharedThreads) / t.mentions }]
-            : [];
+          return t && keep(t) ? [{ t, sharedThreads }] : [];
         })
-        .sort((a, b) => b.rank - a.rank)
         .slice(0, limit)
         .map(({ t, sharedThreads }) => withEvidence(toTitle(t), sharedThreads));
     },
