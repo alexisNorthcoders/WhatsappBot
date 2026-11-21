@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { titleKey } from '../../whatsapp/books/sqliteBookCatalog.ts';
 
 export type FixtureTitle = {
   id: number;
@@ -9,7 +10,8 @@ export type FixtureTitle = {
   author?: string;
   kind?: 'book' | 'series';
   genre?: string;
-  verification?: 'verified' | 'unchecked' | 'unverified';
+  /** Other names reddit-bot resolves to this Title (its Aliases). */
+  aliases?: string[];
 };
 
 /** One mention of `bookId` in each of `threads` threads, numbered from `t<from>`. */
@@ -20,36 +22,43 @@ export type FixtureMentions = {
   sentiment?: 'positive' | 'neutral' | 'negative';
 };
 
-/** The columns of reddit-bot's `books` and `book_mentions` that the catalog reads. */
+/**
+ * reddit-bot's recommendation read model, with the columns its test/recReadModel.test.ts pins.
+ * reddit-bot computes these as views over its catalog, leaving out Unverified rows; here the
+ * fixture writes the rows directly. `score` stands in for the Sentiment score (a Wilson lower
+ * bound in reddit-bot): any score that rises with positives and sample size ranks the same.
+ */
 const SCHEMA = `
-  CREATE TABLE books (
-    id INTEGER PRIMARY KEY, canonical_key TEXT NOT NULL UNIQUE, display_title TEXT NOT NULL,
-    author TEXT, created_at TEXT NOT NULL, genre TEXT,
-    verification_status TEXT NOT NULL DEFAULT 'unchecked', kind TEXT NOT NULL DEFAULT 'book');
-  CREATE TABLE book_mentions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER NOT NULL REFERENCES books(id),
-    sentiment TEXT NOT NULL, reddit_kind TEXT NOT NULL, reddit_id TEXT NOT NULL,
-    post_id TEXT NOT NULL, permalink TEXT, subreddit TEXT, source_excerpt TEXT,
-    processed_at TEXT NOT NULL, author_name TEXT);`;
+  CREATE TABLE fixture_titles (
+    id INTEGER PRIMARY KEY, title TEXT NOT NULL, author TEXT, kind TEXT NOT NULL, genre TEXT);
+  CREATE TABLE rec_mentions (
+    title_id INTEGER NOT NULL, thread_id TEXT NOT NULL, sentiment TEXT NOT NULL,
+    excerpt TEXT, permalink TEXT, processed_at TEXT NOT NULL);
+  CREATE TABLE rec_names (name_key TEXT NOT NULL, title_id INTEGER NOT NULL);
+  CREATE VIEW rec_titles AS
+    SELECT id, title, author, kind, genre, mentions, positive, negative,
+      1.0 * positive / (positive + negative + 1) AS score
+    FROM (
+      SELECT t.id, t.title, t.author, t.kind, t.genre, COUNT(*) AS mentions,
+        SUM(m.sentiment = 'positive') AS positive, SUM(m.sentiment = 'negative') AS negative
+      FROM fixture_titles t JOIN rec_mentions m ON m.title_id = t.id GROUP BY t.id);`;
 
 export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[]) {
   const file = path.join(mkdtempSync(path.join(tmpdir(), 'books-')), 'reddit_bot.sqlite3');
   const db = new DatabaseSync(file);
   db.exec(SCHEMA);
-  const addTitle = db.prepare(`INSERT INTO books
-    (id, canonical_key, display_title, author, created_at, genre, verification_status, kind)
-    VALUES (?, ?, ?, ?, '2026-01-01', ?, ?, ?)`);
+  const addTitle = db.prepare(`INSERT INTO fixture_titles VALUES (?, ?, ?, ?, ?)`);
+  const addName = db.prepare(`INSERT INTO rec_names VALUES (?, ?)`);
   for (const t of titles) {
-    addTitle.run(t.id, `key-${t.id}`, t.title, t.author ?? null, t.genre ?? null, t.verification ?? 'verified', t.kind ?? 'book');
+    addTitle.run(t.id, t.title, t.author ?? null, t.kind ?? 'book', t.genre ?? null);
+    for (const name of new Set([t.title, ...(t.aliases ?? [])].map(titleKey))) addName.run(name, t.id);
   }
-  const addMention = db.prepare(`INSERT INTO book_mentions
-    (book_id, sentiment, reddit_kind, reddit_id, post_id, permalink, subreddit, source_excerpt, processed_at)
-    VALUES (?, ?, 'comment', ?, ?, ?, 'Fantasy', ?, '2026-11-01T00:00:00+00:00')`);
+  const addMention = db.prepare(`INSERT INTO rec_mentions VALUES (?, ?, ?, ?, ?, '2026-11-01T00:00:00+00:00')`);
   const add = (m: FixtureMentions) => {
     for (let i = 0; i < m.threads; i++) {
-      const post = `t${(m.from ?? 0) + i}`;
-      addMention.run(m.bookId, m.sentiment ?? 'positive', `c${m.bookId}-${post}`, post,
-        `https://www.reddit.com/r/Fantasy/comments/${post}/x/c${m.bookId}/`, `Loved book ${m.bookId}.`);
+      const thread = `t${(m.from ?? 0) + i}`;
+      addMention.run(m.bookId, thread, m.sentiment ?? 'positive', `Loved book ${m.bookId}.`,
+        `https://www.reddit.com/r/Fantasy/comments/${thread}/x/c${m.bookId}/`);
     }
   };
   mentions.forEach(add);

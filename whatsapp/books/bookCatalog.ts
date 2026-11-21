@@ -1,5 +1,5 @@
 /**
- * The `books` port: what r/Fantasy says about Books and Series, from reddit-bot's database.
+ * The `books` port: what r/Fantasy says about Books and Series, from reddit-bot's recommendation read model.
  * Adapter: `sqliteBookCatalog.ts`; tests run it on a fixture database (`test/helpers/bookDb.ts`).
  */
 
