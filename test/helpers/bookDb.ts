@@ -57,6 +57,8 @@ export type FixtureExtras = {
   tags?: { title: number; tag: string; confidence?: number }[];
   vocabulary?: { tag: string; description?: string }[];
   dossiers?: { title: number; praise?: string[]; complaints?: string[]; advice?: string[]; comparisons?: string[] }[];
+  /** reddit-bot's `rec_merges`: Merged-away id to the row now holding its Mentions (one hop deep). */
+  merges?: { absorbed: number; survivor: number }[];
   seriesBooks?: { series: number; book: number; position: number | null }[];
   /** reddit-bot's ask index: past request Threads, their seeds and tags, and what they were answered with. */
   asks?: FixtureAsk[];
@@ -116,6 +118,11 @@ export function createBookDb(titles: FixtureTitle[], mentions: FixtureMentions[]
     db.exec(`CREATE TABLE rec_series_books (series_id INTEGER, book_id INTEGER, position REAL)`);
     const add = db.prepare(`INSERT INTO rec_series_books VALUES (?, ?, ?)`);
     for (const m of extras.seriesBooks) add.run(m.series, m.book, m.position);
+  }
+  if (extras.merges) {
+    db.exec(`CREATE TABLE rec_merges (absorbed_id INTEGER, survivor_id INTEGER)`);
+    const add = db.prepare(`INSERT INTO rec_merges VALUES (?, ?)`);
+    for (const m of extras.merges) add.run(m.absorbed, m.survivor);
   }
   if (extras.asks) {
     db.exec(`

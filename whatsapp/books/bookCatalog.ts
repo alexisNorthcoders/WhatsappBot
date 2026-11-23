@@ -73,6 +73,8 @@ export type BookCatalog = {
   genres: () => string[];
   /** The Title with this id, or null. */
   title: (id: number) => Title | null;
+  /** The Title now holding a Merged-away Title's Mentions, or null (not merged, or a DB without `rec_merges`). */
+  survivorOf: (id: number) => number | null;
   /** A Title's confident tags (`facet:tag`); empty when untagged or on a DB without tags. */
   tagsOf: (id: number) => string[];
   /** The tags the parser may ask for; empty on a DB without reddit-bot's tags. */
