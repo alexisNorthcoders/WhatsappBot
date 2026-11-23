@@ -9,9 +9,10 @@ import { ASK_ANSWERS_SQL, ASK_RETRIEVAL_SQL, ASK_SETTINGS, askParams, poolAnswer
  * Required: `rec_titles`, `rec_mentions`, `rec_names` and `rec_similar` (its nightly book
  * similarity). Optional, because reddit-bot deploys them later: `rec_tags`, `rec_vocabulary`
  * and `rec_dossiers` (Haiku Title tags and Dossiers), `rec_series_books` (Series Membership), and
- * `rec_asks`, `rec_ask_seeds`, `rec_ask_tags`, `ask_fts` and `rec_ask_answers` (the ask index).
- * Without one, its feature is off: no tag filtering, excerpts instead of Dossiers, no Series
- * collapse or "start with", no answers from past asks.
+ * `rec_asks`, `rec_ask_seeds`, `rec_ask_tags`, `ask_fts` and `rec_ask_answers` (the ask index), and
+ * `rec_merges` (catalog Merges, one hop deep). Without one, its feature is off: no tag filtering, excerpts instead of Dossiers, no Series
+ * collapse or "start with", no answers from past asks, no remapping of Merged-away ids.
+ * `optional()` caches a view missing at open as off, so `rec_merges` is picked up on the first restart after reddit-bot creates it.
  */
 
 const STATS_MAX_AGE_MS = 60 * 60 * 1000;
@@ -115,6 +116,7 @@ export function openSqliteBookCatalog(
   const membershipStmt = optional(`SELECT series_id, book_id, position FROM rec_series_books`);
   const askStmt = optional(ASK_RETRIEVAL_SQL);
   const answersStmt = optional(ASK_ANSWERS_SQL);
+  const mergeStmt = optional(`SELECT survivor_id FROM rec_merges WHERE absorbed_id = ?`);
 
   type Stats = { at: number; byId: Map<number, Ranked>; ranked: Ranked[]; tags: Map<number, string[]>; membership: Membership };
   let cache: Stats | null = null;
@@ -252,6 +254,11 @@ export function openSqliteBookCatalog(
       if (!t) return null;
       const { popularity: _, ...title } = t;
       return title;
+    },
+
+    survivorOf(id) {
+      const row = mergeStmt?.get(id) as { survivor_id: number } | undefined;
+      return row?.survivor_id ?? null;
     },
 
     tagsOf(id) {

@@ -112,7 +112,7 @@ describe('sqliteBookCatalog', () => {
   });
 });
 
-/** reddit-bot's test/recReadModel.test.ts holds the same vectors: keep the two lists equal. */
+/** reddit-bot's test/titleKey.test.ts holds the same vectors: keep the two lists equal. */
 const TITLE_KEY_VECTORS: [string, string][] = [
   ['The Stormlight Archive', 'stormlight'],
   ['Stormlight Archives series', 'stormlight'],

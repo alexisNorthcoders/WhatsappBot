@@ -21,7 +21,7 @@ import { shouldTryHomeAgent, runHomeAgent, HOME_AGENT_SKIP } from '../agents/hom
 import { shouldTryBookAgent, runBookAgent, BOOK_AGENT_SKIP } from '../agents/bookAgent.ts';
 import { openSqliteBookCatalog } from '../books/sqliteBookCatalog.ts';
 import { createBookRecommender } from '../books/recommendBooks.ts';
-import { createReadingProfile, fileReadingProfileStore } from '../books/readingProfile.ts';
+import { createReadingProfile, fileReadingProfileStore, mergeAwareStore } from '../books/readingProfile.ts';
 import { bookCompleteFromEnv } from '../books/haikuComplete.ts';
 import { shouldTryReminderAgent, runReminderAgent } from '../agents/reminderAgent.ts';
 import { googleCalendarFromEnv } from '../calendar/nudgeScheduler.ts';
@@ -275,7 +275,7 @@ function bookRecommenderFromEnv(logger: Logger) {
   if (!path) return {};
   try {
     const catalog = openSqliteBookCatalog(path);
-    const store = fileReadingProfileStore();
+    const store = mergeAwareStore(fileReadingProfileStore(), catalog);
     return {
       recommend: createBookRecommender({
         catalog,

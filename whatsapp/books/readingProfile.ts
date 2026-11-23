@@ -47,6 +47,51 @@ export function fileReadingProfileStore(filePath = readingProfilePath()): Readin
   };
 }
 
+const STATUS_RANK: Record<ShelfStatus, number> = { dnf: 0, read: 1, loved: 2 };
+
+/**
+ * The profile with ids that a catalog Merge absorbed pointed at their Survivor, or null when
+ * nothing changed. A shelf pair that now shares an id keeps the more advanced status (loved over
+ * read over dnf); `recent` keeps the first occurrence, with the newest `at` so the exclusion window isn't cut short. Ids the catalog doesn't know stay as they are.
+ */
+export function remapMerged(p: ReadingProfile, catalog: Pick<BookCatalog, 'survivorOf' | 'title'>): ReadingProfile | null {
+  let changed = false;
+  const remap = <T extends { id: number; title: string }>(e: T): T => {
+    const survivor = catalog.survivorOf(e.id);
+    if (survivor === null || survivor === e.id) return e;
+    changed = true;
+    return { ...e, id: survivor, title: catalog.title(survivor)?.title ?? e.title };
+  };
+  const shelf = new Map<number, ShelfEntry>();
+  for (const e of p.shelf.map(remap)) {
+    const kept = shelf.get(e.id);
+    if (!kept || STATUS_RANK[e.status] > STATUS_RANK[kept.status]) shelf.set(e.id, e);
+  }
+  const latest = new Map<number, RecentPick>();
+  for (const r of p.recent.map(remap)) {
+    const kept = latest.get(r.id);
+    if (!kept) latest.set(r.id, r);
+    else if (r.at > kept.at) latest.set(r.id, { ...kept, at: r.at });
+  }
+  const recent = [...latest.values()];
+  if (shelf.size !== p.shelf.length || recent.length !== p.recent.length) changed = true;
+  return changed ? { ...p, shelf: [...shelf.values()], recent } : null;
+}
+
+/** A store whose `load` remaps Merged ids first and saves the profile only if that changed it. */
+export function mergeAwareStore(store: ReadingProfileStore, catalog: Pick<BookCatalog, 'survivorOf' | 'title'>): ReadingProfileStore {
+  return {
+    ...store,
+    async load() {
+      const p = await store.load();
+      const remapped = remapMerged(p, catalog);
+      if (!remapped) return p;
+      await store.save(remapped);
+      return remapped;
+    },
+  };
+}
+
 /** Title ids a recommendation must leave out: the whole shelf, and recent picks. */
 export function excludedIds(p: ReadingProfile, nowMs: number) {
   return [...p.shelf.map((e) => e.id), ...p.recent.filter((r) => nowMs - r.at < RECENT_DAYS * DAY_MS).map((r) => r.id)];

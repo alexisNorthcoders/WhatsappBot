@@ -7,11 +7,16 @@ import {
   createReadingProfile,
   excludedIds,
   fileReadingProfileStore,
+  lovedIds,
+  mergeAwareStore,
   parseProfileCommand,
   RECENT_DAYS,
   withPicks,
   type ReadingProfile,
 } from '../whatsapp/books/readingProfile.ts';
+import { openSqliteBookCatalog } from '../whatsapp/books/sqliteBookCatalog.ts';
+import { createBookRecommender } from '../whatsapp/books/recommendBooks.ts';
+import { createBookDb } from './helpers/bookDb.ts';
 import type { Title } from '../whatsapp/books/bookCatalog.ts';
 
 const title = (id: number, name: string): Title =>
@@ -89,5 +94,67 @@ describe('reading profile exclusions', () => {
     p = withPicks(p, [title(2, 'Piranesi')], now);
     assert.deepEqual(excludedIds(p, now), [1, 2]);
     assert.deepEqual(excludedIds(p, now + 31 * day), [1]);
+  });
+});
+
+describe('reading profile across catalog Merges', () => {
+  const TITLES = [1, 2, 3, 4, 5, 6].map((id) => ({ id, title: `Book ${id}` }));
+  const MENTIONS = [2, 3, 4, 5, 6].map((bookId) => ({ bookId, threads: 20 }));
+  const entry = (id: number, status: 'read' | 'loved' | 'dnf', at = 1) => ({ id, title: `Old ${id}`, status, at });
+
+  /** The profile as `mergeAwareStore` loads it from a catalog with these Merges (none: no `rec_merges` view). */
+  async function load(profile: ReadingProfile, merges?: { absorbed: number; survivor: number }[]) {
+    const catalog = openSqliteBookCatalog(createBookDb(TITLES, MENTIONS, [], merges ? { merges } : {}).file);
+    const inner = store();
+    await inner.save(profile);
+    const loaded = await mergeAwareStore(inner, catalog).load();
+    return { loaded, saved: await inner.load() };
+  }
+
+  it('points a shelved Book at its Survivor and saves it', async () => {
+    const { loaded, saved } = await load({ shelf: [entry(1, 'loved')], recent: [{ id: 1, title: 'Old 1', at: 1 }] }, [{ absorbed: 1, survivor: 2 }]);
+    assert.deepEqual(loaded.shelf.map((e) => [e.id, e.title, e.status]), [[2, 'Book 2', 'loved']]);
+    assert.deepEqual(loaded.recent.map((r) => r.id), [2]);
+    assert.deepEqual(saved, loaded);
+    assert.deepEqual(lovedIds(loaded), [2]);
+    assert.deepEqual(excludedIds(loaded, 1), [2, 2]);
+  });
+
+  it('follows a chain A→B→C straight to C', async () => {
+    const { loaded } = await load({ shelf: [entry(1, 'read')], recent: [] }, [{ absorbed: 1, survivor: 3 }, { absorbed: 2, survivor: 3 }]);
+    assert.deepEqual(loaded.shelf.map((e) => e.id), [3]);
+  });
+
+  it('leaves one shelf entry, the more advanced status, when both ends of a Merge were shelved', async () => {
+    const { loaded } = await load(
+      { shelf: [entry(1, 'loved'), entry(2, 'read'), entry(3, 'read'), entry(4, 'dnf')], recent: [{ id: 2, title: 'x', at: 1 }, { id: 1, title: 'y', at: 2 }] },
+      [{ absorbed: 1, survivor: 2 }],
+    );
+    assert.deepEqual(loaded.shelf.map((e) => [e.id, e.status]), [[2, 'loved'], [3, 'read'], [4, 'dnf']]);
+    assert.deepEqual(loaded.recent, [{ id: 2, title: 'x', at: 2 }]);
+  });
+
+  it('does nothing, and does not save, without a rec_merges view or a matching id', async () => {
+    const profile = { shelf: [entry(1, 'read'), entry(99, 'read')], recent: [] };
+    assert.deepEqual((await load(profile)).loaded, profile);
+    const merged = await load(profile, [{ absorbed: 4, survivor: 3 }]);
+    assert.deepEqual(merged.loaded, profile);
+  });
+
+  it('excludes the Survivor from recommendations and anchors an open ask on it', async () => {
+    const db = createBookDb(TITLES, MENTIONS, [3, 4, 5, 6].map((title) => ({ anchor: 2, title, score: 1 / title })), { merges: [{ absorbed: 1, survivor: 2 }] });
+    const inner = store();
+    await inner.save({ shelf: [entry(1, 'loved')], recent: [] });
+    const prompts: string[] = [];
+    const complete = async (prompt: string) => {
+      prompts.push(prompt);
+      const reply = prompt.startsWith('You pick') ? { picks: [] } : { anchors: [], genre: null, excludeTitles: [], excludeAuthors: [] };
+      return { text: JSON.stringify(reply), backend: 'minipc' as const };
+    };
+    const catalog = openSqliteBookCatalog(db.file);
+    await createBookRecommender({ catalog, complete, profile: mergeAwareStore(inner, catalog) })('recommend me something');
+    assert.match(prompts[1]!, /The reader loved Book 2;/);
+    assert.match(prompts[1]!, /"title":"Book 3"/);
+    assert.doesNotMatch(prompts[1]!, /"id":2,/);
   });
 });
