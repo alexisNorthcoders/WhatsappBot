@@ -125,13 +125,18 @@ describe('reading profile across catalog Merges', () => {
     assert.deepEqual(loaded.shelf.map((e) => e.id), [3]);
   });
 
+  it('follows a chain that is not flattened (A→B, B→C) all the way to C', async () => {
+    const { loaded } = await load({ shelf: [entry(1, 'read')], recent: [] }, [{ absorbed: 1, survivor: 2 }, { absorbed: 2, survivor: 3 }]);
+    assert.deepEqual(loaded.shelf.map((e) => e.id), [3]);
+  });
+
   it('leaves one shelf entry, the more advanced status, when both ends of a Merge were shelved', async () => {
     const { loaded } = await load(
       { shelf: [entry(1, 'loved'), entry(2, 'read'), entry(3, 'read'), entry(4, 'dnf')], recent: [{ id: 2, title: 'x', at: 1 }, { id: 1, title: 'y', at: 2 }] },
       [{ absorbed: 1, survivor: 2 }],
     );
     assert.deepEqual(loaded.shelf.map((e) => [e.id, e.status]), [[2, 'loved'], [3, 'read'], [4, 'dnf']]);
-    assert.deepEqual(loaded.recent, [{ id: 2, title: 'x', at: 2 }]);
+    assert.deepEqual(loaded.recent, [{ id: 2, title: 'x', at: 1 }]);
   });
 
   it('does nothing, and does not save, without a rec_merges view or a matching id', async () => {

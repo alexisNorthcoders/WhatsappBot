@@ -257,8 +257,16 @@ export function openSqliteBookCatalog(
     },
 
     survivorOf(id) {
-      const row = mergeStmt?.get(id) as { survivor_id: number } | undefined;
-      return row?.survivor_id ?? null;
+      if (!mergeStmt) return null;
+      const seen = new Set([id]);
+      let current = id;
+      for (;;) {
+        const row = mergeStmt.get(current) as { survivor_id: number } | undefined;
+        if (!row || seen.has(row.survivor_id)) break;
+        current = row.survivor_id;
+        seen.add(current);
+      }
+      return current === id ? null : current;
     },
 
     tagsOf(id) {

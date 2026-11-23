@@ -52,7 +52,7 @@ const STATUS_RANK: Record<ShelfStatus, number> = { dnf: 0, read: 1, loved: 2 };
 /**
  * The profile with ids that a catalog Merge absorbed pointed at their Survivor, or null when
  * nothing changed. A shelf pair that now shares an id keeps the more advanced status (loved over
- * read over dnf); `recent` keeps the first occurrence, with the newest `at` so the exclusion window isn't cut short. Ids the catalog doesn't know stay as they are.
+ * read over dnf); the entry stays at the first one's position. `recent` keeps the first occurrence. Ids the catalog doesn't know stay as they are.
  */
 export function remapMerged(p: ReadingProfile, catalog: Pick<BookCatalog, 'survivorOf' | 'title'>): ReadingProfile | null {
   let changed = false;
@@ -67,13 +67,9 @@ export function remapMerged(p: ReadingProfile, catalog: Pick<BookCatalog, 'survi
     const kept = shelf.get(e.id);
     if (!kept || STATUS_RANK[e.status] > STATUS_RANK[kept.status]) shelf.set(e.id, e);
   }
-  const latest = new Map<number, RecentPick>();
-  for (const r of p.recent.map(remap)) {
-    const kept = latest.get(r.id);
-    if (!kept) latest.set(r.id, r);
-    else if (r.at > kept.at) latest.set(r.id, { ...kept, at: r.at });
-  }
-  const recent = [...latest.values()];
+  const first = new Map<number, RecentPick>();
+  for (const r of p.recent.map(remap)) if (!first.has(r.id)) first.set(r.id, r);
+  const recent = [...first.values()];
   if (shelf.size !== p.shelf.length || recent.length !== p.recent.length) changed = true;
   return changed ? { ...p, shelf: [...shelf.values()], recent } : null;
 }
